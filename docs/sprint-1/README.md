@@ -46,6 +46,7 @@ Dokumen ini adalah acuan kerja Sprint 1 untuk tim Mobile APK. Fokus sprint: memb
 | Dokumen | Isi | Pembaca utama |
 | --- | --- | --- |
 | [README.md](./README.md) | Ringkasan sprint, scope, milestone, definition of done | Semua |
+| [prd.md](./prd.md) | Latar belakang, tujuan, persona, user story, functional/non-functional requirements | PM, semua programmer |
 | [arsitektur.md](./arsitektur.md) | Struktur folder, routing, state, data flow, keputusan teknis | Semua programmer |
 | [data-model.md](./data-model.md) | TypeScript types, dummy data, reducer, selector, aturan bisnis | Dev 1, Dev 2, Dev 3 |
 | [navigasi-ui.md](./navigasi-ui.md) | Route map, wireframe, spesifikasi layar, komponen, token UI | Dev 2, Dev 3, PM |
