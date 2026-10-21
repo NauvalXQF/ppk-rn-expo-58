@@ -24,14 +24,14 @@ function waktuRelatif(offsetHari: number, jam: number, menit: number): string {
   return d.toISOString();
 }
 
-export const dataAsisten: Asisten = {
+const asisten: Asisten = {
   id: 'asisten-1',
   peran: 'asisten',
   nama: 'Nauval',
   nip: '1987654321',
 };
 
-export const dataPraktikan: Praktikan[] = [
+const praktikan: Praktikan[] = [
   {
     id: 'praktikan-1',
     peran: 'praktikan',
@@ -62,7 +62,7 @@ export const dataPraktikan: Praktikan[] = [
   },
 ];
 
-export const dataPraktikum: Praktikum[] = [
+const praktikum: Praktikum[] = [
   {
     id: 'praktikum-ppk',
     nama: 'Praktikum Pemrograman Komputer',
@@ -70,13 +70,13 @@ export const dataPraktikum: Praktikum[] = [
   },
 ];
 
-export const dataKelas: Kelas[] = [
+const kelas: Kelas[] = [
   { id: 'kelas-a', nama: 'PPK A', praktikumId: 'praktikum-ppk' },
   { id: 'kelas-b', nama: 'PPK B', praktikumId: 'praktikum-ppk' },
   { id: 'kelas-c', nama: 'PPK C', praktikumId: 'praktikum-ppk' },
 ];
 
-export const dataSesi: Sesi[] = [
+const sesi: Sesi[] = [
   {
     id: 'sesi-1',
     praktikumId: 'praktikum-ppk',
@@ -139,7 +139,7 @@ export const dataSesi: Sesi[] = [
   },
 ];
 
-export const dataPresensi: Presensi[] = [
+const presensi: Presensi[] = [
   {
     id: 'pres-sesi-1-praktikan-1',
     sesiId: 'sesi-1',
@@ -161,14 +161,11 @@ export const dataPresensi: Presensi[] = [
   },
 ];
 
-export const createInitialState = (): AppState => ({
+export const initialState: AppState = {
   currentUser: null,
-  pengguna: [dataAsisten, ...dataPraktikan],
-  praktikum: dataPraktikum,
-  kelas: dataKelas,
-  sesi: dataSesi,
-  presensi: dataPresensi,
-});
-
-export const initialState: AppState = createInitialState();
-
+  pengguna: [asisten, ...praktikan],
+  praktikum,
+  kelas,
+  sesi,
+  presensi,
+};

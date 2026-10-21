@@ -38,4 +38,3 @@ export const FontSize = {
   lg: 20,
   xl: 24,
 } as const;
-

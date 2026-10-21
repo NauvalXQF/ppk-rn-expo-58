@@ -1,20 +1,38 @@
 import React from 'react';
-import { View, Text, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
-import type { StatusSesi } from '@/types/models';
-import { LABEL_STATUS } from '@/types/models';
+import { View, Text, StyleSheet } from 'react-native';
 import { FontSize, Radius, Spacing } from '@/constants/theme';
+import { LABEL_STATUS, type StatusSesi } from '@/types/models';
 
 interface StatusBadgeProps {
   status: StatusSesi;
-  style?: StyleProp<ViewStyle>;
 }
 
-export function StatusBadge({ status, style }: StatusBadgeProps) {
-  const label = LABEL_STATUS[status] || status;
+const statusStyles: Record<
+  StatusSesi,
+  { backgroundColor: string; color: string }
+> = {
+  dijadwalkan: {
+    backgroundColor: '#E8F0FE',
+    color: '#1A56DB',
+  },
+  dibuka: {
+    backgroundColor: '#E6F9EE',
+    color: '#067647',
+  },
+  ditutup: {
+    backgroundColor: '#F2F4F7',
+    color: '#475467',
+  },
+};
+
+export function StatusBadge({ status }: StatusBadgeProps) {
+  const config = statusStyles[status] || statusStyles.dijadwalkan;
 
   return (
-    <View style={[styles.badge, styles[status], style]}>
-      <Text style={[styles.text, styles[`${status}Text`]]}>{label}</Text>
+    <View style={[styles.badge, { backgroundColor: config.backgroundColor }]}>
+      <Text style={[styles.label, { color: config.color }]}>
+        {LABEL_STATUS[status] ?? status}
+      </Text>
     </View>
   );
 }
@@ -26,27 +44,10 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
     alignSelf: 'flex-start',
   },
-  text: {
+  label: {
     fontSize: FontSize.xs,
-    fontWeight: '600',
-  },
-  dijadwalkan: {
-    backgroundColor: '#E8F0FE',
-  },
-  dijadwalkanText: {
-    color: '#1A56DB',
-  },
-  dibuka: {
-    backgroundColor: '#E6F9EE',
-  },
-  dibukaText: {
-    color: '#067647',
-  },
-  ditutup: {
-    backgroundColor: '#F2F4F7',
-  },
-  ditutupText: {
-    color: '#475467',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });
-

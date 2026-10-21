@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import type { DetailSesi } from '@/store/selectors';
+import type { DetailSesi } from '@/types/models';
 import { useApp } from '@/store/app-context';
 import { Spacing } from '@/constants/theme';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';

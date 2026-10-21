@@ -1,95 +1,38 @@
 import type {
   AppState,
-  Asisten,
-  Kelas,
+  BarisRekap,
+  DetailSesi,
   Pengguna,
   Praktikan,
-  Praktikum,
-  Presensi,
+  RekapSesi,
+  RiwayatItem,
   Sesi,
+  StatusKehadiran,
   StatusSesi,
 } from '@/types/models';
 
-export interface BarisRekap {
-  presensi: Presensi;
-  praktikan: Praktikan;
-}
-
-export interface RekapSesi {
-  baris: BarisRekap[];
-  jumlahHadir: number;
-  totalPraktikan: number;
-}
-
-export type StatusKehadiran =
-  | 'hadir'
-  | 'belum-presensi'
-  | 'belum-berlangsung'
-  | 'tidak-hadir';
-
-export interface RiwayatItem {
-  sesi: Sesi;
-  presensi: Presensi | null;
-  status: StatusKehadiran;
-}
-
-export interface DetailSesi {
-  sesi: Sesi;
-  praktikum: Praktikum;
-  kelas: Kelas;
-  asisten: Asisten;
-  presensiSaya: Presensi | null;
-  rekap: RekapSesi;
-}
+const prioritasStatus: Record<StatusSesi, number> = {
+  dibuka: 0,
+  dijadwalkan: 1,
+  ditutup: 2,
+};
 
 export function selectCurrentUser(state: AppState): Pengguna | null {
   return state.currentUser;
 }
 
 export function selectSesiById(state: AppState, sesiId: string): Sesi | null {
-  return state.sesi.find((s) => s.id === sesiId) || null;
+  return state.sesi.find((s) => s.id === sesiId) ?? null;
 }
 
 export function selectTotalPraktikan(state: AppState, kelasId: string): number {
   return state.pengguna.filter(
-    (u) => u.peran === 'praktikan' && (u as Praktikan).kelasId === kelasId,
+    (u): u is Praktikan => u.peran === 'praktikan' && u.kelasId === kelasId,
   ).length;
 }
 
 export function selectJumlahHadir(state: AppState, sesiId: string): number {
   return state.presensi.filter((p) => p.sesiId === sesiId).length;
-}
-
-export function selectRekapSesi(state: AppState, sesiId: string): RekapSesi {
-  const sesi = state.sesi.find((s) => s.id === sesiId);
-  if (!sesi) {
-    return { baris: [], jumlahHadir: 0, totalPraktikan: 0 };
-  }
-
-  const listPresensi = state.presensi
-    .filter((p) => p.sesiId === sesiId)
-    .sort(
-      (a, b) =>
-        new Date(a.waktuPresensi).getTime() - new Date(b.waktuPresensi).getTime(),
-    );
-
-  const baris: BarisRekap[] = [];
-  for (const p of listPresensi) {
-    const praktikan = state.pengguna.find(
-      (u) => u.id === p.praktikanId && u.peran === 'praktikan',
-    ) as Praktikan | undefined;
-    if (praktikan) {
-      baris.push({ presensi: p, praktikan });
-    }
-  }
-
-  const totalPraktikan = selectTotalPraktikan(state, sesi.kelasId);
-
-  return {
-    baris,
-    jumlahHadir: baris.length,
-    totalPraktikan,
-  };
 }
 
 export function selectSudahPresensi(
@@ -100,6 +43,60 @@ export function selectSudahPresensi(
   return state.presensi.some(
     (p) => p.sesiId === sesiId && p.praktikanId === praktikanId,
   );
+}
+
+export function selectRekapSesi(state: AppState, sesiId: string): RekapSesi {
+  const sesi = selectSesiById(state, sesiId);
+  const presensiList = state.presensi
+    .filter((p) => p.sesiId === sesiId)
+    .sort(
+      (a, b) =>
+        new Date(a.waktuPresensi).getTime() - new Date(b.waktuPresensi).getTime(),
+    );
+
+  const baris: BarisRekap[] = [];
+  for (const pres of presensiList) {
+    const praktikan = state.pengguna.find(
+      (u): u is Praktikan => u.id === pres.praktikanId && u.peran === 'praktikan',
+    );
+    if (praktikan) {
+      baris.push({ presensi: pres, praktikan });
+    }
+  }
+
+  const totalPraktikan = sesi ? selectTotalPraktikan(state, sesi.kelasId) : 0;
+
+  return {
+    baris,
+    jumlahHadir: presensiList.length,
+    totalPraktikan,
+  };
+}
+
+export function selectSesiUntukPengguna(state: AppState): Sesi[] {
+  const user = state.currentUser;
+  let daftarSesi: Sesi[] = [];
+
+  if (!user) {
+    daftarSesi = [];
+  } else if (user.peran === 'asisten') {
+    daftarSesi = [...state.sesi];
+  } else {
+    daftarSesi = state.sesi.filter((s) => s.kelasId === user.kelasId);
+  }
+
+  return daftarSesi.sort((a, b) => {
+    const diffStatus = prioritasStatus[a.status] - prioritasStatus[b.status];
+    if (diffStatus !== 0) return diffStatus;
+
+    const timeA = new Date(`${a.tanggal}T${a.jamMulai}:00`).getTime();
+    const timeB = new Date(`${b.tanggal}T${b.jamMulai}:00`).getTime();
+
+    if (a.status === 'ditutup') {
+      return timeB - timeA; // turun
+    }
+    return timeA - timeB; // naik
+  });
 }
 
 export function selectDetailSesi(
@@ -113,16 +110,18 @@ export function selectDetailSesi(
   const kelas = state.kelas.find((k) => k.id === sesi.kelasId);
   const asisten = state.pengguna.find(
     (u) => u.id === sesi.asistenId && u.peran === 'asisten',
-  ) as Asisten | undefined;
+  );
 
-  if (!praktikum || !kelas || !asisten) return null;
+  if (!praktikum || !kelas || !asisten || asisten.peran !== 'asisten') {
+    return null;
+  }
 
   const presensiSaya =
     state.currentUser && state.currentUser.peran === 'praktikan'
       ? state.presensi.find(
           (p) =>
             p.sesiId === sesiId && p.praktikanId === state.currentUser?.id,
-        ) || null
+        ) ?? null
       : null;
 
   const rekap = selectRekapSesi(state, sesiId);
@@ -137,58 +136,28 @@ export function selectDetailSesi(
   };
 }
 
-export function selectSesiUntukPengguna(state: AppState): Sesi[] {
-  if (!state.currentUser) return [];
-
-  const prioritas: Record<StatusSesi, number> = {
-    dibuka: 0,
-    dijadwalkan: 1,
-    ditutup: 2,
-  };
-
-  const pool =
-    state.currentUser.peran === 'asisten'
-      ? [...state.sesi]
-      : state.sesi.filter(
-          (s) => s.kelasId === (state.currentUser as Praktikan).kelasId,
-        );
-
-  return pool.sort((a, b) => {
-    if (prioritas[a.status] !== prioritas[b.status]) {
-      return prioritas[a.status] - prioritas[b.status];
-    }
-    const timeA = `${a.tanggal}T${a.jamMulai}`;
-    const timeB = `${b.tanggal}T${b.jamMulai}`;
-    if (a.status === 'ditutup') {
-      return timeB.localeCompare(timeA);
-    }
-    return timeA.localeCompare(timeB);
-  });
-}
-
 export function selectRiwayatPraktikan(
   state: AppState,
   praktikanId: string,
 ): RiwayatItem[] {
   const praktikan = state.pengguna.find(
-    (u) => u.id === praktikanId && u.peran === 'praktikan',
-  ) as Praktikan | undefined;
-
+    (u): u is Praktikan => u.id === praktikanId && u.peran === 'praktikan',
+  );
   if (!praktikan) return [];
 
-  const sesiKelas = state.sesi
+  const sesiList = state.sesi
     .filter((s) => s.kelasId === praktikan.kelasId)
     .sort((a, b) => {
-      const timeA = `${a.tanggal}T${a.jamMulai}`;
-      const timeB = `${b.tanggal}T${b.jamMulai}`;
-      return timeB.localeCompare(timeA);
+      const timeA = new Date(`${a.tanggal}T${a.jamMulai}:00`).getTime();
+      const timeB = new Date(`${b.tanggal}T${b.jamMulai}:00`).getTime();
+      return timeB - timeA; // sesi terbaru di atas
     });
 
-  return sesiKelas.map((sesi) => {
+  return sesiList.map((sesi) => {
     const presensi =
       state.presensi.find(
         (p) => p.sesiId === sesi.id && p.praktikanId === praktikanId,
-      ) || null;
+      ) ?? null;
 
     let status: StatusKehadiran;
     if (presensi) {
@@ -201,7 +170,10 @@ export function selectRiwayatPraktikan(
       status = 'tidak-hadir';
     }
 
-    return { sesi, presensi, status };
+    return {
+      sesi,
+      presensi,
+      status,
+    };
   });
 }
-

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import type { RekapSesi } from '@/store/selectors';
+import type { RekapSesi } from '@/types/models';
 import { Spacing } from '@/constants/theme';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { EmptyState } from '@/components/ui/EmptyState';

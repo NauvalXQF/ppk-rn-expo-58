@@ -1,27 +1,68 @@
 import React from 'react';
-import { View, Text, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 
-export type BannerTone = 'info' | 'success' | 'warning' | 'danger' | 'neutral';
+type BannerTone = 'info' | 'success' | 'warning' | 'danger' | 'neutral';
 
 interface InfoBannerProps {
   message: string;
   description?: string;
   tone?: BannerTone;
-  style?: StyleProp<ViewStyle>;
 }
+
+const toneStyles: Record<
+  BannerTone,
+  { backgroundColor: string; color: string; borderColor: string }
+> = {
+  info: {
+    backgroundColor: Colors.primarySoft,
+    color: Colors.primary,
+    borderColor: '#D1E0FF',
+  },
+  success: {
+    backgroundColor: Colors.successSoft,
+    color: Colors.success,
+    borderColor: '#B4EDCD',
+  },
+  warning: {
+    backgroundColor: Colors.warningSoft,
+    color: Colors.warning,
+    borderColor: '#FEDF89',
+  },
+  danger: {
+    backgroundColor: Colors.dangerSoft,
+    color: Colors.danger,
+    borderColor: '#FDA29B',
+  },
+  neutral: {
+    backgroundColor: Colors.neutralSoft,
+    color: Colors.text,
+    borderColor: Colors.border,
+  },
+};
 
 export function InfoBanner({
   message,
   description,
   tone = 'info',
-  style,
 }: InfoBannerProps) {
+  const config = toneStyles[tone] || toneStyles.info;
+
   return (
-    <View style={[styles.banner, styles[tone], style]}>
-      <Text style={[styles.title, styles[`${tone}Text`]]}>{message}</Text>
+    <View
+      style={[
+        styles.banner,
+        {
+          backgroundColor: config.backgroundColor,
+          borderColor: config.borderColor,
+        },
+      ]}
+    >
+      <Text style={[styles.text, { color: config.color }]}>{message}</Text>
       {description ? (
-        <Text style={[styles.desc, styles[`${tone}Desc`]]}>{description}</Text>
+        <Text style={[styles.description, { color: config.color }]}>
+          {description}
+        </Text>
       ) : null}
     </View>
   );
@@ -32,66 +73,16 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: Radius.md,
     borderWidth: 1,
-    marginVertical: Spacing.xs,
   },
-  title: {
+  text: {
     fontSize: FontSize.sm,
-    fontWeight: '600',
+    lineHeight: 20,
+    fontWeight: '500',
   },
-  desc: {
-    fontSize: FontSize.xs,
+  description: {
     marginTop: Spacing.xs,
+    fontSize: FontSize.xs,
     lineHeight: 18,
-  },
-  info: {
-    backgroundColor: Colors.primarySoft,
-    borderColor: '#B2CCFF',
-  },
-  infoText: {
-    color: Colors.primary,
-  },
-  infoDesc: {
-    color: '#1546B5',
-  },
-  success: {
-    backgroundColor: Colors.successSoft,
-    borderColor: '#A6F4C5',
-  },
-  successText: {
-    color: Colors.success,
-  },
-  successDesc: {
-    color: '#05603A',
-  },
-  warning: {
-    backgroundColor: Colors.warningSoft,
-    borderColor: '#FEDF89',
-  },
-  warningText: {
-    color: Colors.warning,
-  },
-  warningDesc: {
-    color: '#93370D',
-  },
-  danger: {
-    backgroundColor: Colors.dangerSoft,
-    borderColor: '#FECDCA',
-  },
-  dangerText: {
-    color: Colors.danger,
-  },
-  dangerDesc: {
-    color: '#B42318',
-  },
-  neutral: {
-    backgroundColor: Colors.neutralSoft,
-    borderColor: Colors.border,
-  },
-  neutralText: {
-    color: Colors.text,
-  },
-  neutralDesc: {
-    color: Colors.textMuted,
+    opacity: 0.85,
   },
 });
-

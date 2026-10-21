@@ -45,7 +45,7 @@ export function RekapScreen() {
   };
 
   return (
-    <ScreenContainer>
+    <ScreenContainer scrollable={false}>
       <View style={styles.header}>
         <Text style={styles.title}>Rekap Kehadiran</Text>
         <Text style={styles.subtitle}>
@@ -57,6 +57,7 @@ export function RekapScreen() {
         data={sessions}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
+        style={styles.list}
         contentContainerStyle={styles.listContent}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         showsVerticalScrollIndicator={false}
@@ -84,6 +85,9 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textMuted,
     marginTop: 2,
+  },
+  list: {
+    flex: 1,
   },
   listContent: {
     paddingBottom: Spacing.xl,

@@ -1,14 +1,8 @@
 import React from 'react';
-import {
-  Pressable,
-  View,
-  Text,
-  StyleSheet,
-  type StyleProp,
-  type ViewStyle,
-} from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { Colors, FontSize, Spacing } from '@/constants/theme';
 import type { StatusSesi } from '@/types/models';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { AppCard } from '@/components/ui/AppCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
 export interface SessionCardProps {
@@ -22,11 +16,9 @@ export interface SessionCardProps {
   meta?: string;
   metaTone?: 'default' | 'success' | 'warning' | 'danger';
   onPress: () => void;
-  style?: StyleProp<ViewStyle>;
 }
 
 export function SessionCard({
-  praktikum,
   kelas,
   topik,
   tanggal,
@@ -36,126 +28,82 @@ export function SessionCard({
   meta,
   metaTone = 'default',
   onPress,
-  style,
 }: SessionCardProps) {
+  const getMetaColor = (): string => {
+    switch (metaTone) {
+      case 'success':
+        return Colors.success;
+      case 'warning':
+        return Colors.warning;
+      case 'danger':
+        return Colors.danger;
+      default:
+        return Colors.textMuted;
+    }
+  };
+
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={({ pressed }) => [
-        styles.card,
-        pressed && styles.pressed,
-        style,
-      ]}
-    >
-      <View style={styles.topRow}>
-        <View style={styles.kelasContainer}>
-          <Text style={styles.kelasText}>{kelas}</Text>
-          <Text style={styles.praktikumText} numberOfLines={1}>
-            {praktikum}
-          </Text>
-        </View>
+    <AppCard onPress={onPress} style={styles.card}>
+      <View style={styles.headerRow}>
+        <Text style={styles.kelasText}>{kelas}</Text>
         <StatusBadge status={status} />
       </View>
 
-      <Text style={styles.topik} numberOfLines={2}>
-        {topik}
-      </Text>
+      <Text style={styles.topikText}>{topik}</Text>
 
-      <View style={styles.infoRow}>
-        <Text style={styles.infoText} numberOfLines={1}>
+      <View style={styles.metaInfoRow}>
+        <Text style={styles.detailText}>
           {tanggal} · {waktu}
         </Text>
+        <Text style={styles.detailText}>{ruang}</Text>
       </View>
 
-      <View style={styles.bottomRow}>
-        <Text style={styles.ruangText}>{ruang}</Text>
-        {meta ? (
-          <Text style={[styles.metaText, styles[`meta_${metaTone}`]]}>
+      {meta ? (
+        <View style={styles.footerRow}>
+          <Text style={[styles.metaText, { color: getMetaColor() }]}>
             {meta}
           </Text>
-        ) : null}
-      </View>
-    </Pressable>
+        </View>
+      ) : null}
+    </AppCard>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.border,
-    borderWidth: 1,
-    borderRadius: Radius.md,
-    padding: Spacing.md,
-    gap: Spacing.xs,
+    gap: Spacing.xs + 2,
   },
-  pressed: {
-    backgroundColor: Colors.neutralSoft,
-  },
-  topRow: {
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: Spacing.sm,
-  },
-  kelasContainer: {
-    flex: 1,
+    alignItems: 'center',
   },
   kelasText: {
-    fontSize: FontSize.xs,
+    fontSize: FontSize.sm,
     fontWeight: '700',
-    color: Colors.primary,
-    textTransform: 'uppercase',
-  },
-  praktikumText: {
-    fontSize: FontSize.xs,
     color: Colors.textMuted,
-    marginTop: 2,
+    letterSpacing: 0.3,
   },
-  topik: {
+  topikText: {
     fontSize: FontSize.md,
     fontWeight: '700',
     color: Colors.text,
-    marginTop: 2,
   },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 2,
+  metaInfoRow: {
+    gap: 2,
   },
-  infoText: {
+  detailText: {
     fontSize: FontSize.sm,
     color: Colors.textMuted,
   },
-  bottomRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  footerRow: {
     marginTop: Spacing.xs,
     paddingTop: Spacing.xs,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.border,
-  },
-  ruangText: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontWeight: '500',
+    borderTopWidth: 1,
+    borderTopColor: Colors.neutralSoft,
   },
   metaText: {
     fontSize: FontSize.xs,
     fontWeight: '600',
   },
-  meta_default: {
-    color: Colors.textMuted,
-  },
-  meta_success: {
-    color: Colors.success,
-  },
-  meta_warning: {
-    color: Colors.warning,
-  },
-  meta_danger: {
-    color: Colors.danger,
-  },
 });
-

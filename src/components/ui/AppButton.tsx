@@ -1,24 +1,23 @@
 import React from 'react';
 import {
-  Pressable,
   Text,
   StyleSheet,
-  type StyleProp,
+  Pressable,
+  ActivityIndicator,
   type ViewStyle,
   type TextStyle,
 } from 'react-native';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 interface AppButtonProps {
   label: string;
   onPress: () => void;
   variant?: ButtonVariant;
   disabled?: boolean;
-  style?: StyleProp<ViewStyle>;
-  textStyle?: StyleProp<TextStyle>;
-  accessibilityLabel?: string;
+  loading?: boolean;
+  style?: ViewStyle;
 }
 
 export function AppButton({
@@ -26,96 +25,82 @@ export function AppButton({
   onPress,
   variant = 'primary',
   disabled = false,
+  loading = false,
   style,
-  textStyle,
-  accessibilityLabel,
 }: AppButtonProps) {
-  const getContainerVariantStyle = () => {
-    switch (variant) {
-      case 'secondary':
-        return styles.secondary;
-      case 'danger':
-        return styles.danger;
-      case 'ghost':
-        return styles.ghost;
-      case 'primary':
-      default:
-        return styles.primary;
+  const getContainerStyle = (pressed: boolean): ViewStyle[] => {
+    const list: ViewStyle[] = [styles.base];
+
+    if (variant === 'primary') {
+      list.push(styles.primary);
+      if (pressed) list.push(styles.primaryPressed);
+    } else if (variant === 'secondary') {
+      list.push(styles.secondary);
+      if (pressed) list.push(styles.secondaryPressed);
+    } else if (variant === 'danger') {
+      list.push(styles.danger);
+      if (pressed) list.push(styles.dangerPressed);
+    } else if (variant === 'ghost') {
+      list.push(styles.ghost);
+      if (pressed) list.push(styles.ghostPressed);
     }
+
+    if (disabled) {
+      list.push(styles.disabled);
+    }
+
+    if (style) {
+      list.push(style);
+    }
+
+    return list;
   };
 
-  const getPressedVariantStyle = () => {
-    switch (variant) {
-      case 'secondary':
-        return styles.secondaryPressed;
-      case 'danger':
-        return styles.dangerPressed;
-      case 'ghost':
-        return styles.ghostPressed;
-      case 'primary':
-      default:
-        return styles.primaryPressed;
+  const getTextStyle = (): TextStyle[] => {
+    const list: TextStyle[] = [styles.text];
+    if (variant === 'primary' || variant === 'danger') {
+      list.push(styles.textLight);
+    } else if (variant === 'secondary') {
+      list.push(styles.textSecondary);
+    } else if (variant === 'ghost') {
+      list.push(styles.textGhost);
     }
-  };
 
-  const getTextVariantStyle = () => {
-    switch (variant) {
-      case 'secondary':
-        return styles.secondaryText;
-      case 'danger':
-        return styles.dangerText;
-      case 'ghost':
-        return styles.ghostText;
-      case 'primary':
-      default:
-        return styles.primaryText;
+    if (disabled) {
+      list.push(styles.textDisabled);
     }
+
+    return list;
   };
 
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled}
+      disabled={disabled || loading}
+      style={({ pressed }) => getContainerStyle(pressed)}
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel || label}
-      accessibilityState={{ disabled }}
-      style={({ pressed }) => [
-        styles.base,
-        getContainerVariantStyle(),
-        pressed && !disabled && getPressedVariantStyle(),
-        disabled && styles.disabled,
-        style,
-      ]}
     >
-      <Text
-        style={[
-          styles.textBase,
-          getTextVariantStyle(),
-          disabled && styles.disabledText,
-          textStyle,
-        ]}
-      >
-        {label}
-      </Text>
+      {loading ? (
+        <ActivityIndicator
+          size="small"
+          color={variant === 'primary' || variant === 'danger' ? '#FFFFFF' : Colors.primary}
+        />
+      ) : (
+        <Text style={getTextStyle()}>{label}</Text>
+      )}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 48,
-    minWidth: 44,
+    minHeight: 44,
     paddingVertical: Spacing.sm + 2,
     paddingHorizontal: Spacing.md,
     borderRadius: Radius.md,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
     flexDirection: 'row',
-  },
-  textBase: {
-    fontSize: FontSize.md,
-    fontWeight: '600',
-    textAlign: 'center',
   },
   primary: {
     backgroundColor: Colors.primary,
@@ -123,19 +108,13 @@ const styles = StyleSheet.create({
   primaryPressed: {
     backgroundColor: Colors.primaryPressed,
   },
-  primaryText: {
-    color: '#FFFFFF',
-  },
   secondary: {
     backgroundColor: Colors.surface,
-    borderColor: Colors.border,
     borderWidth: 1,
+    borderColor: Colors.border,
   },
   secondaryPressed: {
     backgroundColor: Colors.neutralSoft,
-  },
-  secondaryText: {
-    color: Colors.text,
   },
   danger: {
     backgroundColor: Colors.danger,
@@ -143,25 +122,31 @@ const styles = StyleSheet.create({
   dangerPressed: {
     backgroundColor: '#B42318',
   },
-  dangerText: {
-    color: '#FFFFFF',
-  },
   ghost: {
     backgroundColor: 'transparent',
   },
   ghostPressed: {
     backgroundColor: Colors.neutralSoft,
   },
-  ghostText: {
-    color: Colors.primary,
-  },
   disabled: {
-    backgroundColor: Colors.neutralSoft,
-    borderColor: 'transparent',
+    backgroundColor: Colors.border,
+    borderColor: Colors.border,
     opacity: 0.6,
   },
-  disabledText: {
+  text: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+  },
+  textLight: {
+    color: '#FFFFFF',
+  },
+  textSecondary: {
+    color: Colors.text,
+  },
+  textGhost: {
+    color: Colors.textMuted,
+  },
+  textDisabled: {
     color: Colors.textMuted,
   },
 });
-

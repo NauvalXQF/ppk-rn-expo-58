@@ -5,8 +5,8 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  TouchableWithoutFeedback,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 import { AppButton } from './AppButton';
 
@@ -15,7 +15,7 @@ export interface ConfirmSheetProps {
   title: string;
   description?: string;
   confirmLabel: string;
-  cancelLabel?: string; // default "Batal"
+  cancelLabel?: string;
   tone?: 'primary' | 'danger';
   onConfirm: () => void;
   onClose: () => void;
@@ -37,86 +37,100 @@ export function ConfirmSheet({
       transparent
       animationType="fade"
       onRequestClose={onClose}
-      accessibilityViewIsModal
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <TouchableWithoutFeedback>
-          <View style={styles.sheet}>
-            <View style={styles.handle} />
-            <Text style={styles.title}>{title}</Text>
-            {description ? (
-              <Text style={styles.description}>{description}</Text>
-            ) : null}
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={onClose} />
+        <View style={styles.sheetContainer}>
+          <SafeAreaView edges={['bottom']} style={styles.safeArea}>
+            <View style={styles.content}>
+              <View style={styles.dragHandle} />
+              <Text style={styles.title}>{title}</Text>
+              {description ? (
+                <Text style={styles.description}>{description}</Text>
+              ) : null}
 
-            <View style={styles.buttonRow}>
-              <View style={styles.buttonWrapper}>
-                <AppButton
-                  label={cancelLabel}
-                  variant="secondary"
-                  onPress={onClose}
-                />
-              </View>
-              <View style={styles.buttonWrapper}>
-                <AppButton
-                  label={confirmLabel}
-                  variant={tone === 'danger' ? 'danger' : 'primary'}
-                  onPress={() => {
-                    onConfirm();
-                  }}
-                />
+              <View style={styles.actionRow}>
+                <View style={styles.buttonWrapper}>
+                  <AppButton
+                    label={cancelLabel}
+                    variant="secondary"
+                    onPress={onClose}
+                  />
+                </View>
+                <View style={styles.buttonWrapper}>
+                  <AppButton
+                    label={confirmLabel}
+                    variant={tone === 'danger' ? 'danger' : 'primary'}
+                    onPress={() => {
+                      onConfirm();
+                      onClose();
+                    }}
+                  />
+                </View>
               </View>
             </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </Pressable>
+          </SafeAreaView>
+        </View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'flex-end',
+    backgroundColor: 'rgba(16, 24, 40, 0.45)',
   },
-  sheet: {
+  backdrop: {
+    ...StyleSheet.absoluteFill,
+  },
+  sheetContainer: {
     backgroundColor: Colors.surface,
     borderTopLeftRadius: Radius.lg,
     borderTopRightRadius: Radius.lg,
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.xl,
-    maxWidth: 800,
+    maxWidth: 600,
     width: '100%',
     alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 8,
   },
-  handle: {
-    width: 36,
+  safeArea: {
+    width: '100%',
+  },
+  content: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.lg,
+    gap: Spacing.md,
+  },
+  dragHandle: {
+    width: 40,
     height: 4,
     backgroundColor: Colors.border,
     borderRadius: Radius.pill,
     alignSelf: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.xs,
   },
   title: {
     fontSize: FontSize.lg,
     fontWeight: '700',
     color: Colors.text,
-    marginBottom: Spacing.xs,
   },
   description: {
     fontSize: FontSize.sm,
     color: Colors.textMuted,
     lineHeight: 20,
-    marginBottom: Spacing.lg,
   },
-  buttonRow: {
+  actionRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
-    marginTop: Spacing.sm,
+    marginTop: Spacing.xs,
   },
   buttonWrapper: {
     flex: 1,
   },
 });
-

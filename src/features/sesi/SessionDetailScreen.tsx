@@ -1,128 +1,130 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { router } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useApp } from '@/store/app-context';
 import { selectDetailSesi } from '@/store/selectors';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontSize, Spacing } from '@/constants/theme';
+import { formatJam, formatTanggal } from '@/utils/date';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
+import { AppCard } from '@/components/ui/AppCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { AppButton } from '@/components/ui/AppButton';
-import { AsistenSessionView } from '@/features/sesi/asisten/AsistenSessionView';
-import { formatTanggal, formatJam } from '@/utils/date';
+import { PraktikanSessionView } from './praktikan/PraktikanSessionView';
+import { AsistenSessionView } from './asisten/AsistenSessionView';
 
 interface SessionDetailScreenProps {
   sesiId: string;
 }
 
 export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
+  const router = useRouter();
   const { state } = useApp();
+  const user = state.currentUser;
+
   const detail = selectDetailSesi(state, sesiId);
 
   if (!detail) {
     return (
       <ScreenContainer>
         <EmptyState
-          title="Sesi Tidak Ditemukan"
-          description="Sesi yang kamu cari tidak tersedia atau telah dihapus."
-          action={
-            <AppButton
-              label="Kembali"
-              variant="secondary"
-              onPress={() => router.back()}
-            />
-          }
+          title="Sesi tidak ditemukan"
+          description="Sesi yang Anda cari mungkin telah dihapus atau tidak tersedia."
+          actionLabel="Kembali ke Jadwal"
+          onAction={() => router.replace('/jadwal')}
         />
       </ScreenContainer>
     );
   }
 
   const { sesi, praktikum, kelas, asisten } = detail;
-  const isAsisten = state.currentUser?.peran === 'asisten';
+  const formattedTanggal = formatTanggal(sesi.tanggal);
+  const formattedWaktu = `${formatJam(sesi.jamMulai)}–${formatJam(sesi.jamSelesai)}`;
 
   return (
-    <ScreenContainer scrollable>
-      <View style={styles.cardHeader}>
-        <Text style={styles.praktikumText}>{praktikum.nama}</Text>
-        <Text style={styles.topikText}>{kelas.nama} · {sesi.topik}</Text>
-        <Text style={styles.infoText}>{formatTanggal(sesi.tanggal)}</Text>
-        <Text style={styles.infoText}>
-          {formatJam(sesi.jamMulai)}–{formatJam(sesi.jamSelesai)} · {sesi.ruang}
-        </Text>
-        <View style={styles.asistenRow}>
-          <Text style={styles.asistenText}>Asisten: {asisten.nama}</Text>
+    <ScreenContainer>
+      {/* Kartu Informasi Utama Sesi */}
+      <AppCard style={styles.cardHeader}>
+        <View style={styles.topRow}>
+          <Text style={styles.praktikumText}>{praktikum.nama}</Text>
           <StatusBadge status={sesi.status} />
         </View>
-      </View>
 
-      <View style={styles.roleContent}>
-        {isAsisten ? (
-          <AsistenSessionView detail={detail} />
-        ) : (
-          <View style={styles.placeholderBox}>
-            <Text style={styles.placeholderText}>
-              Tampilan praktikan untuk sesi ini.
+        <Text style={styles.topikText}>
+          {kelas.nama} · {sesi.topik}
+        </Text>
+
+        <View style={styles.divider} />
+
+        <View style={styles.detailList}>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Tanggal</Text>
+            <Text style={styles.detailValue}>{formattedTanggal}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Waktu & Ruang</Text>
+            <Text style={styles.detailValue}>
+              {formattedWaktu} · {sesi.ruang}
             </Text>
           </View>
-        )}
-      </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Asisten</Text>
+            <Text style={styles.detailValue}>{asisten.nama}</Text>
+          </View>
+        </View>
+      </AppCard>
+
+      {/* Konten Sesuai Peran */}
+      {user?.peran === 'praktikan' ? (
+        <PraktikanSessionView detail={detail} praktikan={user} />
+      ) : user?.peran === 'asisten' ? (
+        <AsistenSessionView detail={detail} />
+      ) : null}
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
   cardHeader: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.border,
-    borderWidth: 1,
-    borderRadius: Radius.md,
-    padding: Spacing.md,
-    marginVertical: Spacing.md,
-    gap: Spacing.xs,
+    gap: Spacing.sm,
+  },
+  topRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   praktikumText: {
     fontSize: FontSize.xs,
+    fontWeight: '700',
     color: Colors.textMuted,
-    fontWeight: '600',
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    flex: 1,
+    marginRight: Spacing.sm,
   },
   topikText: {
     fontSize: FontSize.lg,
-    fontWeight: '700',
+    fontWeight: '800',
     color: Colors.text,
   },
-  infoText: {
+  divider: {
+    height: 1,
+    backgroundColor: Colors.border,
+    marginVertical: Spacing.xs,
+  },
+  detailList: {
+    gap: Spacing.xs,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  detailLabel: {
     fontSize: FontSize.sm,
     color: Colors.textMuted,
   },
-  asistenRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: Spacing.xs,
-    paddingTop: Spacing.xs,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.border,
-  },
-  asistenText: {
+  detailValue: {
     fontSize: FontSize.sm,
     fontWeight: '600',
     color: Colors.text,
   },
-  roleContent: {
-    paddingBottom: Spacing.xl,
-  },
-  placeholderBox: {
-    padding: Spacing.lg,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-  },
-  placeholderText: {
-    color: Colors.textMuted,
-    fontSize: FontSize.sm,
-  },
 });
-

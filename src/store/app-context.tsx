@@ -1,20 +1,6 @@
 import React, { createContext, useContext, useReducer, type ReactNode } from 'react';
-import type { AppState, Pengguna, Presensi } from '@/types/models';
-import { createInitialState, initialState } from '@/data/dummy';
-
-export type AppAction =
-  | { type: 'PILIH_PENGGUNA'; pengguna: Pengguna }
-  | { type: 'KELUAR' }
-  | { type: 'BUKA_SESI'; sesiId: string }
-  | { type: 'TUTUP_SESI'; sesiId: string }
-  | {
-      type: 'CATAT_PRESENSI';
-      sesiId: string;
-      praktikanId: string;
-      catatan?: string;
-      waktuPresensi?: string;
-    }
-  | { type: 'RESET_DATA' };
+import type { AppAction, AppState, Presensi } from '@/types/models';
+import { initialState } from '@/data/dummy';
 
 export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
@@ -83,7 +69,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     }
 
     case 'RESET_DATA':
-      return createInitialState();
+      return initialState;
 
     default:
       return state;
@@ -110,8 +96,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 export function useApp(): AppContextValue {
   const context = useContext(AppContext);
   if (!context) {
-    throw new Error('useApp must be used within an AppProvider');
+    throw new Error('useApp harus digunakan di dalam AppProvider');
   }
   return context;
 }
-

@@ -20,4 +20,3 @@ export function formatWaktuPresensi(iso: string): string {
     .format(new Date(iso))
     .replace(':', '.');
 }
-

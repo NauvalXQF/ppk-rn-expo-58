@@ -5,7 +5,10 @@ import { Colors } from '@/constants/theme';
 
 export default function TabsLayout() {
   const { state } = useApp();
-  if (!state.currentUser) return <Redirect href="/" />;
+
+  if (!state.currentUser) {
+    return <Redirect href="/" />;
+  }
 
   const isAsisten = state.currentUser.peran === 'asisten';
 
@@ -23,15 +26,20 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="jadwal" options={{ title: 'Jadwal' }} />
       <Tabs.Screen
-        name="rekap"
-        options={{ title: 'Rekap', href: isAsisten ? undefined : null }}
+        name="kehadiran"
+        options={{
+          title: 'Kehadiran',
+          href: isAsisten ? null : undefined,
+        }}
       />
       <Tabs.Screen
-        name="kehadiran"
-        options={{ title: 'Kehadiran', href: isAsisten ? null : undefined }}
+        name="rekap"
+        options={{
+          title: 'Rekap',
+          href: isAsisten ? undefined : null,
+        }}
       />
       <Tabs.Screen name="profil" options={{ title: 'Profil' }} />
     </Tabs>
   );
 }
-

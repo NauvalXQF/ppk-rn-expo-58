@@ -70,3 +70,49 @@ export const LABEL_STATUS: Record<StatusSesi, string> = {
   dibuka: 'Dibuka',
   ditutup: 'Ditutup',
 };
+
+export type AppAction =
+  | { type: 'PILIH_PENGGUNA'; pengguna: Pengguna }
+  | { type: 'KELUAR' }
+  | { type: 'BUKA_SESI'; sesiId: string }
+  | { type: 'TUTUP_SESI'; sesiId: string }
+  | {
+      type: 'CATAT_PRESENSI';
+      sesiId: string;
+      praktikanId: string;
+      catatan?: string;
+      waktuPresensi?: string;
+    }
+  | { type: 'RESET_DATA' };
+
+export interface BarisRekap {
+  presensi: Presensi;
+  praktikan: Praktikan;
+}
+
+export interface RekapSesi {
+  baris: BarisRekap[];
+  jumlahHadir: number;
+  totalPraktikan: number;
+}
+
+export type StatusKehadiran =
+  | 'hadir'
+  | 'belum-presensi'
+  | 'belum-berlangsung'
+  | 'tidak-hadir';
+
+export interface RiwayatItem {
+  sesi: Sesi;
+  presensi: Presensi | null;
+  status: StatusKehadiran;
+}
+
+export interface DetailSesi {
+  sesi: Sesi;
+  praktikum: Praktikum;
+  kelas: Kelas;
+  asisten: Asisten;
+  presensiSaya: Presensi | null;
+  rekap: RekapSesi;
+}

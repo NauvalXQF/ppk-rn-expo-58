@@ -1,97 +1,97 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Redirect, router } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useApp } from '@/store/app-context';
-import type { Asisten, Praktikan } from '@/types/models';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
+import { AppCard } from '@/components/ui/AppCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 
 export default function ProfilRoute() {
+  const router = useRouter();
   const { state, dispatch } = useApp();
-  const [gantiUserSheet, setGantiUserSheet] = useState(false);
-  const [resetSheet, setResetSheet] = useState(false);
+  const user = state.currentUser;
 
-  if (!state.currentUser) {
-    return <Redirect href="/" />;
+  const [confirmGantiVisible, setConfirmGantiVisible] = useState(false);
+  const [confirmResetVisible, setConfirmResetVisible] = useState(false);
+
+  if (!user) {
+    return null;
   }
 
-  const user = state.currentUser;
-  const isPraktikan = user.peran === 'praktikan';
-  const roleLabel = isPraktikan ? 'Praktikan' : 'Asisten';
-  const idNumber = isPraktikan
-    ? `NIM ${(user as Praktikan).nim}`
-    : `NIP ${(user as Asisten).nip}`;
+  const kelas =
+    user.peran === 'praktikan'
+      ? state.kelas.find((k) => k.id === user.kelasId)
+      : null;
 
-  const kelasName = isPraktikan
-    ? state.kelas.find((k) => k.id === (user as Praktikan).kelasId)?.nama
-    : null;
+  const handleGantiPengguna = () => {
+    dispatch({ type: 'KELUAR' });
+    router.replace('/');
+  };
+
+  const handleResetData = () => {
+    dispatch({ type: 'RESET_DATA' });
+    router.replace('/');
+  };
 
   return (
-    <ScreenContainer scrollable>
+    <ScreenContainer>
       <View style={styles.header}>
-        <Text style={styles.title}>Profil Pengguna</Text>
+        <Text style={styles.screenTitle}>Profil Pengguna</Text>
+        <Text style={styles.subtitle}>Informasi akun aktif dan opsi demo</Text>
       </View>
 
-      <View style={styles.profileCard}>
+      <AppCard style={styles.userCard}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{user.nama.charAt(0)}</Text>
         </View>
 
-        <View style={styles.info}>
-          <Text style={styles.name}>{user.nama}</Text>
-          <Text style={styles.subtext}>
-            {roleLabel} {kelasName ? `· ${kelasName}` : ''}
+        <View style={styles.userInfo}>
+          <Text style={styles.userName}>{user.nama}</Text>
+          <Text style={styles.userRole}>
+            {user.peran === 'asisten'
+              ? 'Asisten Praktikum'
+              : `Praktikan · ${kelas?.nama ?? user.kelasId}`}
           </Text>
-          <Text style={styles.idNumber}>{idNumber}</Text>
+          <Text style={styles.userNumber}>
+            {user.peran === 'asisten' ? `NIP ${user.nip}` : `NIM ${user.nim}`}
+          </Text>
         </View>
-      </View>
+      </AppCard>
 
       <View style={styles.actions}>
         <AppButton
           label="Ganti Pengguna"
           variant="secondary"
-          onPress={() => setGantiUserSheet(true)}
+          onPress={() => setConfirmGantiVisible(true)}
         />
-
         <AppButton
           label="Reset Data Demo"
-          variant="ghost"
-          onPress={() => setResetSheet(true)}
+          variant="danger"
+          onPress={() => setConfirmResetVisible(true)}
         />
       </View>
 
-      <Text style={styles.versionText}>Aplikasi Presensi Praktikum v1.0.0</Text>
+      <Text style={styles.versionText}>Versi 1.0.0 · Sprint 1</Text>
 
       <ConfirmSheet
-        visible={gantiUserSheet}
-        title="Ganti Pengguna?"
-        description="Kamu akan kembali ke layar pemilihan peran. Data presensi tetap tersimpan."
-        confirmLabel="Ya, Ganti"
-        cancelLabel="Batal"
-        tone="primary"
-        onConfirm={() => {
-          setGantiUserSheet(false);
-          dispatch({ type: 'KELUAR' });
-          router.replace('/');
-        }}
-        onClose={() => setGantiUserSheet(false)}
+        visible={confirmGantiVisible}
+        title="Ganti Pengguna"
+        description="Anda akan keluar dari sesi saat ini dan kembali ke pemilihan pengguna."
+        confirmLabel="Ya, Keluar"
+        onConfirm={handleGantiPengguna}
+        onClose={() => setConfirmGantiVisible(false)}
       />
 
       <ConfirmSheet
-        visible={resetSheet}
-        title="Reset Data Demo?"
-        description="Semua data sesi dan presensi akan dikembalikan ke kondisi awal."
+        visible={confirmResetVisible}
+        title="Reset Data Demo"
+        description="Semua data presensi dan status sesi akan dikembalikan ke kondisi awal demo."
         confirmLabel="Ya, Reset Data"
-        cancelLabel="Batal"
         tone="danger"
-        onConfirm={() => {
-          setResetSheet(false);
-          dispatch({ type: 'RESET_DATA' });
-          router.replace('/');
-        }}
-        onClose={() => setResetSheet(false)}
+        onConfirm={handleResetData}
+        onClose={() => setConfirmResetVisible(false)}
       />
     </ScreenContainer>
   );
@@ -99,62 +99,63 @@ export default function ProfilRoute() {
 
 const styles = StyleSheet.create({
   header: {
-    paddingVertical: Spacing.md,
+    gap: 2,
+    marginBottom: Spacing.xs,
   },
-  title: {
+  screenTitle: {
     fontSize: FontSize.xl,
-    fontWeight: '700',
+    fontWeight: '800',
     color: Colors.text,
   },
-  profileCard: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.border,
-    borderWidth: 1,
-    borderRadius: Radius.md,
-    padding: Spacing.md,
+  subtitle: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+  },
+  userCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
-    marginBottom: Spacing.lg,
+    padding: Spacing.lg,
   },
   avatar: {
-    width: 52,
-    height: 52,
+    width: 56,
+    height: 56,
     borderRadius: Radius.pill,
     backgroundColor: Colors.primarySoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    fontSize: FontSize.lg,
-    fontWeight: '700',
+    fontSize: FontSize.xl,
+    fontWeight: '800',
     color: Colors.primary,
   },
-  info: {
+  userInfo: {
     flex: 1,
     gap: 2,
   },
-  name: {
+  userName: {
     fontSize: FontSize.md,
     fontWeight: '700',
     color: Colors.text,
   },
-  subtext: {
+  userRole: {
     fontSize: FontSize.sm,
     color: Colors.textMuted,
   },
-  idNumber: {
+  userNumber: {
     fontSize: FontSize.xs,
     color: Colors.textMuted,
+    marginTop: 2,
   },
   actions: {
     gap: Spacing.sm,
+    marginTop: Spacing.sm,
   },
   versionText: {
-    textAlign: 'center',
     fontSize: FontSize.xs,
     color: Colors.textMuted,
-    marginTop: Spacing.xl,
+    textAlign: 'center',
+    marginTop: Spacing.md,
   },
 });
-

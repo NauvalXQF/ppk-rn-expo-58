@@ -1,38 +1,33 @@
 import React, { type ReactNode } from 'react';
-import { View, StyleSheet, ScrollView, type StyleProp, type ViewStyle } from 'react-native';
+import { View, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Spacing } from '@/constants/theme';
 
 interface ScreenContainerProps {
   children: ReactNode;
   scrollable?: boolean;
-  style?: StyleProp<ViewStyle>;
-  contentContainerStyle?: StyleProp<ViewStyle>;
 }
 
 export function ScreenContainer({
   children,
-  scrollable = false,
-  style,
-  contentContainerStyle,
+  scrollable = true,
 }: ScreenContainerProps) {
   if (scrollable) {
     return (
-      <SafeAreaView edges={['top', 'left', 'right']} style={[styles.safeArea, style]}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <ScrollView
-          contentContainerStyle={[styles.content, contentContainerStyle]}
+          contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
         >
-          {children}
+          <View style={styles.innerContainer}>{children}</View>
         </ScrollView>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={[styles.safeArea, style]}>
-      <View style={[styles.content, styles.flex1, contentContainerStyle]}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <View style={[styles.staticContent, styles.innerContainer]}>
         {children}
       </View>
     </SafeAreaView>
@@ -44,15 +39,21 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
-  content: {
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+  },
+  staticContent: {
+    flex: 1,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    alignSelf: 'center',
+  },
+  innerContainer: {
     width: '100%',
     maxWidth: 800,
-    alignSelf: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.xl,
-  },
-  flex1: {
-    flex: 1,
+    gap: Spacing.md,
   },
 });
-
