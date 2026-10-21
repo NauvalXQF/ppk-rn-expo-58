@@ -6,7 +6,11 @@ import { KehadiranScreen } from '@/features/kehadiran/KehadiranScreen';
 export default function KehadiranRoute() {
   const { state } = useApp();
 
-  if (state.currentUser?.peran === 'asisten') {
+  if (!state.currentUser) {
+    return <Redirect href="/" />;
+  }
+
+  if (state.currentUser.peran !== 'praktikan') {
     return <Redirect href="/jadwal" />;
   }
 
