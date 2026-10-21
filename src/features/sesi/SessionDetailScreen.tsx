@@ -10,6 +10,7 @@ import { AppCard } from '@/components/ui/AppCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PraktikanSessionView } from './praktikan/PraktikanSessionView';
+import { AsistenSessionView } from './asisten/AsistenSessionView';
 
 interface SessionDetailScreenProps {
   sesiId: string;
@@ -75,14 +76,9 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
       {/* Konten Sesuai Peran */}
       {user?.peran === 'praktikan' ? (
         <PraktikanSessionView detail={detail} praktikan={user} />
-      ) : (
-        <View style={styles.asistenPlaceholder}>
-          <Text style={styles.asistenNotice}>
-            Mode Asisten: Rekap kehadiran ({detail.rekap.jumlahHadir}/
-            {detail.rekap.totalPraktikan} hadir).
-          </Text>
-        </View>
-      )}
+      ) : user?.peran === 'asisten' ? (
+        <AsistenSessionView detail={detail} />
+      ) : null}
     </ScreenContainer>
   );
 }
@@ -130,16 +126,5 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontWeight: '600',
     color: Colors.text,
-  },
-  asistenPlaceholder: {
-    padding: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  asistenNotice: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
   },
 });

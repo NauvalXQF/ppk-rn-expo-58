@@ -2,10 +2,11 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 
-type BannerTone = 'info' | 'success' | 'warning' | 'danger';
+type BannerTone = 'info' | 'success' | 'warning' | 'danger' | 'neutral';
 
 interface InfoBannerProps {
   message: string;
+  description?: string;
   tone?: BannerTone;
 }
 
@@ -33,9 +34,18 @@ const toneStyles: Record<
     color: Colors.danger,
     borderColor: '#FDA29B',
   },
+  neutral: {
+    backgroundColor: Colors.neutralSoft,
+    color: Colors.text,
+    borderColor: Colors.border,
+  },
 };
 
-export function InfoBanner({ message, tone = 'info' }: InfoBannerProps) {
+export function InfoBanner({
+  message,
+  description,
+  tone = 'info',
+}: InfoBannerProps) {
   const config = toneStyles[tone] || toneStyles.info;
 
   return (
@@ -49,6 +59,11 @@ export function InfoBanner({ message, tone = 'info' }: InfoBannerProps) {
       ]}
     >
       <Text style={[styles.text, { color: config.color }]}>{message}</Text>
+      {description ? (
+        <Text style={[styles.description, { color: config.color }]}>
+          {description}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -63,5 +78,11 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     lineHeight: 20,
     fontWeight: '500',
+  },
+  description: {
+    marginTop: Spacing.xs,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    opacity: 0.85,
   },
 });

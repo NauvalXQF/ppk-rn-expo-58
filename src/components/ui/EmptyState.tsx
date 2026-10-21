@@ -1,5 +1,11 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { Colors, FontSize, Spacing } from '@/constants/theme';
 import { AppButton } from './AppButton';
 
@@ -8,6 +14,7 @@ interface EmptyStateProps {
   description: string;
   actionLabel?: string;
   onAction?: () => void;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function EmptyState({
@@ -15,9 +22,10 @@ export function EmptyState({
   description,
   actionLabel,
   onAction,
+  style,
 }: EmptyStateProps) {
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, style]}>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.description}>{description}</Text>
       {actionLabel && onAction && (
