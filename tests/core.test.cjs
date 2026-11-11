@@ -158,3 +158,35 @@ test('date helpers format Indonesian dates and local time', () => {
   assert.equal(formatJam('10:04'), '10.04');
   assert.equal(formatWaktuPresensi(new Date(2026, 9, 21, 10, 4).toISOString()), '10.04');
 });
+
+test('Sprint 2 CRUD and Firestore sync actions enforce asisten role and update state', () => {
+  const { toStatusSesi, toFirestoreStatus, buildClassMemberId } = loadSource('services/practicumService');
+  assert.equal(buildClassMemberId('kelas-a', 'uid123'), 'kelas-a_uid123');
+  assert.equal(toStatusSesi('open'), 'dibuka');
+  assert.equal(toStatusSesi('closed'), 'ditutup');
+  assert.equal(toStatusSesi('closed', null, null), 'dijadwalkan');
+  assert.equal(toStatusSesi('open', '2026-11-11T10:00:00Z', null), 'dibuka');
+  assert.equal(toStatusSesi('closed', '2026-11-11T10:00:00Z', '2026-11-11T12:00:00Z'), 'ditutup');
+  assert.equal(toStatusSesi('scheduled'), 'dijadwalkan');
+  assert.equal(toFirestoreStatus('dibuka'), 'open');
+  assert.equal(toFirestoreStatus('ditutup'), 'closed');
+  assert.equal(toFirestoreStatus('dijadwalkan'), 'scheduled');
+
+  // Praktikan cannot perform CRUD
+  let state = choose(fresh(), 'praktikan-1');
+  assert.equal(appReducer(state, { type: 'TAMBAH_KELAS', kelas: { id: 'kelas-d', nama: 'PPK D', praktikumId: 'praktikum-ppk' } }), state);
+
+  // Asisten can perform CRUD on kelas, peserta, jadwal, sesi
+  state = choose(fresh(), 'asisten-1');
+  state = appReducer(state, { type: 'TAMBAH_KELAS', kelas: { id: 'kelas-d', nama: 'PPK D', praktikumId: 'praktikum-ppk' } });
+  assert.equal(state.kelas.length, 4);
+  state = appReducer(state, { type: 'UBAH_KELAS', kelas: { id: 'kelas-d', nama: 'PPK D Baru', praktikumId: 'praktikum-ppk' } });
+  assert.equal(state.kelas.find((k) => k.id === 'kelas-d').nama, 'PPK D Baru');
+  state = appReducer(state, { type: 'HAPUS_KELAS', kelasId: 'kelas-d' });
+  assert.equal(state.kelas.length, 3);
+
+  state = appReducer(state, { type: 'TAMBAH_PESERTA', peserta: { id: 'praktikan-5', peran: 'praktikan', nama: 'Andi', nim: '2310511005', kelasId: 'kelas-a' } });
+  assert.equal(selectors.selectTotalPraktikan(state, 'kelas-a'), 3);
+  state = appReducer(state, { type: 'HAPUS_PESERTA', praktikanId: 'praktikan-5' });
+  assert.equal(selectors.selectTotalPraktikan(state, 'kelas-a'), 2);
+});

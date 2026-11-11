@@ -17,11 +17,12 @@ export function PraktikanSessionView({
   detail,
   praktikan,
 }: PraktikanSessionViewProps) {
-  const { dispatch } = useApp();
+  const { catatPresensi, loading, error } = useApp();
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [pendingCatatan, setPendingCatatan] = useState('');
 
   const { sesi, kelas, presensiSaya } = detail;
+  const isEligibleKelas = praktikan.kelasId === sesi.kelasId;
 
   const handleFormSubmit = (catatan: string) => {
     setPendingCatatan(catatan);
@@ -29,20 +30,23 @@ export function PraktikanSessionView({
   };
 
   const handleConfirmPresensi = () => {
-    dispatch({
-      type: 'CATAT_PRESENSI',
-      sesiId: sesi.id,
-      praktikanId: praktikan.id,
-      catatan: pendingCatatan,
-      waktuPresensi: new Date().toISOString(),
-    });
     setConfirmVisible(false);
+    catatPresensi(sesi.id, pendingCatatan).catch(() => {});
   };
 
   return (
     <View style={styles.container}>
+      {error ? <InfoBanner tone="danger" message={error} /> : null}
+
+      {!isEligibleKelas ? (
+        <InfoBanner
+          tone="warning"
+          message="Anda tidak terdaftar pada kelas sesi praktikum ini."
+        />
+      ) : null}
+
       {/* 6A. Sesi Dijadwalkan */}
-      {sesi.status === 'dijadwalkan' && (
+      {isEligibleKelas && sesi.status === 'dijadwalkan' && (
         <InfoBanner
           tone="info"
           message="Sesi belum dibuka. Kamu bisa melakukan presensi setelah asisten membuka sesi."
@@ -50,8 +54,8 @@ export function PraktikanSessionView({
       )}
 
       {/* 6B. Sesi Dibuka, belum presensi */}
-      {sesi.status === 'dibuka' && !presensiSaya && (
-        <PresensiForm onSubmit={handleFormSubmit} />
+      {isEligibleKelas && sesi.status === 'dibuka' && !presensiSaya && (
+        <PresensiForm onSubmit={handleFormSubmit} disabled={loading} />
       )}
 
       {/* 6C. Sesi Dibuka, sudah presensi */}

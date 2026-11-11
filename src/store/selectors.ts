@@ -1,7 +1,9 @@
 import type {
   AppState,
+  Asisten,
   BarisRekap,
   DetailSesi,
+  Jadwal,
   Pengguna,
   Praktikan,
   RekapSesi,
@@ -10,6 +12,7 @@ import type {
   StatusKehadiran,
   StatusSesi,
 } from '@/types/models';
+import { DEFAULT_SCHEDULES } from '@/services/practicumService';
 
 const prioritasStatus: Record<StatusSesi, number> = {
   dibuka: 0,
@@ -56,12 +59,17 @@ export function selectRekapSesi(state: AppState, sesiId: string): RekapSesi {
 
   const baris: BarisRekap[] = [];
   for (const pres of presensiList) {
-    const praktikan = state.pengguna.find(
-      (u): u is Praktikan => u.id === pres.praktikanId && u.peran === 'praktikan',
-    );
-    if (praktikan) {
-      baris.push({ presensi: pres, praktikan });
-    }
+    const praktikan =
+      state.pengguna.find(
+        (u): u is Praktikan => u.id === pres.praktikanId && u.peran === 'praktikan',
+      ) ?? {
+        id: pres.praktikanId,
+        peran: 'praktikan',
+        nama: pres.praktikanId,
+        nim: '-',
+        kelasId: sesi?.kelasId ?? 'kelas-a',
+      };
+    baris.push({ presensi: pres, praktikan });
   }
 
   const totalPraktikan = sesi ? selectTotalPraktikan(state, sesi.kelasId) : 0;
@@ -71,6 +79,20 @@ export function selectRekapSesi(state: AppState, sesiId: string): RekapSesi {
     jumlahHadir: presensiList.length,
     totalPraktikan,
   };
+}
+
+export function selectPesertaPraktikum(state: AppState): Praktikan[] {
+  return state.pengguna.filter(
+    (u): u is Praktikan => u.peran === 'praktikan',
+  );
+}
+
+export function selectJadwalUntukPengguna(state: AppState): Jadwal[] {
+  const user = state.currentUser;
+  const list = state.jadwal ?? DEFAULT_SCHEDULES;
+  if (!user) return [];
+  if (user.peran === 'asisten') return [...list];
+  return list.filter((j) => j.kelasId === user.kelasId);
 }
 
 export function selectSesiUntukPengguna(state: AppState): Sesi[] {
@@ -106,13 +128,22 @@ export function selectDetailSesi(
   const sesi = selectSesiById(state, sesiId);
   if (!sesi) return null;
 
-  const praktikum = state.praktikum.find((p) => p.id === sesi.praktikumId);
-  const kelas = state.kelas.find((k) => k.id === sesi.kelasId);
-  const asisten = state.pengguna.find(
-    (u) => u.id === sesi.asistenId && u.peran === 'asisten',
-  );
+  const praktikum =
+    state.praktikum.find((p) => p.id === sesi.praktikumId) ??
+    state.praktikum[0];
+  const kelas = state.kelas.find((k) => k.id === sesi.kelasId) ?? {
+    id: sesi.kelasId,
+    nama: sesi.kelasId,
+    praktikumId: sesi.praktikumId,
+  };
+  const asisten =
+    state.pengguna.find(
+      (u): u is Asisten => u.id === sesi.asistenId && u.peran === 'asisten',
+    ) ??
+    (state.currentUser?.peran === 'asisten' ? state.currentUser : undefined) ??
+    state.pengguna.find((u): u is Asisten => u.peran === 'asisten');
 
-  if (!praktikum || !kelas || !asisten || asisten.peran !== 'asisten') {
+  if (!praktikum || !kelas || !asisten) {
     return null;
   }
 
@@ -140,9 +171,14 @@ export function selectRiwayatPraktikan(
   state: AppState,
   praktikanId: string,
 ): RiwayatItem[] {
-  const praktikan = state.pengguna.find(
-    (u): u is Praktikan => u.id === praktikanId && u.peran === 'praktikan',
-  );
+  const praktikan =
+    state.pengguna.find(
+      (u): u is Praktikan => u.id === praktikanId && u.peran === 'praktikan',
+    ) ??
+    (state.currentUser?.peran === 'praktikan' &&
+    state.currentUser.id === praktikanId
+      ? state.currentUser
+      : undefined);
   if (!praktikan) return [];
 
   const sesiList = state.sesi
