@@ -1,0 +1,173 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==================== Helper ====================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Role selalu dibaca dari dokumen profil, bukan dari klaim yang bisa dipalsukan klien.
+    function profilSaya() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAsisten() {
+      return isSignedIn() && profilSaya().role == 'asisten';
+    }
+
+    function isPraktikan() {
+      return isSignedIn() && profilSaya().role == 'praktikan';
+    }
+
+    function hanyaFieldBerubah(daftarField) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(daftarField);
+    }
+
+    function sesi(sessionId) {
+      return get(/databases/$(database)/documents/sessions/$(sessionId)).data;
+    }
+
+    // ID keanggotaan/jadwal untuk pengecekan keanggotaan kelas praktikan.
+    function anggotaKelas(classId) {
+      return get(/databases/$(database)/documents/classMembers/$(classId + '_' + request.auth.uid)).data;
+    }
+
+    function isAnggotaKelas(classId) {
+      return isPraktikan()
+        && exists(/databases/$(database)/documents/classMembers/$(classId + '_' + request.auth.uid))
+        && anggotaKelas(classId).active == true;
+    }
+
+    // ==================== Profil pengguna ====================
+    // Dokumen users/{uid} ditulis P1. Registrasi mandiri selalu "praktikan".
+    // Role hanya boleh diubah lewat provisioning terpercaya (Console / Admin SDK),
+    // sehingga setiap perubahan role dari klien ditolak.
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAsisten());
+
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.role == 'praktikan'
+        && request.resource.data.nama is string
+        && request.resource.data.nama.size() >= 2;
+
+      allow update: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.role == resource.data.role
+        && hanyaFieldBerubah(['nama', 'nim', 'nip', 'updatedAt']);
+
+      allow delete: if false;
+    }
+
+    // ==================== Data praktikum (P2) ====================
+    // Baca: asisten melihat semua; praktikan hanya kelas tempat ia terdaftar.
+    match /classes/{classId} {
+      allow read: if isAsisten() || isAnggotaKelas(classId);
+      allow create, update: if isAsisten();
+      allow delete: if false;
+    }
+
+    match /classMembers/{memberId} {
+      allow read: if isAsisten()
+        || (isPraktikan() && resource.data.uid == request.auth.uid);
+      allow create, update: if isAsisten();
+      allow delete: if false;
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if isAsisten()
+        || (isPraktikan() && isAnggotaKelas(resource.data.classId));
+      allow create, update: if isAsisten();
+      allow delete: if false;
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if isAsisten()
+        || (isPraktikan() && isAnggotaKelas(resource.data.classId));
+
+      allow create: if isAsisten()
+        && request.resource.data.status == 'closed'
+        && request.resource.data.openedAt == null
+        && request.resource.data.closedAt == null;
+
+      // Hanya asisten, hanya transisi buka/tutup, dan hanya field audit sesi.
+      allow update: if isAsisten()
+        && hanyaFieldBerubah(['status', 'openedAt', 'closedAt', 'updatedAt'])
+        && (
+          (resource.data.status == 'closed'
+            && request.resource.data.status == 'open'
+            && resource.data.openedAt == null
+            && request.resource.data.closedAt == null)
+          ||
+          (resource.data.status == 'open'
+            && request.resource.data.status == 'closed')
+        );
+
+      allow delete: if false;
+    }
+
+    // ==================== Presensi (P2) ====================
+    // ID dokumen = UID praktikan sehingga duplikasi tidak mungkin.
+    // Hanya create, hanya saat sesi "open", dan hanya untuk anggota aktif kelas.
+    match /sessions/{sessionId}/attendances/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAsisten());
+
+      allow create: if isPraktikan()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.sessionId == sessionId
+        && request.resource.data.status == 'hadir'
+        && sesi(sessionId).status == 'open'
+        && isAnggotaKelas(sesi(sessionId).classId);
+
+      // Presensi tidak boleh diubah atau dihapus dari klien.
+      allow update, delete: if false;
+    }
+
+    // ==================== Pengajuan izin (P3) ====================
+    // Field keputusan (status/reviewedBy/reviewedAt/reviewNote) hanya untuk asisten.
+    // Field ai ditulis pemohon sebagai hasil yang dilaporkan klien (informasi
+    // pendukung), terpisah dari keputusan dan tidak pernah mengubah status otomatis.
+    match /leaveRequests/{requestId} {
+      allow read: if isSignedIn()
+        && (resource.data.uid == request.auth.uid || isAsisten());
+
+      allow create: if isPraktikan()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.alasan is string
+        && request.resource.data.alasan.size() >= 1
+        && request.resource.data.alasan.size() <= 1000
+        && request.resource.data.reviewedBy == null
+        && request.resource.data.reviewedAt == null;
+
+      // Pemohon hanya boleh mengisi hasil klasifikasi AI pada pengajuannya sendiri,
+      // tanpa menyentuh keputusan asisten maupun identitas pengajuan.
+      // Hasil ini diperlakukan sebagai "dilaporkan klien" (informasi pendukung).
+      allow update: if isPraktikan()
+        && resource.data.uid == request.auth.uid
+        && resource.data.status == 'pending'
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.sessionId == resource.data.sessionId
+        && request.resource.data.alasan == resource.data.alasan
+        && hanyaFieldBerubah(['ai', 'updatedAt']);
+
+      allow update: if isAsisten()
+        && resource.data.status == 'pending'
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.sessionId == resource.data.sessionId
+        && request.resource.data.alasan == resource.data.alasan
+        && hanyaFieldBerubah(['status', 'reviewedBy', 'reviewedAt', 'reviewNote', 'updatedAt']);
+
+      allow delete: if false;
+    }
+  }
+}

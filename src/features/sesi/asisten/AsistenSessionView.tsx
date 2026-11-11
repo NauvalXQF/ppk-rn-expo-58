@@ -4,6 +4,7 @@ import type { DetailSesi } from '@/types/models';
 import { useApp } from '@/store/app-context';
 import { Spacing } from '@/constants/theme';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
+import { InfoBanner } from '@/components/ui/InfoBanner';
 import { SessionControlCard } from './SessionControlCard';
 import { RekapSummary } from '@/features/rekap/RekapSummary';
 
@@ -12,22 +13,24 @@ export interface AsistenSessionViewProps {
 }
 
 export function AsistenSessionView({ detail }: AsistenSessionViewProps) {
-  const { dispatch } = useApp();
+  const { bukaSesi, tutupSesi, error } = useApp();
   const [bukaSheetVisible, setBukaSheetVisible] = useState(false);
   const [tutupSheetVisible, setTutupSheetVisible] = useState(false);
 
   const handleBukaSesiConfirm = () => {
-    dispatch({ type: 'BUKA_SESI', sesiId: detail.sesi.id });
+    bukaSesi(detail.sesi.id).catch(() => {});
     setBukaSheetVisible(false);
   };
 
   const handleTutupSesiConfirm = () => {
-    dispatch({ type: 'TUTUP_SESI', sesiId: detail.sesi.id });
+    tutupSesi(detail.sesi.id).catch(() => {});
     setTutupSheetVisible(false);
   };
 
   return (
     <View style={styles.container}>
+      {error ? <InfoBanner tone="danger" message={error} /> : null}
+
       <SessionControlCard
         status={detail.sesi.status}
         onBukaSesi={() => setBukaSheetVisible(true)}

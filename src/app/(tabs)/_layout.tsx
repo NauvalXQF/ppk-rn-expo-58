@@ -1,16 +1,21 @@
 import React from 'react';
 import { Redirect, Tabs } from 'expo-router';
-import { useApp } from '@/store/app-context';
+import { useAuth } from '@/contexts/AuthContext';
 import { Colors } from '@/constants/theme';
 
 export default function TabsLayout() {
-  const { state } = useApp();
+  const { status, pengguna } = useAuth();
 
-  if (!state.currentUser) {
+  // Tunggu pemulihan sesi sebelum memutuskan redirect.
+  if (status === 'memuat') {
+    return null;
+  }
+
+  if (status !== 'masuk') {
     return <Redirect href="/" />;
   }
 
-  const isAsisten = state.currentUser.peran === 'asisten';
+  const isAsisten = pengguna?.role === 'asisten';
 
   return (
     <Tabs
