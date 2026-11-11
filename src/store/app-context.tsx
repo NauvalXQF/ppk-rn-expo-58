@@ -11,6 +11,14 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const pengguna = state.pengguna.find((u) => u.id === action.pengguna.id);
       return pengguna ? { ...state, currentUser: pengguna } : state;
     }
+    case 'SET_PENGGUNA': {
+      const sudahAda = state.pengguna.some((u) => u.id === action.pengguna.id);
+      return {
+        ...state,
+        currentUser: action.pengguna,
+        pengguna: sudahAda ? state.pengguna : [...state.pengguna, action.pengguna],
+      };
+    }
     case 'KELUAR':
       return { ...state, currentUser: null };
     case 'BUKA_SESI':

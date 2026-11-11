@@ -1,0 +1,102 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Helper ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Role diambil dari dokumen profil, bukan dari klaim yang bisa dipalsukan klien.
+    function role() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAsisten() {
+      return isSignedIn() && role() == 'asisten';
+    }
+
+    function isPraktikan() {
+      return isSignedIn() && role() == 'praktikan';
+    }
+
+    // ---------- Profil pengguna ----------
+    // Registrasi mandiri hanya boleh membuat akun praktikan.
+    // Role tidak boleh diubah dari klien (provisioning asisten dilakukan
+    // lewat Firebase Console / Admin SDK).
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAsisten());
+
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.role == 'praktikan';
+
+      allow update: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.role == resource.data.role;
+
+      allow delete: if false;
+    }
+
+    // ---------- Data praktikum (dikelola asisten) ----------
+    match /classes/{classId} {
+      allow read: if isSignedIn();
+      allow write: if isAsisten();
+    }
+
+    match /classMembers/{memberId} {
+      allow read: if isSignedIn();
+      allow write: if isAsisten();
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if isSignedIn();
+      allow write: if isAsisten();
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if isSignedIn();
+      allow write: if isAsisten();
+    }
+
+    // ---------- Presensi ----------
+    // ID dokumen = UID praktikan, sehingga duplikasi presensi tidak mungkin.
+    // Hanya boleh dibuat sekali, saat sesi berstatus "open".
+    match /sessions/{sessionId}/attendances/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAsisten());
+
+      allow create: if isPraktikan()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.sessionId == sessionId
+        && get(/databases/$(database)/documents/sessions/$(sessionId)).data.status == 'open';
+
+      // Praktikan tidak boleh mengubah atau menghapus presensi.
+      allow update, delete: if false;
+    }
+
+    // ---------- Pengajuan izin ----------
+    // Praktikan hanya boleh membuat pengajuan miliknya sendiri dengan status awal
+    // "pending". Keputusan asisten dan hasil klasifikasi AI berada pada field
+    // terpisah dan hanya boleh diubah oleh asisten.
+    match /leaveRequests/{requestId} {
+      allow read: if isSignedIn()
+        && (resource.data.uid == request.auth.uid || isAsisten());
+
+      allow create: if isPraktikan()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending';
+
+      allow update: if isAsisten()
+        && resource.data.status == 'pending'
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.sessionId == resource.data.sessionId;
+
+      allow delete: if false;
+    }
+  }
+}
