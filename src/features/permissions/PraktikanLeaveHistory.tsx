@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Colors, FontSize, Spacing } from '@/constants/theme';
+import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import {
   defaultPermissionRepository,
+  retryLeaveAiClassification,
   type PermissionRepository,
+  type PermissionServiceOptions,
 } from '@/services/permissionService';
 import { safeFormatDate, safeFormatTime } from './formatters';
 import {
@@ -15,22 +18,45 @@ import {
   LeaveDecisionBadge,
 } from './LeaveStatusBadge';
 import { useLeaveSubscription } from './useLeaveSubscription';
-import type { PermissionActor } from './types';
+import type { LeaveRequest, PermissionActor } from './types';
 
 export interface PraktikanLeaveHistoryProps {
   actor: PermissionActor;
   repository?: PermissionRepository;
+  serviceOptions?: PermissionServiceOptions;
 }
 
 export function PraktikanLeaveHistory({
   actor,
   repository = defaultPermissionRepository,
+  serviceOptions,
 }: PraktikanLeaveHistoryProps) {
   const { requests, loading, error } = useLeaveSubscription(
     'praktikan',
     actor,
     repository,
   );
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
+
+  const handleRetryAi = async (item: LeaveRequest) => {
+    setRetryError(null);
+    setRetryingId(item.id);
+    try {
+      await retryLeaveAiClassification(actor, item, {
+        ...serviceOptions,
+        repository,
+      });
+    } catch (err) {
+      setRetryError(
+        err instanceof Error
+          ? err.message
+          : 'Gagal mengulang klasifikasi AI.',
+      );
+    } finally {
+      setRetryingId(null);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -38,6 +64,8 @@ export function PraktikanLeaveHistory({
         title="Riwayat Pengajuan Izin"
         rightText={`${requests.length} pengajuan`}
       />
+
+      {retryError ? <InfoBanner tone="danger" message={retryError} /> : null}
 
       {loading ? (
         <AppCard style={styles.loadingCard}>
@@ -55,52 +83,76 @@ export function PraktikanLeaveHistory({
         </AppCard>
       ) : (
         <View style={styles.list}>
-          {requests.map((item) => (
-            <AppCard key={item.id} style={styles.itemCard}>
-              <View style={styles.headerRow}>
-                <View style={styles.titleBlock}>
-                  <Text style={styles.topicText}>{item.sessionTopic}</Text>
-                  <Text style={styles.metaText}>
-                    {item.className ? `${item.className} · ` : ''}
-                    {safeFormatDate(item.sessionDate)}
-                  </Text>
+          {requests.map((item) => {
+            const canRetryAi =
+              item.aiClassification.status === 'failed' &&
+              item.status === 'pending' &&
+              actor.uid === item.uid;
+            const isRetrying = retryingId === item.id;
+
+            return (
+              <AppCard key={item.id} style={styles.itemCard}>
+                <View style={styles.headerRow}>
+                  <View style={styles.titleBlock}>
+                    <Text style={styles.topicText}>{item.sessionTopic}</Text>
+                    <Text style={styles.metaText}>
+                      {item.className ? `${item.className} · ` : ''}
+                      {safeFormatDate(item.sessionDate)}
+                    </Text>
+                  </View>
+                  <LeaveDecisionBadge status={item.status} />
                 </View>
-                <LeaveDecisionBadge status={item.status} />
-              </View>
 
-              <Text style={styles.reasonText}>{item.reason}</Text>
+                <Text style={styles.reasonText}>{item.reason}</Text>
 
-              <View style={styles.badgeRow}>
-                <AiClassificationBadge classification={item.aiClassification} />
-              </View>
+                <View style={styles.badgeRow}>
+                  <AiClassificationBadge
+                    classification={item.aiClassification}
+                  />
+                </View>
 
-              {item.aiClassification.status === 'failed' &&
-              item.aiClassification.errorMessage ? (
-                <InfoBanner
-                  tone="warning"
-                  message={item.aiClassification.errorMessage}
-                />
-              ) : null}
+                {item.aiClassification.status === 'failed' &&
+                item.aiClassification.errorMessage ? (
+                  <InfoBanner
+                    tone="warning"
+                    message={item.aiClassification.errorMessage}
+                  />
+                ) : null}
 
-              <View style={styles.footerRow}>
-                <Text style={styles.footerText}>
-                  Dikirim {safeFormatTime(item.createdAt)}
-                </Text>
-                {item.status !== 'pending' && item.decidedAt ? (
+                {canRetryAi ? (
+                  <AppButton
+                    label={
+                      isRetrying
+                        ? 'Mengulang Klasifikasi AI...'
+                        : 'Coba Klasifikasi AI Lagi'
+                    }
+                    variant="secondary"
+                    loading={isRetrying}
+                    disabled={retryingId !== null}
+                    onPress={() => handleRetryAi(item)}
+                  />
+                ) : null}
+
+                <View style={styles.footerRow}>
                   <Text style={styles.footerText}>
-                    Diputuskan {safeFormatTime(item.decidedAt)}
-                    {item.decidedByName ? ` oleh ${item.decidedByName}` : ''}
+                    Dikirim {safeFormatTime(item.createdAt)}
+                  </Text>
+                  {item.status !== 'pending' && item.decidedAt ? (
+                    <Text style={styles.footerText}>
+                      Diputuskan {safeFormatTime(item.decidedAt)}
+                      {item.decidedByName ? ` oleh ${item.decidedByName}` : ''}
+                    </Text>
+                  ) : null}
+                </View>
+
+                {item.decisionNote ? (
+                  <Text style={styles.noteText}>
+                    Catatan asisten: {item.decisionNote}
                   </Text>
                 ) : null}
-              </View>
-
-              {item.decisionNote ? (
-                <Text style={styles.noteText}>
-                  Catatan asisten: {item.decisionNote}
-                </Text>
-              ) : null}
-            </AppCard>
-          ))}
+              </AppCard>
+            );
+          })}
         </View>
       )}
     </View>

@@ -1,9 +1,39 @@
+import type { ProfilPengguna } from '@/services/authService';
 import type { Kelas, Pengguna, Sesi } from '@/types/models';
 import type { LeaveSessionOption, PermissionActor } from './types';
 
 /**
- * Adapter helper untuk memetakan data pengguna Sprint 1 / store sementara
- * ke kontrak `PermissionActor` sebelum modul AuthContext P1 terintegrasi.
+ * Memetakan profil Firebase Auth + Firestore P1 (`ProfilPengguna`)
+ * menjadi `PermissionActor` untuk modul pengajuan dan pemeriksaan izin.
+ */
+export function mapProfilToPermissionActor(
+  profil: ProfilPengguna | null,
+  kelasIdOverride?: string,
+): PermissionActor | null {
+  if (!profil) return null;
+
+  if (profil.role === 'praktikan') {
+    const resolvedClassId = kelasIdOverride ?? profil.kelasId;
+    return {
+      uid: profil.uid,
+      role: 'praktikan',
+      displayName: profil.nama,
+      nim: profil.nim,
+      classIds: resolvedClassId ? [resolvedClassId] : undefined,
+    };
+  }
+
+  return {
+    uid: profil.uid,
+    role: 'asisten',
+    displayName: profil.nama,
+    nip: profil.nip,
+  };
+}
+
+/**
+ * Adapter helper untuk memetakan `Pengguna` dari `AppContext` (termasuk
+ * `kelasId` yang disinkronkan dari koleksi `classMembers` oleh modul P2).
  */
 export function mapPenggunaToPermissionActor(
   user: Pengguna | null,
@@ -29,7 +59,7 @@ export function mapPenggunaToPermissionActor(
 }
 
 /**
- * Adapter helper untuk memetakan daftar sesi & kelas Sprint 1 ke `LeaveSessionOption[]`.
+ * Adapter helper untuk memetakan daftar sesi & kelas menjadi `LeaveSessionOption[]`.
  */
 export function mapSesiToLeaveOptions(
   sesiList: Sesi[],
@@ -48,4 +78,3 @@ export function mapSesiToLeaveOptions(
     status: sesi.status,
   }));
 }
-

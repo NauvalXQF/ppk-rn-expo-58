@@ -1,18 +1,26 @@
 import React, { useMemo } from 'react';
 import { Redirect } from 'expo-router';
+import { useAuth } from '@/contexts/AuthContext';
 import { useApp } from '@/store/app-context';
+import { getActivePermissionRepository } from '@/services/firestorePermissionRepository';
 import {
   PermissionsScreen,
-  mapPenggunaToPermissionActor,
+  mapProfilToPermissionActor,
   mapSesiToLeaveOptions,
 } from '@/features/permissions';
 
 export default function IzinRoute() {
+  const { status, pengguna } = useAuth();
   const { state } = useApp();
 
+  const activeClassId =
+    state.currentUser?.peran === 'praktikan'
+      ? state.currentUser.kelasId
+      : undefined;
+
   const actor = useMemo(
-    () => mapPenggunaToPermissionActor(state.currentUser),
-    [state.currentUser],
+    () => mapProfilToPermissionActor(pengguna, activeClassId),
+    [activeClassId, pengguna],
   );
 
   const sessions = useMemo(
@@ -20,10 +28,21 @@ export default function IzinRoute() {
     [state.kelas, state.sesi],
   );
 
-  if (!state.currentUser) {
+  const repository = useMemo(() => getActivePermissionRepository(), []);
+
+  if (status === 'memuat') {
+    return null;
+  }
+
+  if (status !== 'masuk' || !pengguna) {
     return <Redirect href="/" />;
   }
 
-  return <PermissionsScreen actor={actor} sessions={sessions} />;
+  return (
+    <PermissionsScreen
+      actor={actor}
+      sessions={sessions}
+      repository={repository}
+    />
+  );
 }
-

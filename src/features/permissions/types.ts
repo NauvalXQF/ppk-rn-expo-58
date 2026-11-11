@@ -44,6 +44,8 @@ export interface AiClassificationResult {
   classifiedAt: string | null;
   /** Pesan error yang ramah pengguna bila API AI gagal/timeout/tidak valid. */
   errorMessage: string | null;
+  /** Penanda keamanan bahwa hasil AI berasal dari klien (bukan verifikasi server). */
+  reportedByClient?: boolean;
 }
 
 /**

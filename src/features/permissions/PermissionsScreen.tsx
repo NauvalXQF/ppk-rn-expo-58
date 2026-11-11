@@ -63,7 +63,11 @@ export function PermissionsScreen({
             sessions={sessions}
             serviceOptions={mergedServiceOptions}
           />
-          <PraktikanLeaveHistory actor={actor} repository={repository} />
+          <PraktikanLeaveHistory
+            actor={actor}
+            repository={repository}
+            serviceOptions={mergedServiceOptions}
+          />
         </View>
       ) : (
         <AsistenLeaveReviewList

@@ -12,6 +12,7 @@ export {
 } from './LeaveStatusBadge';
 export {
   mapPenggunaToPermissionActor,
+  mapProfilToPermissionActor,
   mapSesiToLeaveOptions,
 } from './adapters';
 export * from './types';

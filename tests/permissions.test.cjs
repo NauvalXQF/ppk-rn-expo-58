@@ -12,9 +12,10 @@ function loadSource(name, overrides = {}) {
     .map((ext) => path.resolve('src', name + ext))
     .find(fs.existsSync);
   assert.ok(file, `Missing source module: ${name}`);
-  if (cache.has(file)) return cache.get(file).exports;
+  const useCache = Object.keys(overrides).length === 0;
+  if (useCache && cache.has(file)) return cache.get(file).exports;
   const module = { exports: {} };
-  cache.set(file, module);
+  if (useCache) cache.set(file, module);
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
@@ -36,19 +37,24 @@ const { classifyLeaveReason, parseAiClassificationResponse } = loadSource(
   'services/aiService',
 );
 const {
+  MAX_LEAVE_REASON_LENGTH,
   PermissionAuthorizationError,
+  PermissionConflictError,
   PermissionValidationError,
   createInMemoryPermissionRepository,
   decideLeaveRequest,
   fromFirestoreLeaveRequestDoc,
+  retryLeaveAiClassification,
   submitLeaveRequest,
   subscribeAsistenLeaves,
   subscribePraktikanLeaves,
   validateLeaveReason,
 } = loadSource('services/permissionService');
-const { mapPenggunaToPermissionActor, mapSesiToLeaveOptions } = loadSource(
-  'features/permissions/adapters',
-);
+const {
+  mapPenggunaToPermissionActor,
+  mapProfilToPermissionActor,
+  mapSesiToLeaveOptions,
+} = loadSource('features/permissions/adapters');
 const { initialState } = loadSource('data/dummy');
 
 const praktikanActor = {
@@ -96,13 +102,15 @@ const otherClassSession = {
   status: 'dijadwalkan',
 };
 
-test('validateLeaveReason rejects empty, whitespace, and oversized reasons', () => {
+test('validateLeaveReason rejects empty, whitespace, and >1000 char reasons', () => {
+  assert.equal(MAX_LEAVE_REASON_LENGTH, 1000);
   assert.throws(() => validateLeaveReason(''), PermissionValidationError);
   assert.throws(() => validateLeaveReason('   \n\t  '), PermissionValidationError);
   assert.throws(
-    () => validateLeaveReason('a'.repeat(501)),
+    () => validateLeaveReason('a'.repeat(1001)),
     PermissionValidationError,
   );
+  assert.equal(validateLeaveReason('a'.repeat(1000)).length, 1000);
   assert.equal(validateLeaveReason('  Sakit demam tinggi  '), 'Sakit demam tinggi');
 });
 
@@ -210,11 +218,20 @@ test('submitLeaveRequest persists request with AI result and never auto-approves
   assert.equal(result.request.decidedBy, null);
   assert.equal(result.request.aiClassification.status, 'completed');
   assert.equal(result.request.aiClassification.category, 'Sakit');
+  assert.equal(result.request.aiClassification.reportedByClient, true);
 });
 
-test('submitLeaveRequest still saves pending request when AI API fails', async () => {
+test('submitLeaveRequest still saves pending request when AI API fails and supports controlled retry', async () => {
   const repository = createInMemoryPermissionRepository();
-  const result = await submitLeaveRequest(
+  const allSnapshots = [];
+  const unsub = subscribeAsistenLeaves(
+    asistenActor,
+    (items) => allSnapshots.push(items),
+    undefined,
+    repository,
+  );
+
+  const initial = await submitLeaveRequest(
     {
       actor: praktikanActor,
       session: sampleSession,
@@ -231,10 +248,37 @@ test('submitLeaveRequest still saves pending request when AI API fails', async (
     },
   );
 
-  assert.ok(result.aiWarning);
-  assert.equal(result.request.status, 'pending');
-  assert.equal(result.request.aiClassification.status, 'failed');
-  assert.equal(result.request.aiClassification.category, null);
+  assert.ok(initial.aiWarning);
+  assert.equal(initial.request.status, 'pending');
+  assert.equal(initial.request.aiClassification.status, 'failed');
+
+  await assert.rejects(
+    () => retryLeaveAiClassification(otherPraktikanActor, initial.request, { repository }),
+    PermissionAuthorizationError,
+  );
+
+  const retried = await retryLeaveAiClassification(
+    praktikanActor,
+    initial.request,
+    {
+      repository,
+      aiConfig: {
+        endpointUrl: 'https://ai.example.test/classify',
+        fetchImpl: async () =>
+          new Response(JSON.stringify({ category: 'Keluarga', confidence: 0.88 }), {
+            status: 200,
+          }),
+      },
+    },
+  );
+
+  assert.equal(retried.aiWarning, null);
+  assert.equal(retried.request.id, initial.request.id);
+  assert.equal(retried.request.status, 'pending');
+  assert.equal(retried.request.aiClassification.status, 'completed');
+  assert.equal(retried.request.aiClassification.category, 'Keluarga');
+  assert.equal(allSnapshots.at(-1).length, 1);
+  unsub();
 });
 
 test('submitLeaveRequest enforces praktikan role and enrolled class membership', async () => {
@@ -267,7 +311,7 @@ test('submitLeaveRequest enforces praktikan role and enrolled class membership',
   );
 });
 
-test('decideLeaveRequest enforces asisten role and updates praktikan real-time listener', async () => {
+test('decideLeaveRequest enforces asisten role, rejects double decision, and updates listeners', async () => {
   const repository = createInMemoryPermissionRepository();
   const { request } = await submitLeaveRequest(
     {
@@ -336,6 +380,26 @@ test('decideLeaveRequest enforces asisten role and updates praktikan real-time l
   assert.equal(praktikanSnapshots.at(-1)[0].status, 'approved');
   assert.equal(asistenSnapshots.at(-1)[0].status, 'approved');
 
+  // Keputusan final tidak dapat ditimpa oleh keputusan kedua
+  await assert.rejects(
+    () =>
+      decideLeaveRequest(
+        {
+          actor: asistenActor,
+          requestId: request.id,
+          decision: 'rejected',
+        },
+        { repository },
+      ),
+    PermissionConflictError,
+  );
+
+  // Retry AI tidak boleh jalan setelah keputusan final
+  await assert.rejects(
+    () => retryLeaveAiClassification(praktikanActor, decided, { repository }),
+    PermissionConflictError,
+  );
+
   const countBeforeUnsub = praktikanSnapshots.length;
   unsubPraktikan();
   unsubOther();
@@ -353,17 +417,224 @@ test('decideLeaveRequest enforces asisten role and updates praktikan real-time l
   assert.equal(praktikanSnapshots.length, countBeforeUnsub);
 });
 
-test('fromFirestoreLeaveRequestDoc and Sprint 1 adapters normalize safely', () => {
+test('late AI response arriving after assistant decision does not overwrite final status', async () => {
+  const repository = createInMemoryPermissionRepository();
+  const asistenSnapshots = [];
+  const unsub = subscribeAsistenLeaves(
+    asistenActor,
+    (items) => asistenSnapshots.push(items),
+    undefined,
+    repository,
+  );
+
+  let resolveFetch;
+  const pendingSubmission = submitLeaveRequest(
+    {
+      actor: praktikanActor,
+      session: sampleSession,
+      reason: 'Sakit perut mendadak',
+    },
+    {
+      repository,
+      aiConfig: {
+        endpointUrl: 'https://ai.example.test/classify',
+        fetchImpl: () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve;
+          }),
+      },
+    },
+  );
+
+  // Tunggu pengajuan awal tersimpan sebelum fetch AI selesai
+  await new Promise((r) => setTimeout(r, 10));
+  const savedPending = asistenSnapshots.at(-1)[0];
+  assert.equal(savedPending.status, 'pending');
+
+  // Asisten memutuskan sebelum AI merespons
+  const approved = await decideLeaveRequest(
+    {
+      actor: asistenActor,
+      requestId: savedPending.id,
+      decision: 'approved',
+    },
+    { repository },
+  );
+  assert.equal(approved.status, 'approved');
+
+  // Respons AI baru tiba belakangan
+  resolveFetch(
+    new Response(JSON.stringify({ category: 'Sakit', confidence: 0.9 }), {
+      status: 200,
+    }),
+  );
+  const result = await pendingSubmission;
+  assert.ok(result.aiWarning);
+  assert.equal(asistenSnapshots.at(-1)[0].status, 'approved');
+  unsub();
+});
+
+test('fromFirestoreLeaveRequestDoc normalizes Firestore fields and Timestamp objects', () => {
   const doc = fromFirestoreLeaveRequestDoc('req-1', {
     uid: 'u1',
     sessionId: 's1',
-    reason: 'Sakit',
-    aiClassification: { status: 'completed', category: 'Sakit' },
+    alasan: 'Sakit demam',
+    ai: { status: 'completed', category: 'Sakit', reportedByClient: true },
     status: 'rejected',
+    reviewedBy: 'asisten-uid',
+    reviewedAt: { toDate: () => new Date('2026-10-21T09:15:00.000Z') },
+    reviewNote: 'Surat dokter menyusul',
+    createdAt: { toDate: () => new Date('2026-10-21T08:00:00.000Z') },
+    updatedAt: { toDate: () => new Date('2026-10-21T09:15:00.000Z') },
   });
+
   assert.equal(doc.id, 'req-1');
+  assert.equal(doc.reason, 'Sakit demam');
   assert.equal(doc.status, 'rejected');
+  assert.equal(doc.decidedBy, 'asisten-uid');
+  assert.equal(doc.decidedAt, '2026-10-21T09:15:00.000Z');
+  assert.equal(doc.decisionNote, 'Surat dokter menyusul');
   assert.equal(doc.aiClassification.category, 'Sakit');
+  assert.equal(doc.createdAt, '2026-10-21T08:00:00.000Z');
+});
+
+test('firestorePermissionRepository complies with firestore.rules create/update field contracts', async () => {
+  const createdDocs = [];
+  const aiUpdates = [];
+  const txUpdates = [];
+  const fakeDb = { kind: 'fake-db' };
+  const fakeServerTs = { __serverTimestamp: true };
+
+  const fakeFirestore = {
+    collection: (_db, name) => ({ path: name }),
+    doc: (_db, name, id) => ({ path: `${name}/${id}`, id }),
+    serverTimestamp: () => fakeServerTs,
+    addDoc: async (_col, data) => {
+      createdDocs.push(data);
+      return { id: 'fs-req-1' };
+    },
+    updateDoc: async (_ref, data) => {
+      aiUpdates.push(data);
+    },
+    getDoc: async (ref) => ({
+      exists: () => true,
+      id: ref.id,
+      data: () => ({
+        ...createdDocs[0],
+        ...(aiUpdates[0] ?? {}),
+        createdAt: { toDate: () => new Date('2026-10-21T08:00:00.000Z') },
+        updatedAt: { toDate: () => new Date('2026-10-21T08:01:00.000Z') },
+      }),
+    }),
+    runTransaction: async (_db, handler) => {
+      const tx = {
+        get: async () => ({
+          exists: () => true,
+          id: 'fs-req-1',
+          data: () => ({
+            ...createdDocs[0],
+            status: 'pending',
+          }),
+        }),
+        update: (_ref, patch) => {
+          txUpdates.push(patch);
+        },
+      };
+      return handler(tx);
+    },
+    query: (...args) => ({ args }),
+    where: (...args) => ({ args }),
+    onSnapshot: () => () => {},
+  };
+
+  const { firestorePermissionRepository } = loadSource(
+    'services/firestorePermissionRepository',
+    {
+      'firebase/firestore': fakeFirestore,
+      '@/config/firebase': {
+        getFirebaseDb: () => fakeDb,
+        isFirebaseConfigured: true,
+      },
+    },
+  );
+
+  const created = await firestorePermissionRepository.createLeaveRequest({
+    uid: 'uid-1',
+    praktikanName: 'Budi',
+    praktikanNim: '2310511001',
+    sessionId: 'sesi-2',
+    sessionTopic: 'Komponen',
+    classId: 'kelas-a',
+    className: 'PPK A',
+    sessionDate: '2026-10-21',
+    reason: 'Izin sakit',
+    aiClassification: {
+      status: 'pending',
+      category: null,
+      confidence: null,
+      classifiedAt: null,
+      errorMessage: null,
+      reportedByClient: true,
+    },
+    status: 'pending',
+    decidedBy: null,
+    decidedByName: null,
+    decidedAt: null,
+    decisionNote: null,
+    createdAt: '2026-10-21T08:00:00.000Z',
+    updatedAt: '2026-10-21T08:00:00.000Z',
+  });
+
+  assert.equal(created.id, 'fs-req-1');
+  assert.equal(createdDocs[0].alasan, 'Izin sakit');
+  assert.equal(createdDocs[0].status, 'pending');
+  assert.equal(createdDocs[0].reviewedBy, null);
+  assert.equal(createdDocs[0].reviewedAt, null);
+
+  await firestorePermissionRepository.updateAiClassification(
+    'fs-req-1',
+    {
+      status: 'completed',
+      category: 'Sakit',
+      confidence: 0.9,
+      classifiedAt: '2026-10-21T08:01:00.000Z',
+      errorMessage: null,
+      reportedByClient: true,
+    },
+    '2026-10-21T08:01:00.000Z',
+  );
+  // Wajib hanya mengubah key ['ai', 'updatedAt'] sesuai firestore.rules
+  assert.deepEqual(Object.keys(aiUpdates[0]).sort(), ['ai', 'updatedAt']);
+
+  await firestorePermissionRepository.updateLeaveDecision('fs-req-1', {
+    status: 'approved',
+    decidedBy: 'asisten-uid',
+    decidedByName: 'Nauval',
+    decidedAt: '2026-10-21T09:00:00.000Z',
+    decisionNote: 'Disetujui',
+    updatedAt: '2026-10-21T09:00:00.000Z',
+  });
+  // Wajib hanya mengubah 5 key sesuai whitelist firestore.rules
+  assert.deepEqual(
+    Object.keys(txUpdates[0]).sort(),
+    ['reviewNote', 'reviewedAt', 'reviewedBy', 'status', 'updatedAt'],
+  );
+});
+
+test('Sprint 1 and P1 ProfilPengguna adapters map cleanly', () => {
+  const profilActor = mapProfilToPermissionActor(
+    {
+      uid: 'fb-uid-1',
+      email: 'budi@example.com',
+      nama: 'Budi',
+      role: 'praktikan',
+      nim: '2310511001',
+      kelasId: 'kelas-a',
+    },
+    'kelas-b',
+  );
+  assert.equal(profilActor.uid, 'fb-uid-1');
+  assert.deepEqual(profilActor.classIds, ['kelas-b']);
 
   const actor = mapPenggunaToPermissionActor(initialState.pengguna[1]);
   assert.equal(actor.role, 'praktikan');
@@ -373,4 +644,3 @@ test('fromFirestoreLeaveRequestDoc and Sprint 1 adapters normalize safely', () =
   assert.equal(options.length, initialState.sesi.length);
   assert.equal(options[0].className, 'PPK A');
 });
-
