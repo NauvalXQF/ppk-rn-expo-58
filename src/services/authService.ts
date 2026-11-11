@@ -66,7 +66,8 @@ export async function daftarPraktikan(input: {
     email: credential.user.email,
     nama,
     role: 'praktikan' satisfies Role,
-    dibuatPada: serverTimestamp(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
 
   return credential.user;
@@ -109,7 +110,8 @@ export async function pastikanProfil(user: User): Promise<ProfilPengguna> {
 
   await setDoc(ref, {
     ...profil,
-    dibuatPada: serverTimestamp(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
 
   return profil;
