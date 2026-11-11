@@ -73,6 +73,7 @@ export const LABEL_STATUS: Record<StatusSesi, string> = {
 
 export type AppAction =
   | { type: 'PILIH_PENGGUNA'; pengguna: Pengguna }
+  | { type: 'SET_PENGGUNA'; pengguna: Pengguna }
   | { type: 'KELUAR' }
   | { type: 'BUKA_SESI'; sesiId: string }
   | { type: 'TUTUP_SESI'; sesiId: string }

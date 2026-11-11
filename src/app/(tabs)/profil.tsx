@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/store/app-context';
+import { useAuth } from '@/contexts/AuthContext';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
 import { AppCard } from '@/components/ui/AppCard';
@@ -11,10 +12,12 @@ import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 export default function ProfilRoute() {
   const router = useRouter();
   const { state, dispatch } = useApp();
+  const { pengguna, keluar } = useAuth();
   const user = state.currentUser;
 
   const [confirmGantiVisible, setConfirmGantiVisible] = useState(false);
   const [confirmResetVisible, setConfirmResetVisible] = useState(false);
+  const [loadingKeluar, setLoadingKeluar] = useState(false);
 
   if (!user) {
     return null;
@@ -25,9 +28,16 @@ export default function ProfilRoute() {
       ? state.kelas.find((k) => k.id === user.kelasId)
       : null;
 
-  const handleGantiPengguna = () => {
-    dispatch({ type: 'KELUAR' });
-    router.replace('/');
+  const handleGantiPengguna = async () => {
+    setLoadingKeluar(true);
+    try {
+      await keluar();
+      dispatch({ type: 'KELUAR' });
+      router.replace('/');
+    } finally {
+      setLoadingKeluar(false);
+      setConfirmGantiVisible(false);
+    }
   };
 
   const handleResetData = () => {
@@ -39,7 +49,7 @@ export default function ProfilRoute() {
     <ScreenContainer>
       <View style={styles.header}>
         <Text style={styles.screenTitle}>Profil Pengguna</Text>
-        <Text style={styles.subtitle}>Informasi akun aktif dan opsi demo</Text>
+        <Text style={styles.subtitle}>Informasi akun Firebase yang sedang aktif</Text>
       </View>
 
       <AppCard style={styles.userCard}>
@@ -57,14 +67,16 @@ export default function ProfilRoute() {
           <Text style={styles.userNumber}>
             {user.peran === 'asisten' ? `NIP ${user.nip}` : `NIM ${user.nim}`}
           </Text>
+          <Text style={styles.userNumber}>{pengguna?.email ?? '-'}</Text>
         </View>
       </AppCard>
 
       <View style={styles.actions}>
         <AppButton
-          label="Ganti Pengguna"
+          label="Keluar"
           variant="secondary"
           onPress={() => setConfirmGantiVisible(true)}
+          loading={loadingKeluar}
         />
         <AppButton
           label="Reset Data Demo"
@@ -73,12 +85,12 @@ export default function ProfilRoute() {
         />
       </View>
 
-      <Text style={styles.versionText}>Versi 1.0.0 · Sprint 1</Text>
+      <Text style={styles.versionText}>Versi 1.0.0 · Sprint 2</Text>
 
       <ConfirmSheet
         visible={confirmGantiVisible}
-        title="Ganti Pengguna"
-        description="Anda akan keluar dari sesi saat ini dan kembali ke pemilihan pengguna."
+        title="Keluar"
+        description="Anda akan keluar dari akun Firebase dan kembali ke halaman login."
         confirmLabel="Ya, Keluar"
         onConfirm={handleGantiPengguna}
         onClose={() => setConfirmGantiVisible(false)}
