@@ -44,6 +44,7 @@ export default function TabsLayout() {
           href: isAsisten ? undefined : null,
         }}
       />
+      <Tabs.Screen name="izin" options={{ title: 'Izin' }} />
       <Tabs.Screen name="profil" options={{ title: 'Profil' }} />
     </Tabs>
   );
