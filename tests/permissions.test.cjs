@@ -21,6 +21,8 @@ function loadSource(name, overrides = {}) {
       module: ts.ModuleKind.CommonJS,
       jsx: ts.JsxEmit.ReactJSX,
       target: ts.ScriptTarget.ES2022,
+      esModuleInterop: true,
+      resolveJsonModule: true,
     },
   }).outputText;
   const nativeRequire = createRequire(file);
@@ -643,4 +645,37 @@ test('Sprint 1 and P1 ProfilPengguna adapters map cleanly', () => {
   const options = mapSesiToLeaveOptions(initialState.sesi, initialState.kelas);
   assert.equal(options.length, initialState.sesi.length);
   assert.equal(options[0].className, 'PPK A');
+});
+
+test('local EDOM sentiment model integrates as default offline AI classifier', async () => {
+  const positive = await classifyLeaveReason('Penjelasan asisten mudah dipahami', {
+    now: () => new Date('2026-10-21T08:05:00.000Z'),
+  });
+  assert.equal(positive.status, 'completed');
+  assert.equal(positive.category, 'positif');
+  assert.equal(positive.confidence, null);
+  assert.equal(positive.experimental, true);
+  assert.equal(positive.reportedByClient, true);
+  assert.equal(positive.classifiedAt, '2026-10-21T08:05:00.000Z');
+  assert.equal(positive.errorMessage, null);
+
+  const unknownVocab = await classifyLeaveReason('asdfghjkl qazwsxedc');
+  assert.equal(unknownVocab.status, 'failed');
+  assert.equal(unknownVocab.category, null);
+  assert.match(unknownVocab.errorMessage, /kata belum dikenali/i);
+
+  const repository = createInMemoryPermissionRepository();
+  const submitted = await submitLeaveRequest(
+    {
+      actor: praktikanActor,
+      session: sampleSession,
+      reason: 'Saya sakit demam tinggi dan tidak bisa hadir praktikum',
+    },
+    { repository },
+  );
+  assert.equal(submitted.aiWarning, null);
+  assert.equal(submitted.request.status, 'pending');
+  assert.equal(submitted.request.aiClassification.status, 'completed');
+  assert.ok(['positif', 'netral', 'negatif'].includes(submitted.request.aiClassification.category));
+  assert.equal(submitted.request.aiClassification.experimental, true);
 });

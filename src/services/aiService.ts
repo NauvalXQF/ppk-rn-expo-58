@@ -1,19 +1,35 @@
 import type { AiClassificationResult } from '@/features/permissions/types';
+import {
+  createSentimentClassifier,
+  type SentimentPrediction,
+} from '../../ai/sentiment.js';
+import edomModel from '../../ai/model-edom.json';
 
 export type FetchLike = (
   input: string,
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type LocalSentimentClassifier = (text: string) => SentimentPrediction;
+
 export interface AiServiceConfig {
   /**
-   * URL endpoint API AI (atau proxy backend aman jika API pengajar memerlukan secret key).
+   * Mode pemilihan klasifikasi AI:
+   * - `auto` (default): memakai HTTP endpoint jika `endpointUrl` / `EXPO_PUBLIC_AI_API_URL` diisi,
+   *   atau otomatis menggunakan model sentimen lokal (`ai/sentiment.js` + `ai/model-edom.json`).
+   * - `local`: memaksa inferensi model lokal di perangkat.
+   * - `remote`: memaksa pemanggilan HTTP endpoint.
+   */
+  mode?: 'auto' | 'local' | 'remote';
+  /**
+   * URL endpoint API AI opsional jika pengajar menyediakan layanan HTTP.
    * Jangan pernah menyimpan API key rahasia di source code atau EXPO_PUBLIC_*.
    */
   endpointUrl?: string;
   method?: 'POST' | 'GET';
   timeoutMs?: number;
   fetchImpl?: FetchLike;
+  localClassifier?: LocalSentimentClassifier;
   /** Hook opsional untuk menyesuaikan payload request dengan dokumentasi API pengajar. */
   buildRequestBody?: (reason: string) => Record<string, unknown>;
   /** Hook opsional untuk menyesuaikan pembacaan response dengan dokumentasi API pengajar. */
@@ -25,6 +41,19 @@ export interface AiServiceConfig {
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+
+let cachedLocalClassifier: LocalSentimentClassifier | null = null;
+
+function getDefaultLocalClassifier(): LocalSentimentClassifier {
+  if (!cachedLocalClassifier) {
+    const modelRecord = edomModel as Record<string, unknown> & {
+      default?: Record<string, unknown>;
+    };
+    const resolvedModel = modelRecord.default ?? modelRecord;
+    cachedLocalClassifier = createSentimentClassifier(resolvedModel);
+  }
+  return cachedLocalClassifier;
+}
 
 function readPublicAiEndpoint(): string | undefined {
   if (typeof process === 'undefined' || !process.env) {
@@ -102,9 +131,47 @@ function buildFailedResult(errorMessage: string): AiClassificationResult {
   };
 }
 
+function classifyWithLocalModel(
+  trimmedReason: string,
+  config: AiServiceConfig,
+): AiClassificationResult {
+  try {
+    const classify = config.localClassifier ?? getDefaultLocalClassifier();
+    const prediction = classify(trimmedReason);
+
+    if (!prediction.label) {
+      if (prediction.status === 'empty_input') {
+        return buildFailedResult(
+          'Alasan izin kosong sehingga tidak dapat diklasifikasi.',
+        );
+      }
+      return buildFailedResult(
+        'Alasan belum dapat dianalisis oleh model AI lokal (kata belum dikenali). Gunakan kalimat yang lebih jelas; pengajuan tetap disimpan untuk ditinjau asisten.',
+      );
+    }
+
+    const timestamp = (config.now ? config.now() : new Date()).toISOString();
+
+    return {
+      status: 'completed',
+      category: prediction.label.trim(),
+      // Model EDOM LinearSVC memakai decision margin, bukan probabilitas terkalibrasi 0..1.
+      confidence: null,
+      classifiedAt: timestamp,
+      errorMessage: null,
+      reportedByClient: true,
+      experimental: Boolean(prediction.experimental),
+    };
+  } catch {
+    return buildFailedResult(
+      'Gagal menjalankan model AI lokal. Pengajuan tetap disimpan untuk ditinjau asisten.',
+    );
+  }
+}
+
 /**
- * Mengirim alasan izin ke API AI pengajar dengan timeout dan fallback aman.
- * Tidak melempar error jaringan/API agar pengajuan izin tetap dapat disimpan dengan status AI `failed`.
+ * Mengirim alasan izin ke API AI pengajar atau model sentimen lokal (`ai/sentiment.js`).
+ * Tidak melempar error agar pengajuan izin tetap dapat disimpan dengan status AI `failed`.
  */
 export async function classifyLeaveReason(
   reason: string,
@@ -115,7 +182,24 @@ export async function classifyLeaveReason(
     return buildFailedResult('Alasan izin kosong sehingga tidak dapat diklasifikasi.');
   }
 
-  const endpointUrl = config.endpointUrl?.trim() || readPublicAiEndpoint();
+  const mode = config.mode ?? 'auto';
+  const hasExplicitEndpoint = Object.prototype.hasOwnProperty.call(
+    config,
+    'endpointUrl',
+  );
+  const explicitEndpoint = config.endpointUrl?.trim();
+  const publicEndpoint = readPublicAiEndpoint();
+  const endpointUrl = explicitEndpoint || (!hasExplicitEndpoint ? publicEndpoint : undefined);
+
+  const shouldUseLocal =
+    mode === 'local' ||
+    (mode === 'auto' &&
+      Boolean(config.localClassifier || (!endpointUrl && !hasExplicitEndpoint)));
+
+  if (shouldUseLocal) {
+    return classifyWithLocalModel(trimmedReason, config);
+  }
+
   if (!endpointUrl) {
     return buildFailedResult(
       'Endpoint API AI belum dikonfigurasi. Pengajuan tetap disimpan untuk ditinjau asisten.',

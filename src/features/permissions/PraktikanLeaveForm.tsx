@@ -104,11 +104,14 @@ export function PraktikanLeaveForm({
         });
       } else {
         const category = result.request.aiClassification.category;
+        const expNote = result.request.aiClassification.experimental
+          ? ' (eksperimental)'
+          : '';
         setFeedback({
           tone: 'success',
           message: 'Pengajuan izin berhasil dikirim.',
           description: category
-            ? `Klasifikasi pendukung AI: ${category}. Status saat ini: Menunggu keputusan asisten.`
+            ? `Klasifikasi pendukung AI${expNote}: ${category}. Status saat ini: Menunggu keputusan asisten.`
             : 'Status saat ini: Menunggu keputusan asisten.',
         });
       }

@@ -266,6 +266,9 @@ export function fromFirestoreLeaveRequestDoc(
         typeof aiRaw.reportedByClient === 'boolean'
           ? aiRaw.reportedByClient
           : true,
+      ...(typeof aiRaw.experimental === 'boolean'
+        ? { experimental: aiRaw.experimental }
+        : {}),
     },
     status,
     decidedBy,

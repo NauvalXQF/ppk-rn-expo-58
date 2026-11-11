@@ -46,6 +46,8 @@ export interface AiClassificationResult {
   errorMessage: string | null;
   /** Penanda keamanan bahwa hasil AI berasal dari klien (bukan verifikasi server). */
   reportedByClient?: boolean;
+  /** Penanda dari model lokal asisten (`sentiment.js`) bahwa hasil masih bersifat eksperimental. */
+  experimental?: boolean;
 }
 
 /**

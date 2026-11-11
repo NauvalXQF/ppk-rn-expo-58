@@ -55,6 +55,9 @@ function serializeAiForFirestore(ai: AiClassificationResult) {
     classifiedAt: ai.classifiedAt,
     errorMessage: ai.errorMessage,
     reportedByClient: ai.reportedByClient ?? true,
+    ...(typeof ai.experimental === 'boolean'
+      ? { experimental: ai.experimental }
+      : {}),
   };
 }
 
