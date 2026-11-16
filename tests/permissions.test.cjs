@@ -116,70 +116,91 @@ test('validateLeaveReason rejects empty, whitespace, and >1000 char reasons', ()
   assert.equal(validateLeaveReason('  Sakit demam tinggi  '), 'Sakit demam tinggi');
 });
 
-test('aiService parses valid classification and handles failures without throwing', async () => {
-  const missingUrl = await classifyLeaveReason('Demam sejak semalam', {
-    endpointUrl: '',
-  });
-  assert.equal(missingUrl.status, 'failed');
-  assert.equal(missingUrl.category, null);
-  assert.ok(missingUrl.errorMessage);
+test('aiService enforces local-only inference and ignores remote configurations without making HTTP requests', async () => {
+  const failingFetch = () => {
+    throw new Error('HTTP fetch must never be called during local-only AI inference');
+  };
 
-  const okResult = await classifyLeaveReason('Demam dan dirawat di klinik', {
-    endpointUrl: 'https://ai.example.test/classify',
+  // 1. Pemanggilan default menggunakan model lokal (EDOM)
+  const defaultResult = await classifyLeaveReason('Penjelasan asisten mudah dipahami', {
     now: () => new Date('2026-10-21T08:00:00.000Z'),
-    fetchImpl: async (url, init) => {
-      assert.equal(url, 'https://ai.example.test/classify');
-      assert.equal(init.method, 'POST');
-      assert.deepEqual(JSON.parse(init.body), {
-        reason: 'Demam dan dirawat di klinik',
-      });
-      return new Response(
-        JSON.stringify({ category: 'Sakit', confidence: 0.92 }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
+  });
+  assert.equal(defaultResult.status, 'completed');
+  assert.equal(defaultResult.category, 'positif');
+  assert.equal(defaultResult.confidence, null);
+  assert.equal(defaultResult.experimental, true);
+  assert.equal(defaultResult.reportedByClient, true);
+  assert.equal(defaultResult.classifiedAt, '2026-10-21T08:00:00.000Z');
+  assert.equal(defaultResult.errorMessage, null);
+
+  // 2. Konfigurasi auto tidak memicu HTTP
+  const autoResult = await classifyLeaveReason('Penjelasan asisten mudah dipahami', {
+    mode: 'auto',
+    endpointUrl: 'https://ai.example.test/classify',
+    fetchImpl: failingFetch,
+  });
+  assert.equal(autoResult.status, 'completed');
+  assert.equal(autoResult.category, 'positif');
+
+  // 3. Konfigurasi remote tidak memicu HTTP
+  const remoteResult = await classifyLeaveReason('Penjelasan asisten mudah dipahami', {
+    mode: 'remote',
+    endpointUrl: 'https://ai.example.test/classify',
+    fetchImpl: failingFetch,
+  });
+  assert.equal(remoteResult.status, 'completed');
+  assert.equal(remoteResult.category, 'positif');
+
+  // 4. Environment API yang tersedia tidak memicu HTTP
+  const originalEnv = process.env.EXPO_PUBLIC_AI_API_URL;
+  try {
+    process.env.EXPO_PUBLIC_AI_API_URL = 'https://ai.example.test/env-endpoint';
+    const envResult = await classifyLeaveReason('Penjelasan asisten mudah dipahami', {
+      fetchImpl: failingFetch,
+    });
+    assert.equal(envResult.status, 'completed');
+    assert.equal(envResult.category, 'positif');
+  } finally {
+    if (originalEnv === undefined) {
+      delete process.env.EXPO_PUBLIC_AI_API_URL;
+    } else {
+      process.env.EXPO_PUBLIC_AI_API_URL = originalEnv;
+    }
+  }
+
+  // 5 & 6. Endpoint eksplisit & fetchFn tidak pernah dipanggil
+  let fetchCalled = false;
+  const explicitResult = await classifyLeaveReason('Saya sakit demam tinggi dan tidak bisa hadir', {
+    endpointUrl: 'https://ai.example.test/explicit',
+    fetchImpl: () => {
+      fetchCalled = true;
+      throw new Error('Unexpected network call');
     },
   });
-  assert.equal(okResult.status, 'completed');
-  assert.equal(okResult.category, 'Sakit');
-  assert.equal(okResult.confidence, 0.92);
-  assert.equal(okResult.classifiedAt, '2026-10-21T08:00:00.000Z');
-  assert.equal(okResult.errorMessage, null);
+  assert.equal(fetchCalled, false);
+  assert.equal(explicitResult.status, 'completed');
+  assert.equal(explicitResult.category, 'negatif');
 
-  const serverError = await classifyLeaveReason('Izin keluarga', {
-    endpointUrl: 'https://ai.example.test/classify',
-    fetchImpl: async () => new Response('Server error', { status: 500 }),
-  });
-  assert.equal(serverError.status, 'failed');
-  assert.equal(serverError.category, null);
-  assert.match(serverError.errorMessage, /500/);
+  // 7 & 8. label: null tetap ditangani dan tidak dianggap netral
+  const emptyResult = await classifyLeaveReason('   \n\t  ');
+  assert.equal(emptyResult.status, 'failed');
+  assert.equal(emptyResult.category, null);
+  assert.match(emptyResult.errorMessage, /kosong/i);
 
-  const invalidJson = await classifyLeaveReason('Izin keluarga', {
-    endpointUrl: 'https://ai.example.test/classify',
-    fetchImpl: async () => new Response('not-json', { status: 200 }),
-  });
-  assert.equal(invalidJson.status, 'failed');
+  const unknownVocabResult = await classifyLeaveReason('asdfghjkl qazwsxedc');
+  assert.equal(unknownVocabResult.status, 'failed');
+  assert.equal(unknownVocabResult.category, null);
+  assert.match(unknownVocabResult.errorMessage, /kata belum dikenali/i);
 
-  const malformedShape = await classifyLeaveReason('Izin keluarga', {
-    endpointUrl: 'https://ai.example.test/classify',
-    fetchImpl: async () =>
-      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+  // 9. Exception pada classifier menghasilkan respons aman tanpa throw
+  const exceptionResult = await classifyLeaveReason('Penjelasan asisten', {
+    localClassifier: () => {
+      throw new Error('Simulated engine failure');
+    },
   });
-  assert.equal(malformedShape.status, 'failed');
-
-  const aborted = await classifyLeaveReason('Izin keluarga', {
-    endpointUrl: 'https://ai.example.test/classify',
-    timeoutMs: 15,
-    fetchImpl: (_url, init) =>
-      new Promise((_resolve, reject) => {
-        init.signal.addEventListener('abort', () => {
-          const err = new Error('The operation was aborted');
-          err.name = 'AbortError';
-          reject(err);
-        });
-      }),
-  });
-  assert.equal(aborted.status, 'failed');
-  assert.match(aborted.errorMessage, /timeout/i);
+  assert.equal(exceptionResult.status, 'failed');
+  assert.equal(exceptionResult.category, null);
+  assert.match(exceptionResult.errorMessage, /Gagal menjalankan model AI lokal/i);
 });
 
 test('parseAiClassificationResponse supports custom response hooks and nested data', () => {
@@ -192,22 +213,22 @@ test('parseAiClassificationResponse supports custom response hooks and nested da
 
 test('submitLeaveRequest persists request with AI result and never auto-approves', async () => {
   const repository = createInMemoryPermissionRepository();
+  const failingFetch = () => {
+    throw new Error('HTTP fetch must never be called during leave submission');
+  };
+
   const result = await submitLeaveRequest(
     {
       actor: praktikanActor,
       session: sampleSession,
-      reason: '  Sakit demam sejak pagi  ',
+      reason: '  Penjelasan asisten mudah dipahami  ',
     },
     {
       repository,
       now: () => new Date('2026-10-21T07:30:00.000Z'),
       aiConfig: {
-        endpointUrl: 'https://ai.example.test/classify',
-        now: () => new Date('2026-10-21T07:30:01.000Z'),
-        fetchImpl: async () =>
-          new Response(JSON.stringify({ category: 'Sakit', confidence: 0.95 }), {
-            status: 200,
-          }),
+        endpointUrl: 'https://ai.example.test/legacy-endpoint',
+        fetchImpl: failingFetch,
       },
     },
   );
@@ -215,15 +236,16 @@ test('submitLeaveRequest persists request with AI result and never auto-approves
   assert.equal(result.aiWarning, null);
   assert.equal(result.request.uid, praktikanActor.uid);
   assert.equal(result.request.sessionId, sampleSession.id);
-  assert.equal(result.request.reason, 'Sakit demam sejak pagi');
+  assert.equal(result.request.reason, 'Penjelasan asisten mudah dipahami');
   assert.equal(result.request.status, 'pending');
   assert.equal(result.request.decidedBy, null);
   assert.equal(result.request.aiClassification.status, 'completed');
-  assert.equal(result.request.aiClassification.category, 'Sakit');
+  assert.equal(result.request.aiClassification.category, 'positif');
   assert.equal(result.request.aiClassification.reportedByClient, true);
+  assert.equal(result.request.aiClassification.experimental, true);
 });
 
-test('submitLeaveRequest still saves pending request when AI API fails and supports controlled retry', async () => {
+test('submitLeaveRequest still saves pending request when AI fails and supports controlled retry', async () => {
   const repository = createInMemoryPermissionRepository();
   const allSnapshots = [];
   const unsub = subscribeAsistenLeaves(
@@ -237,14 +259,13 @@ test('submitLeaveRequest still saves pending request when AI API fails and suppo
     {
       actor: praktikanActor,
       session: sampleSession,
-      reason: 'Ada urusan keluarga mendadak',
+      reason: 'Penjelasan asisten mudah dipahami',
     },
     {
       repository,
       aiConfig: {
-        endpointUrl: 'https://ai.example.test/classify',
-        fetchImpl: async () => {
-          throw new Error('Network down');
+        localClassifier: () => {
+          throw new Error('Simulated engine failure');
         },
       },
     },
@@ -264,13 +285,6 @@ test('submitLeaveRequest still saves pending request when AI API fails and suppo
     initial.request,
     {
       repository,
-      aiConfig: {
-        endpointUrl: 'https://ai.example.test/classify',
-        fetchImpl: async () =>
-          new Response(JSON.stringify({ category: 'Keluarga', confidence: 0.88 }), {
-            status: 200,
-          }),
-      },
     },
   );
 
@@ -278,7 +292,7 @@ test('submitLeaveRequest still saves pending request when AI API fails and suppo
   assert.equal(retried.request.id, initial.request.id);
   assert.equal(retried.request.status, 'pending');
   assert.equal(retried.request.aiClassification.status, 'completed');
-  assert.equal(retried.request.aiClassification.category, 'Keluarga');
+  assert.equal(retried.request.aiClassification.category, 'positif');
   assert.equal(allSnapshots.at(-1).length, 1);
   unsub();
 });
@@ -413,7 +427,7 @@ test('decideLeaveRequest enforces asisten role, rejects double decision, and upd
       session: sampleSession,
       reason: 'Izin kedua setelah unsubscribe',
     },
-    { repository, aiConfig: { endpointUrl: '' } },
+    { repository },
   );
 
   assert.equal(praktikanSnapshots.length, countBeforeUnsub);
@@ -429,7 +443,7 @@ test('late AI response arriving after assistant decision does not overwrite fina
     repository,
   );
 
-  let resolveFetch;
+  let resolveClassify;
   const pendingSubmission = submitLeaveRequest(
     {
       actor: praktikanActor,
@@ -439,16 +453,15 @@ test('late AI response arriving after assistant decision does not overwrite fina
     {
       repository,
       aiConfig: {
-        endpointUrl: 'https://ai.example.test/classify',
-        fetchImpl: () =>
+        localClassifier: () =>
           new Promise((resolve) => {
-            resolveFetch = resolve;
+            resolveClassify = resolve;
           }),
       },
     },
   );
 
-  // Tunggu pengajuan awal tersimpan sebelum fetch AI selesai
+  // Tunggu pengajuan awal tersimpan sebelum inferensi AI selesai
   await new Promise((r) => setTimeout(r, 10));
   const savedPending = asistenSnapshots.at(-1)[0];
   assert.equal(savedPending.status, 'pending');
@@ -465,11 +478,13 @@ test('late AI response arriving after assistant decision does not overwrite fina
   assert.equal(approved.status, 'approved');
 
   // Respons AI baru tiba belakangan
-  resolveFetch(
-    new Response(JSON.stringify({ category: 'Sakit', confidence: 0.9 }), {
-      status: 200,
-    }),
-  );
+  resolveClassify({
+    label: 'negatif',
+    status: 'predicted',
+    scores: [-0.4, 0.1, -0.8],
+    scoreType: 'decision_margin',
+    experimental: true,
+  });
   const result = await pendingSubmission;
   assert.ok(result.aiWarning);
   assert.equal(asistenSnapshots.at(-1)[0].status, 'approved');
