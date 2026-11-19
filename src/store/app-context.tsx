@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
   type Dispatch,
   type PropsWithChildren,
@@ -27,15 +28,18 @@ import {
   saveScheduleToFirestore,
   saveSessionToFirestore,
   seedInitialDataToFirestore,
-  subscribeAuthUserRealtime,
   subscribePracticumRealtime,
   updateSessionStatusInFirestore,
 } from '@/services/practicumService';
+import { resolveSessionLabTarget } from '@/services/location/geofenceService';
+import { isPraktikanInClass } from '@/store/selectors';
+import type { GeoAttendancePayload } from '@/types/geoAttendance';
 import type {
   AppAction,
   AppState,
   Jadwal,
   Kelas,
+  Pengguna,
   Praktikan,
   Presensi,
   Sesi,
@@ -44,6 +48,25 @@ import type {
 
 export type { AppAction } from '@/types/models';
 
+function isSamePengguna(a: Pengguna | null, b: Pengguna): boolean {
+  if (!a || a.id !== b.id || a.peran !== b.peran || a.nama !== b.nama || a.email !== b.email) {
+    return false;
+  }
+  if (a.peran === 'praktikan' && b.peran === 'praktikan') {
+    const aIds = a.kelasIds ?? [];
+    const bIds = b.kelasIds ?? [];
+    const sameKelasIds =
+      (a.kelasIds === undefined) === (b.kelasIds === undefined) &&
+      aIds.length === bIds.length &&
+      aIds.every((id, idx) => id === bIds[idx]);
+    return a.nim === b.nim && a.kelasId === b.kelasId && sameKelasIds;
+  }
+  if (a.peran === 'asisten' && b.peran === 'asisten') {
+    return a.nip === b.nip;
+  }
+  return false;
+}
+
 export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case 'PILIH_PENGGUNA': {
@@ -51,15 +74,37 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return pengguna ? { ...state, currentUser: pengguna } : state;
     }
     case 'SET_PENGGUNA': {
-      const sudahAda = state.pengguna.some((u) => u.id === action.pengguna.id);
+      const incoming: Pengguna =
+        action.pengguna.peran === 'praktikan' &&
+        state.currentUser?.peran === 'praktikan' &&
+        state.currentUser.id === action.pengguna.id &&
+        action.pengguna.kelasIds === undefined &&
+        state.currentUser.kelasIds !== undefined
+          ? {
+              ...action.pengguna,
+              kelasId: state.currentUser.kelasId,
+              kelasIds: state.currentUser.kelasIds,
+              nim:
+                action.pengguna.nim === '-' && state.currentUser.nim !== '-'
+                  ? state.currentUser.nim
+                  : action.pengguna.nim,
+            }
+          : action.pengguna;
+
+      const sudahAda = state.pengguna.some((u) => u.id === incoming.id);
+      if (sudahAda && isSamePengguna(state.currentUser, incoming)) {
+        return state;
+      }
       return {
         ...state,
-        currentUser: action.pengguna,
-        pengguna: sudahAda ? state.pengguna : [...state.pengguna, action.pengguna],
+        currentUser: incoming,
+        pengguna: sudahAda
+          ? state.pengguna.map((u) => (u.id === incoming.id ? incoming : u))
+          : [...state.pengguna, incoming],
       };
     }
     case 'KELUAR':
-      return { ...state, currentUser: null };
+      return state.currentUser === null ? state : { ...state, currentUser: null };
     case 'BUKA_SESI':
     case 'TUTUP_SESI': {
       if (state.currentUser?.peran !== 'asisten') return state;
@@ -88,7 +133,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         !sesi ||
         sesi.status !== 'dibuka' ||
         praktikan?.peran !== 'praktikan' ||
-        praktikan.kelasId !== sesi.kelasId
+        !isPraktikanInClass(praktikan, sesi.kelasId)
       ) {
         return state;
       }
@@ -105,6 +150,13 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         praktikanId: praktikan.id,
         waktuPresensi: action.waktuPresensi ?? new Date().toISOString(),
         catatan: action.catatan?.trim() || undefined,
+        ...(typeof action.latitude === 'number' ? { latitude: action.latitude } : {}),
+        ...(typeof action.longitude === 'number' ? { longitude: action.longitude } : {}),
+        ...(typeof action.accuracy === 'number' ? { accuracy: action.accuracy } : {}),
+        ...(typeof action.distanceMeters === 'number'
+          ? { distanceMeters: action.distanceMeters }
+          : {}),
+        ...(action.geofenceStatus ? { geofenceStatus: action.geofenceStatus } : {}),
       };
       return { ...state, presensi: [...state.presensi, baru] };
     }
@@ -133,24 +185,32 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     }
     case 'TAMBAH_PESERTA': {
       if (state.currentUser?.peran !== 'asisten') return state;
-      if (!action.peserta.nama.trim() || !action.peserta.nim.trim()) return state;
-      const exists = state.pengguna.some((u) => u.id === action.peserta.id);
+      if (!action.peserta.nama.trim()) return state;
+      const normalized: Praktikan = {
+        ...action.peserta,
+        nim: action.peserta.nim.trim() || '-',
+      };
+      const exists = state.pengguna.some((u) => u.id === normalized.id);
       return {
         ...state,
         pengguna: exists
           ? state.pengguna.map((u) =>
-              u.id === action.peserta.id ? action.peserta : u,
+              u.id === normalized.id ? normalized : u,
             )
-          : [...state.pengguna, action.peserta],
+          : [...state.pengguna, normalized],
       };
     }
     case 'UBAH_PESERTA': {
       if (state.currentUser?.peran !== 'asisten') return state;
-      if (!action.peserta.nama.trim() || !action.peserta.nim.trim()) return state;
+      if (!action.peserta.nama.trim()) return state;
+      const normalized: Praktikan = {
+        ...action.peserta,
+        nim: action.peserta.nim.trim() || '-',
+      };
       return {
         ...state,
         pengguna: state.pengguna.map((u) =>
-          u.id === action.peserta.id ? action.peserta : u,
+          u.id === normalized.id ? normalized : u,
         ),
       };
     }
@@ -166,6 +226,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case 'TAMBAH_JADWAL': {
       if (state.currentUser?.peran !== 'asisten') return state;
       const currentJadwal = state.jadwal ?? DEFAULT_SCHEDULES;
+      if (currentJadwal.some((j) => j.id === action.jadwal.id)) return state;
       return { ...state, jadwal: [...currentJadwal, action.jadwal] };
     }
     case 'UBAH_JADWAL': {
@@ -189,6 +250,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case 'TAMBAH_SESI': {
       if (state.currentUser?.peran !== 'asisten') return state;
       if (!action.sesi.topik.trim() || !action.sesi.ruang.trim()) return state;
+      if (state.sesi.some((s) => s.id === action.sesi.id)) return state;
       return { ...state, sesi: [...state.sesi, action.sesi] };
     }
     case 'UBAH_SESI': {
@@ -208,9 +270,23 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       };
     }
     case 'SYNC_FIRESTORE': {
+      const nextPayload = { ...action.payload };
+      if (
+        nextPayload.currentUser &&
+        isSamePengguna(state.currentUser, nextPayload.currentUser)
+      ) {
+        nextPayload.currentUser = state.currentUser;
+      }
+      if (
+        Object.keys(nextPayload).length === 1 &&
+        'currentUser' in nextPayload &&
+        nextPayload.currentUser === state.currentUser
+      ) {
+        return state;
+      }
       return {
         ...state,
-        ...action.payload,
+        ...nextPayload,
       };
     }
     case 'RESET_DATA':
@@ -229,13 +305,17 @@ export interface AppContextValue {
   clearError: () => void;
   bukaSesi: (sesiId: string) => Promise<void>;
   tutupSesi: (sesiId: string) => Promise<void>;
-  catatPresensi: (sesiId: string, catatan?: string) => Promise<void>;
+  catatPresensi: (
+    sesiId: string,
+    catatan?: string,
+    geo?: GeoAttendancePayload,
+  ) => Promise<Presensi>;
   simpanKelas: (input: { id?: string; nama: string }) => Promise<Kelas>;
   hapusKelas: (kelasId: string) => Promise<void>;
   simpanPeserta: (input: {
     id?: string;
     nama: string;
-    nim: string;
+    nim?: string;
     kelasId: string;
   }) => Promise<Praktikan>;
   hapusPeserta: (praktikanId: string) => Promise<void>;
@@ -271,55 +351,80 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isRemote = isFirebaseConfigured();
+  const currentUserRef = useRef(state.currentUser);
+
+  useEffect(() => {
+    currentUserRef.current = state.currentUser;
+  }, [state.currentUser]);
 
   const clearError = useCallback(() => setError(null), []);
 
-  // Sinkronisasi user dari Firebase Auth jika modul P1 sedang login
-  useEffect(() => {
-    if (!isRemote) return;
-    const unsub = subscribeAuthUserRealtime((fbUser) => {
-      if (!fbUser) return;
-      rawDispatch({
-        type: 'SYNC_FIRESTORE',
-        payload: { currentUser: fbUser },
-      });
-    });
-    return unsub;
-  }, [isRemote]);
-
   // Real-time listener Firestore untuk kelas, peserta, jadwal, dan sesi
-  useEffect(() => {
-    if (!isRemote || !state.currentUser) return;
+  const currentUserId = state.currentUser?.id;
+  const currentUserRole = state.currentUser?.peran;
 
-    const unsub = subscribePracticumRealtime(state.currentUser, {
+  useEffect(() => {
+    const activeUser = currentUserRef.current;
+    if (!isRemote || !activeUser || !currentUserId || !currentUserRole) return;
+
+    const unsub = subscribePracticumRealtime(activeUser, {
       onClasses: (kelas) => {
+        setError(null);
         rawDispatch({ type: 'SYNC_FIRESTORE', payload: { kelas } });
       },
       onMembers: (members) => {
         const baseAsisten = initialState.pengguna.filter(
           (u) => u.peran === 'asisten',
         );
+        const cur = currentUserRef.current;
         const activeAsisten =
-          state.currentUser?.peran === 'asisten' &&
-          !baseAsisten.some((a) => a.id === state.currentUser?.id)
-            ? [...baseAsisten, state.currentUser]
+          cur?.peran === 'asisten' &&
+          !baseAsisten.some((a) => a.id === cur.id)
+            ? [...baseAsisten, cur]
             : baseAsisten;
+
+        if (cur?.peran === 'praktikan') {
+          const ownMembers = members.filter((m) => m.id === cur.id);
+          const ownClassIds = Array.from(
+            new Set(ownMembers.map((m) => m.kelasId).filter(Boolean)),
+          );
+          const updatedCurrentUser: Praktikan = {
+            ...cur,
+            kelasId: ownClassIds[0] ?? cur.kelasId,
+            kelasIds: ownClassIds,
+            nim:
+              ownMembers[0]?.nim && ownMembers[0].nim !== '-'
+                ? ownMembers[0].nim
+                : cur.nim,
+          };
+          rawDispatch({
+            type: 'SYNC_FIRESTORE',
+            payload: {
+              currentUser: updatedCurrentUser,
+              pengguna: [...activeAsisten, ...members],
+            },
+          });
+          return;
+        }
+
         rawDispatch({
           type: 'SYNC_FIRESTORE',
           payload: { pengguna: [...activeAsisten, ...members] },
         });
       },
       onSchedules: (jadwal) => {
+        setError(null);
         rawDispatch({ type: 'SYNC_FIRESTORE', payload: { jadwal } });
       },
       onSessions: (sesi) => {
+        setError(null);
         rawDispatch({ type: 'SYNC_FIRESTORE', payload: { sesi } });
       },
       onError: (msg) => setError(msg),
     });
 
     return unsub;
-  }, [isRemote, state.currentUser]);
+  }, [isRemote, currentUserId, currentUserRole]);
 
   // Real-time listener Firestore untuk subcollection presensi per sesi
   const sessionIdsKey = useMemo(
@@ -332,10 +437,13 @@ export function AppProvider({ children }: PropsWithChildren) {
   );
 
   useEffect(() => {
-    if (!isRemote || !state.currentUser || !sessionIdsKey) return;
+    const activeUser = currentUserRef.current;
+    if (!isRemote || !activeUser || !currentUserId || !currentUserRole || !sessionIdsKey) {
+      return;
+    }
     const ids = sessionIdsKey.split(',').filter(Boolean);
     const unsub = subscribeAttendancesRealtime(
-      state.currentUser,
+      activeUser,
       ids,
       (presensi) => {
         rawDispatch({ type: 'SYNC_FIRESTORE', payload: { presensi } });
@@ -343,7 +451,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       (msg) => setError(msg),
     );
     return unsub;
-  }, [isRemote, state.currentUser, sessionIdsKey]);
+  }, [isRemote, currentUserId, currentUserRole, sessionIdsKey]);
 
   const runAsync = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
     setLoading(true);
@@ -389,8 +497,8 @@ export function AppProvider({ children }: PropsWithChildren) {
   );
 
   const catatPresensi = useCallback(
-    async (sesiId: string, catatan?: string) => {
-      await runAsync(async () => {
+    async (sesiId: string, catatan?: string, geo?: GeoAttendancePayload) =>
+      runAsync(async () => {
         if (!state.currentUser || state.currentUser.peran !== 'praktikan') {
           throw new Error('Hanya praktikan yang dapat melakukan presensi.');
         }
@@ -398,12 +506,15 @@ export function AppProvider({ children }: PropsWithChildren) {
         const alreadyAttendedLocally = state.presensi.some(
           (p) => p.sesiId === sesiId && p.praktikanId === state.currentUser?.id,
         );
+        const labTarget = resolveSessionLabTarget(localSesi);
         const record = await submitAttendanceToFirestore(state.currentUser, {
           sesiId,
           praktikanId: state.currentUser.id,
           catatan,
           localSesi,
           alreadyAttendedLocally,
+          geo,
+          labTarget,
         });
         rawDispatch({
           type: 'CATAT_PRESENSI',
@@ -411,9 +522,14 @@ export function AppProvider({ children }: PropsWithChildren) {
           praktikanId: state.currentUser.id,
           catatan: record.catatan,
           waktuPresensi: record.waktuPresensi,
+          latitude: record.latitude,
+          longitude: record.longitude,
+          accuracy: record.accuracy,
+          distanceMeters: record.distanceMeters,
+          geofenceStatus: record.geofenceStatus,
         });
-      });
-    },
+        return record;
+      }),
     [runAsync, state.currentUser, state.presensi, state.sesi],
   );
 
@@ -440,7 +556,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   );
 
   const simpanPeserta = useCallback(
-    async (input: { id?: string; nama: string; nim: string; kelasId: string }) =>
+    async (input: { id?: string; nama: string; nim?: string; kelasId: string }) =>
       runAsync(async () => {
         const saved = await saveClassMemberToFirestore(state.currentUser, input);
         rawDispatch({
@@ -542,9 +658,10 @@ export function AppProvider({ children }: PropsWithChildren) {
     (action: AppAction) => {
       rawDispatch(action);
       if (!isRemote) return;
+      const actor = currentUserRef.current;
       if (action.type === 'BUKA_SESI') {
         updateSessionStatusInFirestore(
-          state.currentUser,
+          actor,
           action.sesiId,
           'open',
         ).catch((err: unknown) =>
@@ -552,18 +669,30 @@ export function AppProvider({ children }: PropsWithChildren) {
         );
       } else if (action.type === 'TUTUP_SESI') {
         updateSessionStatusInFirestore(
-          state.currentUser,
+          actor,
           action.sesiId,
           'closed',
         ).catch((err: unknown) =>
           setError(err instanceof Error ? err.message : 'Gagal menutup sesi.'),
         );
       } else if (action.type === 'CATAT_PRESENSI') {
-        submitAttendanceToFirestore(state.currentUser, {
+        const geo =
+          typeof action.latitude === 'number' &&
+          typeof action.longitude === 'number'
+            ? {
+                latitude: action.latitude,
+                longitude: action.longitude,
+                accuracy: action.accuracy ?? 0,
+                distanceMeters: action.distanceMeters ?? 0,
+                geofenceStatus: action.geofenceStatus ?? ('in_radius' as const),
+              }
+            : undefined;
+        submitAttendanceToFirestore(actor, {
           sesiId: action.sesiId,
           praktikanId: action.praktikanId,
           catatan: action.catatan,
           waktuPresensi: action.waktuPresensi,
+          geo,
         }).catch((err: unknown) =>
           setError(
             err instanceof Error ? err.message : 'Gagal menyimpan presensi.',
@@ -573,7 +702,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         seedInitialDataToFirestore().catch(() => {});
       }
     },
-    [isRemote, state.currentUser],
+    [isRemote],
   );
 
   const value = useMemo<AppContextValue>(

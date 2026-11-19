@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 
 import { AppButton } from '@/components/ui/AppButton';
@@ -7,6 +7,10 @@ import { FormField } from '@/components/ui/FormField';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import {
+  subscribeRegisteredPraktikanUsers,
+  type RegisteredPraktikanAccount,
+} from '@/services/practicumService';
 import { useApp } from '@/store/app-context';
 import {
   selectJadwalUntukPengguna,
@@ -71,8 +75,21 @@ export function PracticumCrudSection() {
   );
   const [mulaiSesi, setMulaiSesi] = useState('10:00');
   const [selesaiSesi, setSelesaiSesi] = useState('12:00');
+  const [registeredAccounts, setRegisteredAccounts] = useState<
+    RegisteredPraktikanAccount[]
+  >([]);
 
-  if (state.currentUser?.peran !== 'asisten') return null;
+  const isAsistenUser = state.currentUser?.peran === 'asisten';
+  useEffect(() => {
+    if (!isRemote || !isAsistenUser || !expanded || activeTab !== 'peserta') {
+      return;
+    }
+    return subscribeRegisteredPraktikanUsers((accounts) => {
+      setRegisteredAccounts(accounts);
+    });
+  }, [activeTab, expanded, isAsistenUser, isRemote]);
+
+  if (!isAsistenUser) return null;
 
   const pesertaList = selectPesertaPraktikum(state);
   const jadwalList = selectJadwalUntukPengguna(state);
@@ -540,9 +557,41 @@ export function PracticumCrudSection() {
                   editPesertaId ? 'Ubah Peserta' : 'Tambah Peserta ke Kelas'
                 }
               />
+              {!editPesertaId && registeredAccounts.length > 0 ? (
+                <View style={styles.section}>
+                  <Text style={styles.fieldLabel}>
+                    Pilih Akun Praktikan Terdaftar (otomatis isi UID)
+                  </Text>
+                  <View style={styles.chipRow}>
+                    {registeredAccounts.map((acc) => {
+                      const active = uidPeserta === acc.uid;
+                      return (
+                        <Pressable
+                          key={acc.uid}
+                          onPress={() => {
+                            setUidPeserta(acc.uid);
+                            setNamaPeserta(acc.nama);
+                            if (acc.nim) setNimPeserta(acc.nim);
+                          }}
+                          style={[styles.chip, active && styles.chipActive]}
+                        >
+                          <Text
+                            style={[
+                              styles.chipText,
+                              active && styles.chipTextActive,
+                            ]}
+                          >
+                            {acc.nama} · {acc.email}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
               <FormField
-                label="UID Firebase Praktikan (opsional)"
-                placeholder="Kosongkan untuk otomatis, atau isi UID Auth"
+                label="UID Firebase Praktikan (otomatis jika pilih akun di atas)"
+                placeholder="Pilih akun di atas atau isi UID Auth"
                 value={uidPeserta}
                 onChangeText={setUidPeserta}
                 editable={!editPesertaId}
@@ -554,8 +603,8 @@ export function PracticumCrudSection() {
                 onChangeText={setNamaPeserta}
               />
               <FormField
-                label="NIM"
-                placeholder="Mis. 2310511005"
+                label="NIM (opsional)"
+                placeholder="Kosongkan jika belum ada, atau isi NIM"
                 value={nimPeserta}
                 onChangeText={setNimPeserta}
               />
@@ -584,7 +633,7 @@ export function PracticumCrudSection() {
               {pesertaList.map((p: Praktikan) => {
                 const k = state.kelas.find((item) => item.id === p.kelasId);
                 return (
-                  <View key={p.id} style={styles.itemRow}>
+                  <View key={`${p.kelasId}_${p.id}`} style={styles.itemRow}>
                     <View style={styles.itemInfo}>
                       <Text style={styles.itemTitle}>{p.nama}</Text>
                       <Text style={styles.itemMeta}>

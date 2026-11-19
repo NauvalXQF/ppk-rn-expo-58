@@ -47,6 +47,15 @@ export default function RootLayout() {
               headerStyle: { backgroundColor: Colors.surface },
             }}
           />
+          <Stack.Screen
+            name="presensi/[sesiId]"
+            options={{
+              headerShown: true,
+              title: 'Presensi Kehadiran',
+              headerTintColor: Colors.primary,
+              headerStyle: { backgroundColor: Colors.surface },
+            }}
+          />
         </Stack>
       </AuthProvider>
     </AppProvider>
