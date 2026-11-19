@@ -29,14 +29,14 @@ function ActivityDetails({ activity, labClass }: { activity: ScheduledActivity; 
 }
 
 export function LabActivitySheet({
-  lab, activity, classes, simulated, loading, failed, cached, onRetry, onClose, onAttendance,
+  lab, activity, classes, simulated, loading, error, cached, onRetry, onClose, onAttendance,
 }: {
   lab: Laboratory;
   activity?: LabActivity;
   classes: ReadonlyMap<string, LabClass>;
   simulated: boolean;
   loading: boolean;
-  failed?: boolean;
+  error?: string;
   cached?: boolean;
   onRetry: () => void;
   onClose: () => void;
@@ -56,9 +56,9 @@ export function LabActivitySheet({
       {simulated ? <InfoBanner tone="warning" message="Laboratorium simulasi"
         description="Data ini hanya untuk pengembangan peta. Aktivitas praktikum tidak ditautkan ke lab simulasi." /> : (
         <>
-          {failed ? (
+          {error ? (
             <View style={styles.details}>
-              <InfoBanner tone="warning" message="Sebagian data aktivitas gagal dimuat." />
+              <InfoBanner tone="warning" message={error} />
               <AppButton label="Muat ulang aktivitas" variant="secondary" onPress={onRetry} />
             </View>
           ) : cached ? <InfoBanner tone="neutral" message="Menampilkan data tersimpan sambil menunggu server." /> : null}
@@ -72,7 +72,7 @@ export function LabActivitySheet({
             </View>
           ) : (
             <Text style={styles.text}>
-              {loading ? 'Memuat aktivitas…' : failed ? 'Data aktivitas belum tersedia.' : 'Tidak ada praktikum aktif saat ini.'}
+              {loading ? 'Memuat aktivitas…' : error ? 'Data aktivitas belum tersedia.' : 'Tidak ada praktikum aktif saat ini.'}
             </Text>
           )}
           {!ongoing && lastCompleted ? (
@@ -89,7 +89,7 @@ export function LabActivitySheet({
             </View>
           )) : (
             <Text style={styles.text}>
-              {loading ? 'Memuat jadwal…' : failed ? 'Data jadwal belum tersedia.' : 'Belum ada jadwal berikutnya.'}
+              {loading ? 'Memuat jadwal…' : error ? 'Data jadwal belum tersedia.' : 'Tidak ada jadwal lagi hari ini atau besok.'}
             </Text>
           )}
         </>

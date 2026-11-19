@@ -12,28 +12,47 @@ interface ActivityData {
   schedules?: LabSchedule[];
   classes?: LabClass[];
   cached: { sessions?: boolean; schedules?: boolean; classes?: boolean };
-  failed?: boolean;
+  error?: string;
 }
 
-export function useLaboratoryData() {
+function isPermissionDenied(error: unknown): boolean {
+  return (error as { code?: string } | undefined)?.code === 'permission-denied';
+}
+
+function activityError(error: unknown): string {
+  return isPermissionDenied(error)
+    ? 'Akses data aktivitas laboratorium ditolak Firestore.'
+    : 'Sebagian data aktivitas gagal dimuat.';
+}
+
+export function useLaboratoryData(focused: boolean) {
   const [state, setState] = useState<{ snapshot?: LaboratorySnapshot; error?: string }>({});
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    if (!focused) return;
+    let active = true;
     function onError(error: unknown) {
-      const code = (error as { code?: string } | undefined)?.code;
+      if (!active) return;
       setState({
-        error: code === 'permission-denied'
+        error: isPermissionDenied(error)
           ? 'Akses data laboratorium ditolak Firestore.'
           : 'Data laboratorium gagal dimuat. Periksa koneksi lalu coba lagi.',
       });
     }
+    let unsubscribe: (() => void) | undefined;
     try {
-      return subscribeLaboratories((snapshot) => setState({ snapshot }), onError);
+      unsubscribe = subscribeLaboratories((snapshot) => {
+        if (active) setState({ snapshot });
+      }, onError);
     } catch (error) {
       onError(error);
     }
-  }, [attempt]);
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [focused, attempt]);
 
   return {
     ...state,
@@ -45,7 +64,7 @@ export function useLaboratoryData() {
 }
 
 export function useMapsActivity(uid: string, isAssistant: boolean, focused: boolean) {
-  const [membership, setMembership] = useState<{ ids?: string[]; failed?: boolean }>({});
+  const [membership, setMembership] = useState<{ ids?: string[]; error?: string }>({});
   const [remote, setRemote] = useState<{ key: string; entries: ActivityData[] }>();
   const [attempt, setAttempt] = useState(0);
   const [now, setNow] = useState(Date.now);
@@ -53,59 +72,75 @@ export function useMapsActivity(uid: string, isAssistant: boolean, focused: bool
   const scopeKey = scopeIdentity(isAssistant, membershipKey, attempt);
 
   useEffect(() => {
-    if (isAssistant) return;
-    const onError = () => setMembership({ ids: [], failed: true });
+    if (!focused || isAssistant) return;
+    let active = true;
+    const onError = (error: unknown) => {
+      if (active) setMembership({ ids: [], error: activityError(error) });
+    };
+    let unsubscribe: (() => void) | undefined;
     try {
-      return subscribeActiveClassIds(uid, (ids) => setMembership({ ids }), onError);
-    } catch {
-      onError();
+      unsubscribe = subscribeActiveClassIds(uid, (ids) => {
+        if (active) setMembership({ ids });
+      }, onError);
+    } catch (error) {
+      onError(error);
     }
-  }, [uid, isAssistant, attempt]);
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [uid, isAssistant, focused, attempt]);
 
   useEffect(() => {
+    if (!focused) return;
+    let active = true;
     const scopes: (string | null)[] = isAssistant ? [null] : JSON.parse(membershipKey);
     const entries: ActivityData[] = scopes.map(() => ({ cached: {} }));
     const publish = () => {
+      if (!active) return;
       setNow(Date.now());
       setRemote({ key: scopeKey, entries: [...entries] });
     };
     const subscriptions = scopes.map((scope, index) => {
-      const onError = () => {
-        entries[index] = { cached: {}, failed: true };
+      const onError = (error: unknown) => {
+        entries[index] = { cached: {}, error: activityError(error) };
         publish();
       };
       try {
         return subscribeLabActivity(scope, {
           onSessions: ({ items, fromCache }) => {
             const entry = entries[index];
-            if (entry.failed) return;
+            if (entry.error) return;
             entry.sessions = items;
             entry.cached.sessions = fromCache;
             publish();
           },
           onSchedules: ({ items, fromCache }) => {
             const entry = entries[index];
-            if (entry.failed) return;
+            if (entry.error) return;
             entry.schedules = items;
             entry.cached.schedules = fromCache;
             publish();
           },
           onClasses: ({ items, fromCache }) => {
             const entry = entries[index];
-            if (entry.failed) return;
+            if (entry.error) return;
             entry.classes = items;
             entry.cached.classes = fromCache;
             publish();
           },
           onError,
         });
-      } catch {
-        onError();
+      } catch (error) {
+        onError(error);
         return () => {};
       }
     });
-    return () => subscriptions.forEach((unsubscribe) => unsubscribe());
-  }, [isAssistant, membershipKey, scopeKey]);
+    return () => {
+      active = false;
+      subscriptions.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [isAssistant, focused, membershipKey, scopeKey]);
 
   useEffect(() => {
     if (!focused) return;
@@ -133,10 +168,10 @@ export function useMapsActivity(uid: string, isAssistant: boolean, focused: bool
   return {
     activities,
     classes,
-    failed: membership.failed || entries?.some((entry) => entry.failed),
+    error: membership.error ?? entries?.find((entry) => entry.error)?.error,
     cached: entries?.some((entry) => Object.values(entry.cached).some(Boolean)),
     loading: (!isAssistant && !membership.ids) || (hasScope && (!entries ||
-      entries.some((entry) => !entry.failed && (!entry.sessions || !entry.schedules)))),
+      entries.some((entry) => !entry.error && (!entry.sessions || !entry.schedules)))),
     retry: () => {
       if (!isAssistant) setMembership({});
       setAttempt((previous) => previous + 1);

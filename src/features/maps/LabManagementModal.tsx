@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { FormField } from '@/components/ui/FormField';
@@ -44,9 +44,16 @@ export function LabManagementModal({
 }) {
   const [editor, setEditor] = useState<{ id?: string; draft: Draft }>();
   const [error, setError] = useState<string>();
+  const [success, setSuccess] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const inFlight = useRef(false);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   function edit(lab?: Laboratory) {
     setEditor({
@@ -58,6 +65,7 @@ export function LabManagementModal({
       } : blank,
     });
     setError(undefined);
+    setSuccess(undefined);
     setConfirmArchive(false);
   }
 
@@ -71,15 +79,20 @@ export function LabManagementModal({
     setConfirmArchive(false);
   }
 
-  async function write(operation: () => Promise<void>) {
+  async function write(operation: () => Promise<void>, confirmation: string) {
     if (inFlight.current || !writable) return;
     inFlight.current = true;
     setBusy(true);
     setError(undefined);
+    setSuccess(undefined);
     try {
       await operation();
-      reset();
+      if (mounted.current) {
+        reset();
+        setSuccess(confirmation);
+      }
     } catch (cause) {
+      if (!mounted.current) return;
       const code = (cause as { code?: string } | undefined)?.code;
       setError(code === 'permission-denied'
         ? 'Firestore menolak perubahan laboratorium. Hubungi pengelola proyek.'
@@ -88,7 +101,7 @@ export function LabManagementModal({
           : 'Perubahan gagal disimpan. Periksa koneksi lalu coba lagi.');
     } finally {
       inFlight.current = false;
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
 
@@ -104,6 +117,7 @@ export function LabManagementModal({
       {!writable ? <InfoBanner tone="warning" message="Tunggu koneksi Firestore untuk menyimpan perubahan." /> : null}
       {busy ? <InfoBanner message="Menunggu Firestore mengonfirmasi penyimpanan…" /> : null}
       {error ? <InfoBanner tone="danger" message={error} /> : null}
+      {success ? <InfoBanner tone="success" message={success} /> : null}
       {!draft ? (
         <>
           <AppButton label="Tambah laboratorium" onPress={() => edit()} disabled={!writable || busy} />
@@ -144,19 +158,21 @@ export function LabManagementModal({
           ) : null}
           <AppButton
             label="Simpan laboratorium"
-            disabled={!writable || Boolean(editor.id && !currentLab)}
+            disabled={busy || !writable || Boolean(editor.id && !currentLab)}
             loading={busy && !confirmArchive}
             onPress={() => void write(() => saveLaboratory(actor, {
               nama: draft.nama, kode: draft.kode, gedung: draft.gedung, latitude, longitude,
               radiusMeters, kapasitas: decimal(draft.kapasitas),
-            }, editor.id))}
+            }, editor.id), 'Laboratorium berhasil disimpan.')}
           />
           {currentLab?.aktif ? (
             confirmArchive ? (
               <View style={styles.confirmation}>
                 <Text style={styles.text}>Arsipkan {currentLab.nama}? Penandanya akan hilang dari peta.</Text>
                 <AppButton label="Konfirmasi arsip" variant="danger" disabled={!writable}
-                  loading={busy} onPress={() => void write(() => archiveLaboratory(actor, currentLab.id))} />
+                  loading={busy} onPress={() => void write(
+                    () => archiveLaboratory(actor, currentLab.id), 'Laboratorium berhasil diarsipkan.',
+                  )} />
               </View>
             ) : (
               <AppButton label="Arsipkan laboratorium" variant="secondary" disabled={!writable || busy}

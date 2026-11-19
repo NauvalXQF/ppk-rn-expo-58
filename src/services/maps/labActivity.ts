@@ -41,7 +41,7 @@ export function isClockTime(value: string): boolean {
 }
 
 export function parseActivityTime(value: unknown): number {
-  if (typeof value === 'number') return value;
+  if (typeof value === 'number') return new Date(value).getTime();
   if (typeof value !== 'string') return NaN;
   const match = /^(\d{4})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?$/.exec(value);
   if (!match) return NaN;
@@ -82,6 +82,10 @@ export function getLabActivities(
   const activities = new Map<string, LabActivity>();
   const materializedDates = new Map<string, Set<string>>();
   const ongoing = new Map<string, LabSession[]>();
+  const afterTomorrow = new Date(now);
+  afterTomorrow.setHours(0, 0, 0, 0);
+  afterTomorrow.setDate(afterTomorrow.getDate() + 2);
+  const upcomingCutoff = afterTomorrow.getTime();
 
   function forLab(labId: string) {
     const activity = activities.get(labId) ?? { upcoming: [] };
@@ -101,7 +105,7 @@ export function getLabActivities(
       const running = ongoing.get(session.labId) ?? [];
       running.push(session);
       ongoing.set(session.labId, running);
-    } else if (session.status === 'dijadwalkan' && session.start > now) {
+    } else if (session.status === 'dijadwalkan' && session.start > now && session.start < upcomingCutoff) {
       forLab(session.labId).upcoming.push(session);
     } else if (session.status === 'ditutup') {
       const completedAt = session.closedTime ?? session.end;
@@ -126,7 +130,7 @@ export function getLabActivities(
     const occurrence = nextOccurrence(schedule, now);
     const dates = materializedDates.get(schedule.id);
     const hasSession = dates && ('start' in schedule || dates.has(localDateKey(occurrence.start)));
-    if (occurrence.start > now && !hasSession) {
+    if (occurrence.start > now && occurrence.start < upcomingCutoff && !hasSession) {
       forLab(schedule.labId).upcoming.push(occurrence);
     }
   }

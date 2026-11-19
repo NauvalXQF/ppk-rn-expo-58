@@ -36,7 +36,9 @@ function hasInterval(start: number, end: number): boolean {
 }
 
 function readSession(id: string, data: DocumentData): LabSession | null {
-  if (data.archived === true) return null;
+  const { status } = data;
+  if (data.archived === true ||
+    !['scheduled', 'open', 'closed', 'dijadwalkan', 'dibuka', 'ditutup'].includes(status)) return null;
   const classId = optionalText(data.classId);
   const start = activityTime(data.startAt ?? `${data.tanggal}T${data.jamMulai}`);
   const end = activityTime(data.endAt ?? `${data.tanggal}T${data.jamSelesai}`);
@@ -50,7 +52,7 @@ function readSession(id: string, data: DocumentData): LabSession | null {
     scheduleId: optionalText(data.scheduleId),
     topic: optionalText(data.topik),
     assistant: optionalText(data.asistenNama),
-    status: toStatusSesi(data.status, data.openedAt, data.closedAt),
+    status: toStatusSesi(status, data.openedAt, data.closedAt),
     start,
     end,
     closedTime: Number.isFinite(closedTime) ? closedTime : undefined,
@@ -60,15 +62,19 @@ function readSession(id: string, data: DocumentData): LabSession | null {
 function readSchedule(id: string, data: DocumentData): LabSchedule | null {
   const labId = optionalText(data.labId);
   const classId = optionalText(data.classId);
-  if (data.archived === true || !classId || !labId) return null;
+  const { status, startAt, endAt } = data;
+  if (data.archived === true || !classId || !labId ||
+    (status != null && status !== 'scheduled' && status !== 'dijadwalkan')) return null;
   const details = { id, labId, classId, topic: optionalText(data.topik) };
-  const start = activityTime(data.startAt);
-  const end = activityTime(data.endAt);
+  const start = activityTime(startAt);
+  const end = activityTime(endAt);
   if (hasInterval(start, end)) return { ...details, start, end };
 
+  // A dated record with broken timestamps must not turn into a recurring schedule.
+  if ([startAt, endAt].some((value) => value != null && !isClockTime(optionalText(value) ?? ''))) return null;
   const weekday = WEEKDAYS.indexOf(data.hari);
-  const startTime = optionalText(data.jamMulai ?? data.startAt);
-  const endTime = optionalText(data.jamSelesai ?? data.endAt);
+  const startTime = optionalText(data.jamMulai ?? startAt);
+  const endTime = optionalText(data.jamSelesai ?? endAt);
   if (weekday < 0 || !startTime || !endTime ||
     !isClockTime(startTime) || !isClockTime(endTime) || startTime >= endTime) return null;
   return { ...details, weekday, startTime, endTime };

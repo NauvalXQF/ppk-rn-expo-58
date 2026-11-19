@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as Location from 'expo-location';
+import { validCoordinates } from '@/services/maps/laboratories';
 
 type LocationState =
   | { status: 'searching' | 'gps-off' | 'unavailable' }
@@ -60,6 +61,7 @@ export function useUserLocation(focused: boolean) {
           const subscription = await Location.watchPositionAsync(
             { accuracy: Location.Accuracy.Balanced, distanceInterval: 3, timeInterval: 2000, mayShowUserSettingsDialog: false },
             ({ coords }) => {
+              if (!coords || !validCoordinates(coords.latitude, coords.longitude)) return;
               clearTimeout(positionTimer);
               report({ status: 'located', point: coords });
             },

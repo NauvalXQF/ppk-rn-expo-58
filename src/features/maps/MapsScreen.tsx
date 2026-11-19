@@ -25,7 +25,7 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
   const focused = useIsFocused();
   const sitemap = useSitemap();
   const isAssistant = actor.role === 'asisten';
-  const laboratories = useLaboratoryData();
+  const laboratories = useLaboratoryData(focused);
   const activity = useMapsActivity(actor.uid, isAssistant, focused);
   const { state: location, retry: retryLocation } = useUserLocation(focused);
   const point = focused && location.status === 'located' ? location.point : undefined;
@@ -150,7 +150,7 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
           classes={activity.classes}
           simulated={simulated}
           loading={activity.loading}
-          failed={activity.failed}
+          error={activity.error}
           cached={activity.cached}
           onRetry={activity.retry}
           onClose={() => setSelectedId(undefined)}
@@ -167,7 +167,7 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
           actor={actor}
           laboratories={remoteLabs}
           location={point}
-          writable={laboratories.snapshot?.fromCache === false}
+          writable={focused && laboratories.snapshot?.fromCache === false}
           onClose={() => setManagementVisible(false)}
         />
       ) : null}
