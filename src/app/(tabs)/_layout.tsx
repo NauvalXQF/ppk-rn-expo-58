@@ -30,6 +30,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="jadwal" options={{ title: 'Jadwal' }} />
+      <Tabs.Screen name="peta" options={{ title: 'Peta' }} />
       <Tabs.Screen
         name="kehadiran"
         options={{
