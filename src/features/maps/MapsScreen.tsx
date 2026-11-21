@@ -1,0 +1,193 @@
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { router, useIsFocused, useSitemap, type Href, type SitemapType } from 'expo-router';
+import { ActivityIndicator, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppButton } from '@/components/ui/AppButton';
+import { InfoBanner } from '@/components/ui/InfoBanner';
+import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import type { ProfilPengguna } from '@/services/authService';
+import { activeLaboratories, selectLaboratories } from '@/services/maps/laboratories';
+import { LabActivitySheet } from './LabActivitySheet';
+import { LabManagementModal } from './LabManagementModal';
+import LaboratoryMap, { type LaboratoryMapHandle } from './LaboratoryMap';
+import { simulatedLaboratories } from './simulatedLaboratories';
+import { useLaboratoryData, useMapsActivity } from './useMapsData';
+import { useUserLocation } from './useUserLocation';
+
+const ATTENDANCE_PATH = '/presensi/[sesiId]';
+const EMPTY_LABORATORIES: readonly never[] = [];
+
+function hasAttendanceRoute(route: SitemapType | null): boolean {
+  return Boolean(route && (route.href === ATTENDANCE_PATH || route.children.some(hasAttendanceRoute)));
+}
+
+export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
+  const focused = useIsFocused();
+  const sitemap = useSitemap();
+  const isAssistant = actor.role === 'asisten';
+  const laboratories = useLaboratoryData(focused);
+  const activity = useMapsActivity(actor.uid, isAssistant, focused);
+  const { state: location, retry: retryLocation } = useUserLocation(focused);
+  const point = focused && location.status === 'located' ? location.point : undefined;
+  const [selectedId, setSelectedId] = useState<string>();
+  const [managementVisible, setManagementVisible] = useState(false);
+  const [settingsError, setSettingsError] = useState(false);
+  const map = useRef<LaboratoryMapHandle>(null);
+
+  const remoteLabs = laboratories.snapshot?.laboratories ?? EMPTY_LABORATORIES;
+  const shouldOfferSimulation = __DEV__ &&
+    Boolean(laboratories.error || laboratories.snapshot?.fromCache === false);
+  const available = selectLaboratories(
+    laboratories.snapshot?.documentCount ?? 0,
+    remoteLabs,
+    shouldOfferSimulation ? simulatedLaboratories : EMPTY_LABORATORIES,
+  );
+  const simulated = available === simulatedLaboratories;
+  const active = useMemo(() => activeLaboratories(available), [available]);
+  const activeSessionLabIds = useMemo(() => new Set(
+    [...activity.activities].filter(([, item]) => item.ongoing).map(([id]) => id),
+  ), [activity.activities]);
+  const selectedLab = active.find((lab) => lab.id === selectedId);
+  const selectedActivity = selectedLab && !simulated ? activity.activities.get(selectedLab.id) : undefined;
+  const ongoing = selectedActivity?.ongoing;
+  // The activity listener for a praktikan only receives their active classes.
+  const attendance = !isAssistant && !activity.cached &&
+    ongoing?.status === 'dibuka' && hasAttendanceRoute(sitemap)
+    ? ongoing : undefined;
+
+  const selectLab = useCallback((id: string) => setSelectedId(id), []);
+
+  function openSettings() {
+    setSettingsError(false);
+    void Linking.openSettings().catch(() => setSettingsError(true));
+  }
+
+  return (
+    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
+      <View style={styles.canvas}>
+        <LaboratoryMap
+          key={simulated ? 'simulated' : 'official'}
+          ref={map}
+          laboratories={active}
+          activeLabIds={simulated ? new Set() : activeSessionLabIds}
+          userLocation={point}
+          isAssistant={isAssistant}
+          allowSimulation={simulated}
+          onSelect={selectLab}
+        />
+        <View pointerEvents="box-none" style={styles.top}>
+          <View style={styles.heading}>
+            <Text accessibilityRole="header" style={styles.title}>Peta laboratorium</Text>
+            <Text style={styles.detail}>
+              {simulated ? 'Data simulasi pengembangan' : `${active.length} laboratorium aktif`}
+            </Text>
+          </View>
+          {laboratories.error ? (
+            <View style={styles.notice}>
+              <InfoBanner tone="warning" message={laboratories.error} />
+              <AppButton label="Muat ulang data lab" onPress={laboratories.retry} variant="secondary" />
+            </View>
+          ) : !laboratories.snapshot ? (
+            <View style={[styles.heading, styles.locationNotice]}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={styles.detail}>Memuat laboratorium…</Text>
+            </View>
+          ) : laboratories.snapshot.documentCount > remoteLabs.length ? (
+            <InfoBanner tone="warning" message="Beberapa data lab tidak sesuai kontrak dan tidak ditampilkan." />
+          ) : laboratories.snapshot.fromCache ? (
+            <InfoBanner tone="neutral" message="Menunggu Firestore. Data lokal mungkin belum terbaru." />
+          ) : null}
+        </View>
+        <View pointerEvents="box-none" style={styles.bottom}>
+          {Platform.OS !== 'web' ? (
+            <View style={styles.notice}>
+              {location.status === 'denied' ? (
+                <>
+                  <InfoBanner tone="warning" message="Izin lokasi ditolak. Izinkan akses untuk menampilkan posisi kamu." />
+                  <AppButton label={location.canAskAgain ? 'Izinkan lokasi' : 'Buka pengaturan aplikasi'}
+                    variant="secondary" onPress={location.canAskAgain ? retryLocation : openSettings} />
+                  {settingsError ? <InfoBanner tone="warning" message="Buka pengaturan ponsel dan izinkan lokasi untuk aplikasi ini." /> : null}
+                </>
+              ) : location.status === 'gps-off' ? (
+                <>
+                  <InfoBanner tone="warning" message="GPS nonaktif. Nyalakan lokasi di pengaturan cepat perangkat." />
+                  <AppButton label="Cek kembali GPS" variant="secondary" onPress={retryLocation} />
+                </>
+              ) : location.status === 'unavailable' ? (
+                <>
+                  <InfoBanner tone="warning" message="Lokasi belum tersedia. Coba dari area dengan sinyal lebih baik." />
+                  <AppButton label="Segarkan lokasi" variant="secondary" onPress={retryLocation} />
+                </>
+              ) : location.status === 'searching' ? (
+                <View style={[styles.heading, styles.locationNotice]}>
+                  <ActivityIndicator size="small" color={Colors.warning} />
+                  <Text style={styles.detail}>Mencari lokasi…</Text>
+                </View>
+              ) : point && (point.accuracy == null || point.accuracy > 50) ? (
+                <>
+                  <View style={[styles.heading, styles.locationNotice]}>
+                    <ActivityIndicator size="small" color={Colors.warning} />
+                    <Text style={styles.detail}>Sinyal GPS lemah. Mencari posisi yang lebih akurat…</Text>
+                  </View>
+                  <AppButton label="Segarkan lokasi" variant="secondary" onPress={retryLocation} />
+                </>
+              ) : null}
+            </View>
+          ) : null}
+          <View style={styles.actions}>
+            {isAssistant ? (
+              <AppButton label="Kelola lab" variant="secondary"
+                onPress={() => { setSelectedId(undefined); setManagementVisible(true); }} />
+            ) : null}
+            {point ? <AppButton label="Pusatkan ke saya" onPress={() => map.current?.recenter(point)} /> : null}
+          </View>
+        </View>
+      </View>
+      {selectedLab && !managementVisible ? (
+        <LabActivitySheet
+          lab={selectedLab}
+          activity={selectedActivity}
+          classes={activity.classes}
+          simulated={simulated}
+          loading={activity.loading}
+          error={activity.error}
+          cached={activity.cached}
+          onRetry={activity.retry}
+          onClose={() => setSelectedId(undefined)}
+          onAttendance={attendance ? () => {
+            setSelectedId(undefined);
+            const href = `/presensi/${encodeURIComponent(attendance.id)}`;
+            router.push(href as Href);
+          } : undefined}
+        />
+      ) : null}
+      {isAssistant ? (
+        <LabManagementModal
+          visible={managementVisible}
+          actor={actor}
+          laboratories={remoteLabs}
+          location={point}
+          writable={focused && laboratories.snapshot?.fromCache === false}
+          onClose={() => setManagementVisible(false)}
+        />
+      ) : null}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: Colors.background },
+  canvas: { flex: 1 },
+  top: { position: 'absolute', left: 0, right: 0, top: 0, gap: Spacing.sm, padding: Spacing.md },
+  bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, gap: Spacing.sm, padding: Spacing.md },
+  heading: {
+    alignSelf: 'flex-start', maxWidth: '100%', backgroundColor: Colors.surface,
+    borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderColor: Colors.border, borderWidth: StyleSheet.hairlineWidth,
+  },
+  title: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.text },
+  detail: { fontSize: FontSize.sm, color: Colors.textMuted, flexShrink: 1 },
+  notice: { gap: Spacing.xs },
+  locationNotice: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: Spacing.sm },
+});
