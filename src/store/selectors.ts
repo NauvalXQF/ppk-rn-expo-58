@@ -20,6 +20,20 @@ const prioritasStatus: Record<StatusSesi, number> = {
   ditutup: 2,
 };
 
+export function getPraktikanClassIds(praktikan: Praktikan): string[] {
+  if (Array.isArray(praktikan.kelasIds)) {
+    return praktikan.kelasIds;
+  }
+  return praktikan.kelasId ? [praktikan.kelasId] : [];
+}
+
+export function isPraktikanInClass(
+  praktikan: Praktikan,
+  kelasId: string,
+): boolean {
+  return getPraktikanClassIds(praktikan).includes(kelasId);
+}
+
 export function selectCurrentUser(state: AppState): Pengguna | null {
   return state.currentUser;
 }
@@ -30,7 +44,7 @@ export function selectSesiById(state: AppState, sesiId: string): Sesi | null {
 
 export function selectTotalPraktikan(state: AppState, kelasId: string): number {
   return state.pengguna.filter(
-    (u): u is Praktikan => u.peran === 'praktikan' && u.kelasId === kelasId,
+    (u): u is Praktikan => u.peran === 'praktikan' && isPraktikanInClass(u, kelasId),
   ).length;
 }
 
@@ -92,7 +106,8 @@ export function selectJadwalUntukPengguna(state: AppState): Jadwal[] {
   const list = state.jadwal ?? DEFAULT_SCHEDULES;
   if (!user) return [];
   if (user.peran === 'asisten') return [...list];
-  return list.filter((j) => j.kelasId === user.kelasId);
+  const classIds = getPraktikanClassIds(user);
+  return list.filter((j) => classIds.includes(j.kelasId));
 }
 
 export function selectSesiUntukPengguna(state: AppState): Sesi[] {
@@ -104,7 +119,8 @@ export function selectSesiUntukPengguna(state: AppState): Sesi[] {
   } else if (user.peran === 'asisten') {
     daftarSesi = [...state.sesi];
   } else {
-    daftarSesi = state.sesi.filter((s) => s.kelasId === user.kelasId);
+    const classIds = getPraktikanClassIds(user);
+    daftarSesi = state.sesi.filter((s) => classIds.includes(s.kelasId));
   }
 
   return daftarSesi.sort((a, b) => {
@@ -181,8 +197,9 @@ export function selectRiwayatPraktikan(
       : undefined);
   if (!praktikan) return [];
 
+  const classIds = getPraktikanClassIds(praktikan);
   const sesiList = state.sesi
-    .filter((s) => s.kelasId === praktikan.kelasId)
+    .filter((s) => classIds.includes(s.kelasId))
     .sort((a, b) => {
       const timeA = new Date(`${a.tanggal}T${a.jamMulai}:00`).getTime();
       const timeB = new Date(`${b.tanggal}T${b.jamMulai}:00`).getTime();

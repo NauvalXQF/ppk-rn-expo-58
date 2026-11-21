@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/store/app-context';
 import {
+  getPraktikanClassIds,
   selectJadwalUntukPengguna,
   selectRekapSesi,
   selectSesiUntukPengguna,
@@ -77,7 +78,9 @@ export function JadwalScreen() {
           title="Belum ada jadwal"
           description={
             user?.peran === 'praktikan'
-              ? 'Tidak ada jadwal praktikum yang tersedia untuk kelas Anda saat ini.'
+              ? getPraktikanClassIds(user).length === 0
+                ? 'Akun Anda belum terdaftar di kelas praktikum mana pun. Tambahkan akun ini lewat menu Peserta pada akun Asisten.'
+                : 'Tidak ada jadwal/sesi praktikum yang tersedia untuk kelas Anda saat ini.'
               : 'Belum ada sesi praktikum yang terdaftar.'
           }
         />

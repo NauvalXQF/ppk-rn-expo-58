@@ -34,7 +34,13 @@
           "imageWidth": 76
         }
       ],
-      "expo-image"
+      "expo-image",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Aplikasi membutuhkan akses lokasi untuk memvalidasi presensi praktikum di laboratorium."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,11 +1,15 @@
-import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { useApp } from '@/store/app-context';
-import type { DetailSesi, Praktikan } from '@/types/models';
-import { Spacing } from '@/constants/theme';
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
+import { useRouter, type Href } from 'expo-router';
+
+import { AppButton } from '@/components/ui/AppButton';
+import { AppCard } from '@/components/ui/AppCard';
 import { InfoBanner } from '@/components/ui/InfoBanner';
-import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
-import { PresensiForm } from './PresensiForm';
+import { SectionHeader } from '@/components/ui/SectionHeader';
+import { Spacing } from '@/constants/theme';
+import { useApp } from '@/store/app-context';
+import { isPraktikanInClass } from '@/store/selectors';
+import type { DetailSesi, Praktikan } from '@/types/models';
 import { PresensiSuccess } from './PresensiSuccess';
 
 interface PraktikanSessionViewProps {
@@ -17,21 +21,14 @@ export function PraktikanSessionView({
   detail,
   praktikan,
 }: PraktikanSessionViewProps) {
-  const { catatPresensi, loading, error } = useApp();
-  const [confirmVisible, setConfirmVisible] = useState(false);
-  const [pendingCatatan, setPendingCatatan] = useState('');
+  const router = useRouter();
+  const { error } = useApp();
 
-  const { sesi, kelas, presensiSaya } = detail;
-  const isEligibleKelas = praktikan.kelasId === sesi.kelasId;
+  const { sesi, presensiSaya } = detail;
+  const isEligibleKelas = isPraktikanInClass(praktikan, sesi.kelasId);
 
-  const handleFormSubmit = (catatan: string) => {
-    setPendingCatatan(catatan);
-    setConfirmVisible(true);
-  };
-
-  const handleConfirmPresensi = () => {
-    setConfirmVisible(false);
-    catatPresensi(sesi.id, pendingCatatan).catch(() => {});
+  const openGeoAttendance = () => {
+    router.push(`/presensi/${sesi.id}` as Href);
   };
 
   return (
@@ -47,15 +44,32 @@ export function PraktikanSessionView({
 
       {/* 6A. Sesi Dijadwalkan */}
       {isEligibleKelas && sesi.status === 'dijadwalkan' && (
-        <InfoBanner
-          tone="info"
-          message="Sesi belum dibuka. Kamu bisa melakukan presensi setelah asisten membuka sesi."
-        />
+        <View style={styles.section}>
+          <InfoBanner
+            tone="info"
+            message="Sesi belum dibuka. Kamu bisa melakukan presensi setelah asisten membuka sesi."
+          />
+          <AppButton
+            label="Lihat Halaman Presensi"
+            variant="secondary"
+            onPress={openGeoAttendance}
+          />
+        </View>
       )}
 
-      {/* 6B. Sesi Dibuka, belum presensi */}
+      {/* 6B. Sesi Dibuka, belum presensi -> Arahkan ke halaman presensi khusus geofence */}
       {isEligibleKelas && sesi.status === 'dibuka' && !presensiSaya && (
-        <PresensiForm onSubmit={handleFormSubmit} disabled={loading} />
+        <AppCard style={styles.card}>
+          <SectionHeader title="Presensi Berbasis Lokasi" />
+          <InfoBanner
+            tone="info"
+            message="Presensi memerlukan verifikasi lokasi GPS di dalam radius laboratorium."
+          />
+          <AppButton
+            label="Buka Halaman Presensi"
+            onPress={openGeoAttendance}
+          />
+        </AppCard>
       )}
 
       {/* 6C. Sesi Dibuka, sudah presensi */}
@@ -86,23 +100,18 @@ export function PraktikanSessionView({
           )}
         </View>
       )}
-
-      <ConfirmSheet
-        visible={confirmVisible}
-        title="Konfirmasi Presensi"
-        description={`${sesi.topik} · ${kelas.nama}\nWaktu kehadiran dicatat otomatis.`}
-        confirmLabel="Ya, Presensi"
-        cancelLabel="Batal"
-        tone="primary"
-        onConfirm={handleConfirmPresensi}
-        onClose={() => setConfirmVisible(false)}
-      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    gap: Spacing.md,
+  },
+  section: {
+    gap: Spacing.sm,
+  },
+  card: {
     gap: Spacing.md,
   },
   closedContainer: {

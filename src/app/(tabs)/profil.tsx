@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/store/app-context';
+import { getPraktikanClassIds } from '@/store/selectors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
@@ -23,9 +24,15 @@ export default function ProfilRoute() {
     return null;
   }
 
-  const kelas =
+  const kelasLabel =
     user.peran === 'praktikan'
-      ? state.kelas.find((k) => k.id === user.kelasId)
+      ? (() => {
+          const ids = getPraktikanClassIds(user);
+          if (ids.length === 0) return 'Belum terdaftar di kelas';
+          return ids
+            .map((id) => state.kelas.find((k) => k.id === id)?.nama ?? id)
+            .join(', ');
+        })()
       : null;
 
   const handleGantiPengguna = async () => {
@@ -62,7 +69,7 @@ export default function ProfilRoute() {
           <Text style={styles.userRole}>
             {user.peran === 'asisten'
               ? 'Asisten Praktikum'
-              : `Praktikan · ${kelas?.nama ?? user.kelasId}`}
+              : `Praktikan · ${kelasLabel}`}
           </Text>
           <Text style={styles.userNumber}>
             {user.peran === 'asisten' ? `NIP ${user.nip}` : `NIM ${user.nim}`}

@@ -8,18 +8,24 @@ import type { LeaveSessionOption, PermissionActor } from './types';
  */
 export function mapProfilToPermissionActor(
   profil: ProfilPengguna | null,
-  kelasIdOverride?: string,
+  kelasIdOverride?: string | string[],
 ): PermissionActor | null {
   if (!profil) return null;
 
   if (profil.role === 'praktikan') {
-    const resolvedClassId = kelasIdOverride ?? profil.kelasId;
+    let classIds: string[] | undefined;
+    if (Array.isArray(kelasIdOverride)) {
+      classIds = kelasIdOverride.length > 0 ? kelasIdOverride : undefined;
+    } else {
+      const resolvedClassId = kelasIdOverride ?? profil.kelasId;
+      classIds = resolvedClassId ? [resolvedClassId] : undefined;
+    }
     return {
       uid: profil.uid,
       role: 'praktikan',
       displayName: profil.nama,
       nim: profil.nim,
-      classIds: resolvedClassId ? [resolvedClassId] : undefined,
+      classIds,
     };
   }
 

@@ -192,21 +192,22 @@ export async function deleteClassFromFirestore(
 
 export async function saveClassMemberToFirestore(
   actor: Pengguna | null,
-  input: { id?: string; nama: string; nim: string; kelasId: string },
+  input: { id?: string; nama: string; nim?: string; kelasId: string },
 ): Promise<Praktikan> {
   assertAsisten(actor);
   const nama = input.nama.trim();
-  const nim = input.nim.trim();
+  const rawNim = input.nim?.trim() ?? '';
+  const nim = rawNim || '-';
   const kelasId = input.kelasId.trim();
 
   if (!nama) throw new Error('Nama praktikan wajib diisi.');
-  if (!nim) throw new Error('NIM praktikan wajib diisi.');
   if (!kelasId) throw new Error('Kelas praktikan wajib dipilih.');
 
   const isUpdate = Boolean(input.id?.trim());
-  const uid =
-    input.id?.trim() ||
-    `praktikan-${nim.toLowerCase().replace(/[^a-z0-9]+/g, '')}`;
+  const uidSlug = rawNim
+    ? rawNim.toLowerCase().replace(/[^a-z0-9]+/g, '')
+    : `${nama.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`;
+  const uid = input.id?.trim() || `praktikan-${uidSlug}`;
   const memberId = buildClassMemberId(kelasId, uid);
 
   const peserta: Praktikan = {
@@ -579,6 +580,105 @@ export async function seedInitialDataToFirestore(): Promise<void> {
 // 6. REAL-TIME LISTENERS (onSnapshot)
 // ==========================================
 
+export interface RegisteredPraktikanAccount {
+  uid: string;
+  nama: string;
+  email: string;
+  nim?: string;
+}
+
+export function subscribeRegisteredPraktikanUsers(
+  onUpdate: (accounts: RegisteredPraktikanAccount[]) => void,
+  onError?: (message: string) => void,
+): Unsubscribe {
+  const db = getDb();
+  if (!db) return () => {};
+
+  const q = query(collection(db, 'users'), where('role', '==', 'praktikan'));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list: RegisteredPraktikanAccount[] = snap.docs
+        .map((d) => {
+          const data = d.data();
+          return {
+            uid: String(data.uid ?? d.id),
+            nama: String(data.nama ?? data.name ?? data.email ?? d.id),
+            email: String(data.email ?? '-'),
+            nim: typeof data.nim === 'string' && data.nim.trim() ? data.nim.trim() : undefined,
+          };
+        })
+        .sort((a, b) => a.nama.localeCompare(b.nama));
+      onUpdate(list);
+    },
+    (err) => {
+      onError?.(`Gagal memuat daftar akun praktikan: ${err.message}`);
+    },
+  );
+}
+
+function mapScheduleDoc(id: string, data: Record<string, unknown>): Jadwal {
+  return {
+    id,
+    praktikumId: String(data.praktikumId ?? 'praktikum-ppk'),
+    kelasId: String(data.classId ?? data.kelasId ?? 'kelas-a'),
+    asistenId: String(data.createdBy ?? data.asistenId ?? 'asisten-1'),
+    hari: String(data.hari ?? 'Rabu'),
+    jamMulai: String(data.jamMulai ?? data.startAt ?? '10:00'),
+    jamSelesai: String(data.jamSelesai ?? data.endAt ?? '12:00'),
+    ruang: String(data.ruang ?? 'Lab'),
+    topik: String(data.topik ?? 'Praktikum'),
+  };
+}
+
+function mapSessionDoc(id: string, data: Record<string, unknown>): Sesi {
+  const startStr = typeof data.startAt === 'string' ? data.startAt : '';
+  const endStr = typeof data.endAt === 'string' ? data.endAt : '';
+  const rawLabCoords =
+    data.labCoordinates &&
+    typeof data.labCoordinates === 'object' &&
+    typeof (data.labCoordinates as { latitude?: unknown }).latitude === 'number' &&
+    typeof (data.labCoordinates as { longitude?: unknown }).longitude === 'number'
+      ? {
+          latitude: Number((data.labCoordinates as { latitude: number }).latitude),
+          longitude: Number((data.labCoordinates as { longitude: number }).longitude),
+        }
+      : undefined;
+  const rawRadius =
+    typeof data.radiusMeters === 'number' && Number.isFinite(data.radiusMeters)
+      ? data.radiusMeters
+      : undefined;
+
+  return {
+    id,
+    praktikumId: String(data.praktikumId ?? 'praktikum-ppk'),
+    kelasId: String(data.classId ?? data.kelasId ?? 'kelas-a'),
+    asistenId: String(data.asistenUid ?? data.asistenId ?? 'asisten-1'),
+    scheduleId: data.scheduleId ? String(data.scheduleId) : undefined,
+    labId: data.labId ? String(data.labId) : undefined,
+    labNama: data.labNama ? String(data.labNama) : undefined,
+    labCoordinates: rawLabCoords,
+    radiusMeters: rawRadius,
+    topik: String(data.topik ?? 'Sesi Praktikum'),
+    ruang: String(data.ruang ?? 'Lab'),
+    tanggal: String(
+      data.tanggal ??
+        (startStr.includes('T')
+          ? startStr.slice(0, 10)
+          : new Date().toISOString().slice(0, 10)),
+    ),
+    jamMulai: String(
+      data.jamMulai ??
+        (startStr.includes('T') ? startStr.slice(11, 16) : '10:00'),
+    ),
+    jamSelesai: String(
+      data.jamSelesai ??
+        (endStr.includes('T') ? endStr.slice(11, 16) : '12:00'),
+    ),
+    status: toStatusSesi(data.status, data.openedAt, data.closedAt),
+  };
+}
+
 export interface PracticumSnapshotCallbacks {
   onClasses: (kelas: Kelas[]) => void;
   onMembers: (praktikan: Praktikan[]) => void;
@@ -594,59 +694,192 @@ export function subscribePracticumRealtime(
   const db = getDb();
   if (!db || !currentUser) return () => {};
 
-  const unsubs: Unsubscribe[] = [];
+  if (currentUser.peran === 'praktikan') {
+    const classUnsubs = new Map<string, Unsubscribe[]>();
+    const classesById = new Map<string, Kelas | null>();
+    const schedulesByClass = new Map<string, Jadwal[]>();
+    const sessionsByClass = new Map<string, Sesi[]>();
 
-  // 1. Classes listener (asisten baca semua, praktikan baca doc kelasnya sendiri)
-  if (currentUser.peran === 'asisten') {
-    unsubs.push(
-      onSnapshot(
-        collection(db, 'classes'),
-        (snap) => {
-          const list: Kelas[] = snap.docs
-            .filter((d) => d.data().archived !== true)
-            .map((d) => {
-              const data = d.data();
-              return {
-                id: d.id,
-                nama: String(data.nama ?? data.name ?? d.id),
+    const emitClasses = () => {
+      const list: Kelas[] = [];
+      for (const k of classesById.values()) {
+        if (k) list.push(k);
+      }
+      callbacks.onClasses(list);
+    };
+
+    const emitSchedules = () => {
+      const list: Jadwal[] = [];
+      for (const items of schedulesByClass.values()) {
+        list.push(...items);
+      }
+      callbacks.onSchedules(list);
+    };
+
+    const emitSessions = () => {
+      const list: Sesi[] = [];
+      for (const items of sessionsByClass.values()) {
+        list.push(...items);
+      }
+      callbacks.onSessions(list);
+    };
+
+    const cleanupClass = (cid: string) => {
+      const list = classUnsubs.get(cid);
+      if (list) {
+        for (const u of list) u();
+        classUnsubs.delete(cid);
+      }
+      classesById.delete(cid);
+      schedulesByClass.delete(cid);
+      sessionsByClass.delete(cid);
+    };
+
+    const subscribeClass = (cid: string) => {
+      if (classUnsubs.has(cid)) return;
+      const unsubList: Unsubscribe[] = [];
+
+      unsubList.push(
+        onSnapshot(
+          doc(db, 'classes', cid),
+          (snap) => {
+            if (!snap.exists() || snap.data().archived === true) {
+              classesById.set(cid, null);
+            } else {
+              const data = snap.data();
+              classesById.set(cid, {
+                id: snap.id,
+                nama: String(data.nama ?? data.name ?? snap.id),
                 praktikumId: String(data.praktikumId ?? 'praktikum-ppk'),
-                asistenId: data.createdBy ? String(data.createdBy) : undefined,
-              };
-            });
-          if (list.length > 0) callbacks.onClasses(list);
-        },
-        (err) => callbacks.onError(`Gagal memuat data kelas: ${err.message}`),
-      ),
+              });
+            }
+            emitClasses();
+          },
+          () => {},
+        ),
+      );
+
+      unsubList.push(
+        onSnapshot(
+          query(collection(db, 'schedules'), where('classId', '==', cid)),
+          (snap) => {
+            const items = snap.docs
+              .filter((d) => d.data().archived !== true)
+              .map((d) => mapScheduleDoc(d.id, d.data() as Record<string, unknown>));
+            schedulesByClass.set(cid, items);
+            emitSchedules();
+          },
+          (err) => callbacks.onError(`Gagal memuat jadwal: ${err.message}`),
+        ),
+      );
+
+      unsubList.push(
+        onSnapshot(
+          query(collection(db, 'sessions'), where('classId', '==', cid)),
+          (snap) => {
+            const items = snap.docs
+              .filter((d) => d.data().archived !== true)
+              .map((d) => mapSessionDoc(d.id, d.data() as Record<string, unknown>));
+            sessionsByClass.set(cid, items);
+            emitSessions();
+          },
+          (err) => callbacks.onError(`Gagal memuat sesi: ${err.message}`),
+        ),
+      );
+
+      classUnsubs.set(cid, unsubList);
+    };
+
+    const membersQuery = query(
+      collection(db, 'classMembers'),
+      where('uid', '==', currentUser.id),
     );
-  } else {
-    unsubs.push(
-      onSnapshot(
-        doc(db, 'classes', currentUser.kelasId),
-        (snap) => {
-          if (!snap.exists() || snap.data().archived === true) return;
-          const data = snap.data();
-          callbacks.onClasses([
-            {
-              id: snap.id,
-              nama: String(data.nama ?? data.name ?? snap.id),
-              praktikumId: String(data.praktikumId ?? 'praktikum-ppk'),
-            },
-          ]);
-        },
-        () => {},
-      ),
+    const unsubMembers = onSnapshot(
+      membersQuery,
+      (snap) => {
+        const activeMembers: Praktikan[] = snap.docs
+          .filter((d) => d.data().active !== false)
+          .map((d) => {
+            const data = d.data();
+            return {
+              id: String(data.uid ?? data.praktikanId ?? d.id),
+              peran: 'praktikan',
+              nama: String(data.nama ?? data.name ?? 'Praktikan'),
+              nim: String(data.nim ?? '-'),
+              kelasId: String(data.classId ?? data.kelasId ?? 'kelas-a'),
+            };
+          });
+
+        callbacks.onMembers(activeMembers);
+
+        const nextClassIds = Array.from(
+          new Set(activeMembers.map((m) => m.kelasId).filter(Boolean)),
+        );
+        const nextSet = new Set(nextClassIds);
+
+        let removed = false;
+        for (const existingCid of Array.from(classUnsubs.keys())) {
+          if (!nextSet.has(existingCid)) {
+            cleanupClass(existingCid);
+            removed = true;
+          }
+        }
+
+        if (nextClassIds.length === 0) {
+          emitClasses();
+          emitSchedules();
+          emitSessions();
+          return;
+        }
+
+        for (const cid of nextClassIds) {
+          subscribeClass(cid);
+        }
+        if (removed) {
+          emitClasses();
+          emitSchedules();
+          emitSessions();
+        }
+      },
+      (err) => callbacks.onError(`Gagal memuat keanggotaan kelas: ${err.message}`),
     );
+
+    return () => {
+      unsubMembers();
+      for (const cid of Array.from(classUnsubs.keys())) {
+        cleanupClass(cid);
+      }
+    };
   }
 
-  // 2. ClassMembers listener (asisten baca semua, praktikan query uid == currentUser.id)
-  const membersRef =
-    currentUser.peran === 'praktikan'
-      ? query(collection(db, 'classMembers'), where('uid', '==', currentUser.id))
-      : collection(db, 'classMembers');
+  const unsubs: Unsubscribe[] = [];
 
+  // 1. Classes listener (asisten baca semua)
   unsubs.push(
     onSnapshot(
-      membersRef,
+      collection(db, 'classes'),
+      (snap) => {
+        const list: Kelas[] = snap.docs
+          .filter((d) => d.data().archived !== true)
+          .map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              nama: String(data.nama ?? data.name ?? d.id),
+              praktikumId: String(data.praktikumId ?? 'praktikum-ppk'),
+              asistenId: data.createdBy ? String(data.createdBy) : undefined,
+            };
+          });
+        if (list.length > 0) callbacks.onClasses(list);
+      },
+      (err) => callbacks.onError(`Gagal memuat data kelas: ${err.message}`),
+    ),
+  );
+
+  // 2. ClassMembers listener (asisten baca semua)
+  unsubs.push(
+    onSnapshot(
+      collection(db, 'classMembers'),
       (snap) => {
         const list: Praktikan[] = snap.docs
           .filter((d) => d.data().active !== false)
@@ -666,88 +899,28 @@ export function subscribePracticumRealtime(
     ),
   );
 
-  // 3. Schedules listener
-  const schedulesRef =
-    currentUser.peran === 'praktikan'
-      ? query(
-          collection(db, 'schedules'),
-          where('classId', '==', currentUser.kelasId),
-        )
-      : collection(db, 'schedules');
-
+  // 3. Schedules listener (asisten baca semua)
   unsubs.push(
     onSnapshot(
-      schedulesRef,
+      collection(db, 'schedules'),
       (snap) => {
         const list: Jadwal[] = snap.docs
           .filter((d) => d.data().archived !== true)
-          .map((d) => {
-            const data = d.data();
-            return {
-              id: d.id,
-              praktikumId: String(data.praktikumId ?? 'praktikum-ppk'),
-              kelasId: String(data.classId ?? data.kelasId ?? 'kelas-a'),
-              asistenId: String(data.createdBy ?? data.asistenId ?? 'asisten-1'),
-              hari: String(data.hari ?? 'Rabu'),
-              jamMulai: String(data.jamMulai ?? data.startAt ?? '10:00'),
-              jamSelesai: String(data.jamSelesai ?? data.endAt ?? '12:00'),
-              ruang: String(data.ruang ?? 'Lab'),
-              topik: String(data.topik ?? 'Praktikum'),
-            };
-          });
-        if (list.length > 0 || currentUser.peran === 'asisten') {
-          callbacks.onSchedules(list);
-        }
+          .map((d) => mapScheduleDoc(d.id, d.data() as Record<string, unknown>));
+        callbacks.onSchedules(list);
       },
       (err) => callbacks.onError(`Gagal memuat jadwal: ${err.message}`),
     ),
   );
 
-  // 4. Sessions listener
-  const sessionsRef =
-    currentUser.peran === 'praktikan'
-      ? query(
-          collection(db, 'sessions'),
-          where('classId', '==', currentUser.kelasId),
-        )
-      : collection(db, 'sessions');
-
+  // 4. Sessions listener (asisten baca semua)
   unsubs.push(
     onSnapshot(
-      sessionsRef,
+      collection(db, 'sessions'),
       (snap) => {
-        if (snap.empty && currentUser.peran === 'praktikan') return;
         const list: Sesi[] = snap.docs
           .filter((d) => d.data().archived !== true)
-          .map((d) => {
-            const data = d.data();
-            const startStr = typeof data.startAt === 'string' ? data.startAt : '';
-            const endStr = typeof data.endAt === 'string' ? data.endAt : '';
-            return {
-              id: d.id,
-              praktikumId: String(data.praktikumId ?? 'praktikum-ppk'),
-              kelasId: String(data.classId ?? data.kelasId ?? 'kelas-a'),
-              asistenId: String(data.asistenUid ?? data.asistenId ?? 'asisten-1'),
-              scheduleId: data.scheduleId ? String(data.scheduleId) : undefined,
-              topik: String(data.topik ?? 'Sesi Praktikum'),
-              ruang: String(data.ruang ?? 'Lab'),
-              tanggal: String(
-                data.tanggal ??
-                  (startStr.includes('T')
-                    ? startStr.slice(0, 10)
-                    : new Date().toISOString().slice(0, 10)),
-              ),
-              jamMulai: String(
-                data.jamMulai ??
-                  (startStr.includes('T') ? startStr.slice(11, 16) : '10:00'),
-              ),
-              jamSelesai: String(
-                data.jamSelesai ??
-                  (endStr.includes('T') ? endStr.slice(11, 16) : '12:00'),
-              ),
-              status: toStatusSesi(data.status, data.openedAt, data.closedAt),
-            };
-          });
+          .map((d) => mapSessionDoc(d.id, d.data() as Record<string, unknown>));
         if (list.length > 0) {
           callbacks.onSessions(list);
         }
@@ -790,7 +963,7 @@ export function subscribeAuthUserRealtime(
 
       const uid = fbUser.uid;
       let userData: Record<string, unknown> = {};
-      let memberKelasId: string | undefined;
+      let memberKelasIds: string[] | undefined;
 
       const emit = () => {
         const rawRole = userData.role ?? userData.peran;
@@ -806,14 +979,16 @@ export function subscribeAuthUserRealtime(
             email: fbUser.email ?? undefined,
           });
         } else {
+          const fallbackKelasId = String(
+            userData.kelasId ?? userData.classId ?? 'kelas-a',
+          );
           onUserChange({
             id: uid,
             peran: 'praktikan',
             nama,
             nim: String(userData.nim ?? uid.slice(0, 10)),
-            kelasId: String(
-              memberKelasId ?? userData.kelasId ?? userData.classId ?? 'kelas-a',
-            ),
+            kelasId: memberKelasIds?.[0] ?? fallbackKelasId,
+            ...(memberKelasIds !== undefined ? { kelasIds: memberKelasIds } : {}),
             email: fbUser.email ?? undefined,
           });
         }
@@ -833,10 +1008,20 @@ export function subscribeAuthUserRealtime(
       memberQueryUnsub = onSnapshot(
         query(collection(db, 'classMembers'), where('uid', '==', uid)),
         (snap) => {
-          const activeDoc = snap.docs.find((d) => d.data().active !== false);
-          if (activeDoc) {
-            const m = activeDoc.data();
-            memberKelasId = String(m.classId ?? m.kelasId ?? 'kelas-a');
+          const activeDocs = snap.docs.filter((d) => d.data().active !== false);
+          memberKelasIds = Array.from(
+            new Set(
+              activeDocs
+                .map((d) => {
+                  const m = d.data();
+                  return String(m.classId ?? m.kelasId ?? '');
+                })
+                .filter(Boolean),
+            ),
+          );
+          const firstDoc = activeDocs[0];
+          if (firstDoc) {
+            const m = firstDoc.data();
             if (!userData.nama && m.nama) userData = { ...userData, nama: m.nama };
             if (!userData.nim && m.nim) userData = { ...userData, nim: m.nim };
           }

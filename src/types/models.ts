@@ -11,6 +11,7 @@ export interface Praktikan {
   nama: string;
   nim: string;
   kelasId: string;
+  kelasIds?: string[];
   email?: string;
 }
 
@@ -63,6 +64,13 @@ export interface Sesi {
   kelasId: string;
   asistenId: string;
   scheduleId?: string;
+  labId?: string;
+  labNama?: string;
+  labCoordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+  radiusMeters?: number;
   topik: string;
   ruang: string;
   /** Format YYYY-MM-DD, memakai tanggal lokal perangkat. */
@@ -83,6 +91,11 @@ export interface Presensi {
   /** ISO 8601, waktu lokal perangkat saat presensi dicatat. */
   waktuPresensi: string;
   catatan?: string;
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  distanceMeters?: number;
+  geofenceStatus?: 'in_radius' | 'bypass_qr';
 }
 
 export interface AppState {
@@ -113,6 +126,11 @@ export type AppAction =
       praktikanId: string;
       catatan?: string;
       waktuPresensi?: string;
+      latitude?: number;
+      longitude?: number;
+      accuracy?: number;
+      distanceMeters?: number;
+      geofenceStatus?: 'in_radius' | 'bypass_qr';
     }
   | { type: 'TAMBAH_KELAS'; kelas: Kelas }
   | { type: 'UBAH_KELAS'; kelas: Kelas }
