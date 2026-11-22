@@ -19,6 +19,7 @@ import {
   pesanErrorAuth,
   type ProfilPengguna,
 } from '@/services/authService';
+import { unregisterUserDeviceForNotifications } from '@/services/notifications/notificationService';
 
 type StatusAuth = 'memuat' | 'masuk' | 'keluar';
 
@@ -107,10 +108,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const keluar = useCallback(async () => {
     setError(null);
+    // Cabut token perangkat sebelum sesi Firebase Auth berakhir agar aturan Firestore mengizinkan hapus.
+    await unregisterUserDeviceForNotifications(pengguna?.uid).catch(() => {});
     await keluarDariAplikasi();
     setPengguna(null);
     setStatus('keluar');
-  }, []);
+  }, [pengguna?.uid]);
 
   const value = useMemo<AuthContextValue>(
     () => ({ status, pengguna, error, daftar, masuk, keluar }),

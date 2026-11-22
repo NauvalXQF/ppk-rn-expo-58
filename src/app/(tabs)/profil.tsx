@@ -9,6 +9,8 @@ import { ScreenContainer } from '@/components/ui/ScreenContainer';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
+import { NotificationBell } from '@/features/notifications/NotificationBell';
+import { NotificationPrompt } from '@/features/notifications/NotificationPrompt';
 
 export default function ProfilRoute() {
   const router = useRouter();
@@ -54,9 +56,12 @@ export default function ProfilRoute() {
 
   return (
     <ScreenContainer>
-      <View style={styles.header}>
-        <Text style={styles.screenTitle}>Profil Pengguna</Text>
-        <Text style={styles.subtitle}>Informasi akun Firebase yang sedang aktif</Text>
+      <View style={styles.headerRow}>
+        <View style={styles.header}>
+          <Text style={styles.screenTitle}>Profil Pengguna</Text>
+          <Text style={styles.subtitle}>Informasi akun Firebase yang sedang aktif</Text>
+        </View>
+        <NotificationBell />
       </View>
 
       <AppCard style={styles.userCard}>
@@ -78,6 +83,8 @@ export default function ProfilRoute() {
         </View>
       </AppCard>
 
+      <NotificationPrompt />
+
       <View style={styles.actions}>
         <AppButton
           label="Keluar"
@@ -92,7 +99,7 @@ export default function ProfilRoute() {
         />
       </View>
 
-      <Text style={styles.versionText}>Versi 1.0.0 · Sprint 2</Text>
+      <Text style={styles.versionText}>Versi 1.0.0 · Sprint 3</Text>
 
       <ConfirmSheet
         visible={confirmGantiVisible}
@@ -117,9 +124,16 @@ export default function ProfilRoute() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    gap: 2,
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.sm,
     marginBottom: Spacing.xs,
+  },
+  header: {
+    flex: 1,
+    gap: 2,
   },
   screenTitle: {
     fontSize: FontSize.xl,

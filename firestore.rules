@@ -44,7 +44,7 @@ service cloud.firestore {
         && anggotaKelas(classId).uid == request.auth.uid;
     }
 
-    // ==================== Profil pengguna ====================
+    // ==================== Profil pengguna & token perangkat ====================
     // Dokumen users/{uid} ditulis P1. Registrasi mandiri selalu "praktikan".
     // Role hanya boleh diubah lewat provisioning terpercaya (Console / Admin SDK),
     // sehingga setiap perubahan role dari klien ditolak.
@@ -64,6 +64,55 @@ service cloud.firestore {
         && request.resource.data.role == resource.data.role
         && hanyaFieldBerubah(['nama', 'nim', 'nip', 'updatedAt']);
 
+      allow delete: if false;
+
+      // Token perangkat push notification (Sprint 3 · SRS-07).
+      // Pemilik akun dapat mendaftarkan/menghapus token miliknya;
+      // asisten dapat membaca token untuk penargetan notifikasi kelas/izin.
+      match /devices/{token} {
+        allow read: if isSignedIn() && (request.auth.uid == uid || isAsisten());
+
+        allow create, update: if isSignedIn()
+          && request.auth.uid == uid
+          && request.resource.data.token is string
+          && request.resource.data.token.size() > 0
+          && request.resource.data.platform in ['android', 'ios', 'web'];
+
+        allow delete: if isSignedIn() && request.auth.uid == uid;
+      }
+    }
+
+    // ==================== Data laboratorium (Sprint 3 · SRS-03) ====================
+    match /laboratories/{labId} {
+      allow read: if isSignedIn();
+
+      allow create: if isAsisten()
+        && request.resource.data.nama is string
+        && request.resource.data.nama.size() > 0
+        && request.resource.data.latitude is number
+        && request.resource.data.latitude >= -90.0
+        && request.resource.data.latitude <= 90.0
+        && request.resource.data.longitude is number
+        && request.resource.data.longitude >= -180.0
+        && request.resource.data.longitude <= 180.0
+        && request.resource.data.radiusMeters is number
+        && request.resource.data.radiusMeters >= 10
+        && request.resource.data.radiusMeters <= 500;
+
+      allow update: if isAsisten()
+        && request.resource.data.nama is string
+        && request.resource.data.nama.size() > 0
+        && request.resource.data.latitude is number
+        && request.resource.data.latitude >= -90.0
+        && request.resource.data.latitude <= 90.0
+        && request.resource.data.longitude is number
+        && request.resource.data.longitude >= -180.0
+        && request.resource.data.longitude <= 180.0
+        && request.resource.data.radiusMeters is number
+        && request.resource.data.radiusMeters >= 10
+        && request.resource.data.radiusMeters <= 500;
+
+      // Lab diarsipkan (aktif = false), tidak dihapus fisik.
       allow delete: if false;
     }
 
@@ -200,9 +249,9 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // ==================== Presensi (P2) ====================
+    // ==================== Presensi berbasis lokasi (Sprint 3 · SRS-02) ====================
     // ID dokumen = UID praktikan sehingga duplikasi tidak mungkin.
-    // Hanya create, hanya saat sesi "open", dan hanya untuk anggota aktif kelas.
+    // Hanya create, hanya saat sesi "open", anggota aktif kelas, dan validasi geofence.
     match /sessions/{sessionId}/attendances/{uid} {
       allow read: if isSignedIn() && (request.auth.uid == uid || isAsisten());
 
@@ -213,7 +262,19 @@ service cloud.firestore {
         && request.resource.data.status == 'hadir'
         && sesi(sessionId).status == 'open'
         && sesi(sessionId).get('archived', false) == false
-        && isAnggotaKelas(sesi(sessionId).classId);
+        && isAnggotaKelas(sesi(sessionId).classId)
+        && request.resource.data.latitude is number
+        && request.resource.data.latitude >= -90.0
+        && request.resource.data.latitude <= 90.0
+        && request.resource.data.longitude is number
+        && request.resource.data.longitude >= -180.0
+        && request.resource.data.longitude <= 180.0
+        && request.resource.data.distanceMeters is number
+        && request.resource.data.distanceMeters >= 0
+        && (
+          request.resource.data.distanceMeters <= sesi(sessionId).get('radiusMeters', 30)
+          || request.resource.data.geofenceStatus == 'bypass_qr'
+        );
 
       // Presensi tidak boleh diubah atau dihapus dari klien.
       allow update, delete: if false;
@@ -257,6 +318,24 @@ service cloud.firestore {
         && hanyaFieldBerubah(['status', 'reviewedBy', 'reviewedAt', 'reviewNote', 'updatedAt']);
 
       allow delete: if false;
+    }
+
+    // ==================== Log audit notifikasi (Sprint 3 · SRS-06) ====================
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn()
+        && (resource.data.recipientUid == request.auth.uid || isAsisten());
+
+      allow create: if isAsisten()
+        && request.resource.data.recipientUid is string
+        && request.resource.data.recipientUid.size() > 0
+        && request.resource.data.type in ['session_opened', 'schedule_changed', 'leave_decided']
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.status in ['sent', 'delivered', 'failed'];
+
+      allow update, delete: if false;
     }
   }
 }

@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { AppProvider, useApp } from '@/store/app-context';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { NotificationProvider } from '@/hooks/useNotifications';
 import { kePenggunaAplikasi } from '@/services/authService';
 import { Colors } from '@/constants/theme';
 
@@ -29,34 +30,36 @@ export default function RootLayout() {
   return (
     <AppProvider>
       <AuthProvider>
-        <SinkronisasiProfil />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: Colors.background },
-          }}
-        >
-          <Stack.Screen name="index" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen
-            name="sesi/[sesiId]"
-            options={{
-              headerShown: true,
-              title: 'Detail Sesi',
-              headerTintColor: Colors.primary,
-              headerStyle: { backgroundColor: Colors.surface },
+        <NotificationProvider>
+          <SinkronisasiProfil />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: Colors.background },
             }}
-          />
-          <Stack.Screen
-            name="presensi/[sesiId]"
-            options={{
-              headerShown: true,
-              title: 'Presensi Kehadiran',
-              headerTintColor: Colors.primary,
-              headerStyle: { backgroundColor: Colors.surface },
-            }}
-          />
-        </Stack>
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen
+              name="sesi/[sesiId]"
+              options={{
+                headerShown: true,
+                title: 'Detail Sesi',
+                headerTintColor: Colors.primary,
+                headerStyle: { backgroundColor: Colors.surface },
+              }}
+            />
+            <Stack.Screen
+              name="presensi/[sesiId]"
+              options={{
+                headerShown: true,
+                title: 'Presensi Kehadiran',
+                headerTintColor: Colors.primary,
+                headerStyle: { backgroundColor: Colors.surface },
+              }}
+            />
+          </Stack>
+        </NotificationProvider>
       </AuthProvider>
     </AppProvider>
   );
