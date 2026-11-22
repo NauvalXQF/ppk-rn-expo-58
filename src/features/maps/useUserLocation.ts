@@ -4,9 +4,38 @@ import * as Location from 'expo-location';
 import { validCoordinates } from '@/services/maps/laboratories';
 
 type LocationState =
-  | { status: 'searching' | 'gps-off' | 'unavailable' }
+  | { status: 'searching' | 'gps-off' | 'unavailable' | 'unsupported' }
   | { status: 'denied'; canAskAgain: boolean }
   | { status: 'located'; point: Location.LocationObjectCoords };
+
+function watchBrowserLocation(report: (value: LocationState) => void) {
+  if (typeof window === 'undefined' || !window.isSecureContext || !window.navigator.geolocation) {
+    report({ status: 'unsupported' });
+    return;
+  }
+  const geolocation = window.navigator.geolocation;
+  let active = true;
+  report({ status: 'searching' });
+  try {
+    const id = geolocation.watchPosition(
+      ({ coords }) => {
+        if (!active || !validCoordinates(coords.latitude, coords.longitude)) return;
+        report({ status: 'located', point: coords });
+      },
+      ({ code }) => {
+        if (!active) return;
+        report(code === 1 ? { status: 'denied', canAskAgain: true } : { status: 'unavailable' });
+      },
+      { timeout: 15000 },
+    );
+    return () => {
+      active = false;
+      geolocation.clearWatch(id);
+    };
+  } catch {
+    report({ status: 'unavailable' });
+  }
+}
 
 export function useUserLocation(focused: boolean) {
   const [state, setState] = useState<LocationState>({ status: 'searching' });
@@ -14,7 +43,8 @@ export function useUserLocation(focused: boolean) {
   const promptedAttempt = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!focused || Platform.OS === 'web') return;
+    if (!focused) return;
+    if (Platform.OS === 'web') return watchBrowserLocation(setState);
 
     let stopTracking: (() => void) | undefined;
     function updateTracking(nextState: string) {
