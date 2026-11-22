@@ -3,16 +3,19 @@ import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import {
   collection,
   doc,
-  getDoc,
+  getDocs,
+  getDocsFromServer,
   getFirestore,
+  limit,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
   where,
-  writeBatch,
   type Firestore,
+  type QueryDocumentSnapshot,
   type Unsubscribe,
 } from 'firebase/firestore';
 
@@ -94,7 +97,7 @@ function assertAsisten(actor: Pengguna | null): asserts actor is Asisten {
 }
 
 function validateTimeFormat(jam: string, label: string) {
-  if (!/^\d{2}:\d{2}$/.test(jam.trim())) {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(jam.trim())) {
     throw new Error(`${label} harus berformat HH:mm (contoh 10:00).`);
   }
 }
@@ -199,15 +202,11 @@ export async function saveClassMemberToFirestore(
   const rawNim = input.nim?.trim() ?? '';
   const nim = rawNim || '-';
   const kelasId = input.kelasId.trim();
+  const uid = input.id?.trim();
 
   if (!nama) throw new Error('Nama praktikan wajib diisi.');
   if (!kelasId) throw new Error('Kelas praktikan wajib dipilih.');
-
-  const isUpdate = Boolean(input.id?.trim());
-  const uidSlug = rawNim
-    ? rawNim.toLowerCase().replace(/[^a-z0-9]+/g, '')
-    : `${nama.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString(36)}`;
-  const uid = input.id?.trim() || `praktikan-${uidSlug}`;
+  if (!uid || uid.includes('/')) throw new Error('Pilih akun Firebase praktikan yang terdaftar.');
   const memberId = buildClassMemberId(kelasId, uid);
 
   const peserta: Praktikan = {
@@ -219,21 +218,39 @@ export async function saveClassMemberToFirestore(
   };
 
   const db = getDb();
-  if (db) {
-    await setDoc(
-      doc(db, 'classMembers', memberId),
-      {
+  if (!db) throw new Error('Firebase belum dikonfigurasi untuk mengelola peserta.');
+
+  await runTransaction(db, async (tx) => {
+    const ref = doc(db, 'classMembers', memberId);
+    const [profil, kelas, anggota] = await Promise.all([
+      tx.get(doc(db, 'users', uid)),
+      tx.get(doc(db, 'classes', kelasId)),
+      tx.get(ref),
+    ]);
+    if (profil.data()?.role !== 'praktikan' || profil.data()?.uid !== uid) {
+      throw new Error('UID harus cocok dengan profil akun praktikan terdaftar.');
+    }
+    if (!kelas.exists() || kelas.data().archived === true) {
+      throw new Error('Pilih kelas yang tersedia dan aktif.');
+    }
+    if (anggota.exists()) {
+      const data = anggota.data();
+      if (data.uid !== uid || data.classId !== kelasId) {
+        throw new Error('Identitas dokumen keanggotaan tidak cocok.');
+      }
+      tx.update(ref, { nama, nim, active: true, updatedAt: serverTimestamp() });
+    } else {
+      tx.set(ref, {
         classId: kelasId,
         uid,
         nama,
         nim,
         active: true,
-        ...(isUpdate ? {} : { createdAt: serverTimestamp() }),
+        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-  }
+      });
+    }
+  });
   return peserta;
 }
 
@@ -243,16 +260,22 @@ export async function deleteClassMemberFromFirestore(
   kelasId?: string,
 ): Promise<void> {
   assertAsisten(actor);
-  if (!praktikanId.trim()) throw new Error('ID praktikan tidak valid.');
+  const uid = praktikanId.trim();
+  if (!uid) throw new Error('ID praktikan tidak valid.');
   const db = getDb();
-  if (db && kelasId) {
-    const memberId = buildClassMemberId(kelasId, praktikanId);
-    // Sesuai data-model.md §7: nonaktifkan keanggotaan dengan active = false
-    await updateDoc(doc(db, 'classMembers', memberId), {
-      active: false,
-      updatedAt: serverTimestamp(),
-    });
-  }
+  if (!db) return;
+  if (!kelasId?.trim()) throw new Error('Kelas keanggotaan tidak valid.');
+
+  const ref = doc(db, 'classMembers', buildClassMemberId(kelasId, uid));
+  await runTransaction(db, async (tx) => {
+    const member = await tx.get(ref);
+    if (!member.exists() || member.data().uid !== uid || member.data().classId !== kelasId) {
+      throw new Error('Keanggotaan kelas tidak ditemukan.');
+    }
+    if (member.data().active !== false) {
+      tx.update(ref, { active: false, updatedAt: serverTimestamp() });
+    }
+  });
 }
 
 // =========================
@@ -382,58 +405,96 @@ export async function saveSessionToFirestore(
     throw new Error('Jam mulai harus lebih awal dari jam selesai.');
   }
 
-  const isUpdate = Boolean(input.id?.trim());
-  const id = input.id?.trim() || `sesi-${Date.now().toString(36)}`;
-  const status: StatusSesi = input.status ?? 'dijadwalkan';
+  const db = getDb();
+  const existingId = input.id?.trim();
+  const id = existingId || `sesi-${db ? doc(collection(db, 'sessions')).id : Date.now().toString(36)}`;
+  let scheduleId = input.scheduleId?.trim();
   const praktikumId = input.praktikumId?.trim() || 'praktikum-ppk';
+  const waktu = {
+    tanggal,
+    jamMulai,
+    jamSelesai,
+    startAt: `${tanggal}T${jamMulai}:00`,
+    endAt: `${tanggal}T${jamSelesai}:00`,
+  };
 
-  const sesi: Sesi = {
+  if (!db) return {
     id,
     praktikumId,
     kelasId,
     asistenId: actor.id,
-    scheduleId: input.scheduleId?.trim() || undefined,
+    scheduleId,
     topik,
     ruang,
     tanggal,
     jamMulai,
     jamSelesai,
-    status,
+    status: existingId ? (input.status ?? 'dijadwalkan') : 'dijadwalkan',
   };
 
-  const db = getDb();
-  if (db) {
-    // Sesuai data-model.md §3: sesi baru dibuat dengan status 'closed', openedAt: null, closedAt: null
-    await setDoc(
-      doc(db, 'sessions', id),
-      {
-        classId: kelasId,
-        scheduleId: sesi.scheduleId ?? `${kelasId}-default`,
-        praktikumId,
-        asistenUid: actor.id,
-        asistenNama: actor.nama,
+  const ref = doc(db, 'sessions', id);
+  if (existingId) {
+    return runTransaction(db, async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists()) throw new Error('Sesi tidak ditemukan di database.');
+      const data = snapshot.data();
+      if (data.archived === true) throw new Error('Sesi yang diarsipkan tidak dapat diedit.');
+      const sesi = mapSessionDoc(id, data);
+      if (sesi.kelasId !== kelasId || (scheduleId && sesi.scheduleId !== scheduleId)) {
+        throw new Error('Kelas dan jadwal pada sesi yang sudah dibuat tidak dapat diubah.');
+      }
+      const waktuBerubah =
+        sesi.tanggal !== tanggal || sesi.jamMulai !== jamMulai || sesi.jamSelesai !== jamSelesai;
+      if (waktuBerubah && (data.status !== 'closed' || data.openedAt !== null || data.closedAt !== null)) {
+        throw new Error('Tanggal dan jam hanya dapat diubah sebelum sesi pertama kali dibuka.');
+      }
+      tx.update(ref, {
         topik,
         ruang,
-        tanggal,
-        jamMulai,
-        jamSelesai,
-        startAt: `${tanggal}T${jamMulai}:00`,
-        endAt: `${tanggal}T${jamSelesai}:00`,
-        ...(isUpdate
-          ? {}
-          : {
-              status: 'closed',
-              openedAt: null,
-              closedAt: null,
-              archived: false,
-              createdAt: serverTimestamp(),
-            }),
+        ...(waktuBerubah ? waktu : {}),
         updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
+      });
+      return { ...sesi, topik, ruang, tanggal, jamMulai, jamSelesai };
+    });
   }
-  return sesi;
+
+  if (!scheduleId) {
+    const schedules = await getDocs(query(collection(db, 'schedules'), where('classId', '==', kelasId)));
+    scheduleId = schedules.docs.find((item) => item.data().archived !== true)?.id;
+  }
+  if (!scheduleId) throw new Error('Buat jadwal aktif untuk kelas ini sebelum membuat sesi.');
+
+  const data = {
+    classId: kelasId,
+    scheduleId,
+    praktikumId,
+    asistenUid: actor.id,
+    asistenNama: actor.nama,
+    topik,
+    ruang,
+    ...waktu,
+    status: 'closed',
+    openedAt: null,
+    closedAt: null,
+    archived: false,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  const scheduleRef = doc(db, 'schedules', scheduleId);
+  await runTransaction(db, async (tx) => {
+    const [kelas, jadwal] = await Promise.all([
+      tx.get(doc(db, 'classes', kelasId)),
+      tx.get(scheduleRef),
+    ]);
+    if (!kelas.exists() || kelas.data().archived === true) {
+      throw new Error('Pilih kelas yang tersedia dan aktif.');
+    }
+    if (!jadwal.exists() || jadwal.data().archived === true || jadwal.data().classId !== kelasId) {
+      throw new Error('Jadwal harus aktif dan berasal dari kelas sesi.');
+    }
+    tx.set(ref, data);
+  });
+  return mapSessionDoc(id, data);
 }
 
 export async function deleteSessionFromFirestore(
@@ -444,9 +505,16 @@ export async function deleteSessionFromFirestore(
   if (!sesiId.trim()) throw new Error('ID sesi tidak valid.');
   const db = getDb();
   if (db) {
-    await updateDoc(doc(db, 'sessions', sesiId), {
-      archived: true,
-      updatedAt: serverTimestamp(),
+    const ref = doc(db, 'sessions', sesiId.trim());
+    await runTransaction(db, async (tx) => {
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists()) throw new Error('Sesi tidak ditemukan di database.');
+      const data = snapshot.data();
+      if (data.archived === true) return;
+      if (data.status !== 'closed' || data.openedAt == null || data.closedAt == null) {
+        throw new Error('Tutup sesi yang sudah dibuka sebelum mengarsipkannya.');
+      }
+      tx.update(ref, { archived: true, updatedAt: serverTimestamp() });
     });
   }
 }
@@ -461,119 +529,122 @@ export async function updateSessionStatusInFirestore(
   if (!db) return;
 
   const ref = doc(db, 'sessions', sesiId);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) {
-    throw new Error('Sesi tidak ditemukan di database.');
-  }
+  await runTransaction(db, async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists()) throw new Error('Sesi tidak ditemukan di database.');
+    const data = snapshot.data();
+    if (data.archived === true) throw new Error('Sesi sudah diarsipkan.');
 
-  const data = snap.data();
-  const currentStatus = toStatusSesi(data.status, data.openedAt, data.closedAt);
-  if (target === 'open' && currentStatus !== 'dijadwalkan') {
-    throw new Error('Hanya sesi berstatus dijadwalkan yang dapat dibuka.');
-  }
-  if (target === 'closed' && currentStatus !== 'dibuka') {
-    throw new Error('Hanya sesi yang sedang dibuka yang dapat ditutup.');
-  }
-
-  // Sesuai data-model.md §3 & whitelist field transisi sesi:
-  // hanya ubah ['status', 'openedAt', 'closedAt', 'updatedAt']
-  if (target === 'open') {
-    await updateDoc(ref, {
-      status: 'open',
-      openedAt: serverTimestamp(),
-      closedAt: null,
-      updatedAt: serverTimestamp(),
-    });
-  } else {
-    await updateDoc(ref, {
-      status: 'closed',
-      closedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  }
+    if (target === 'open') {
+      if (data.status !== 'closed' || data.openedAt !== null || data.closedAt !== null) {
+        throw new Error('Hanya sesi yang belum pernah dibuka yang dapat dibuka.');
+      }
+      tx.update(ref, { status: 'open', openedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    } else {
+      if (data.status !== 'open' || data.openedAt == null || data.closedAt !== null) {
+        throw new Error('Hanya sesi yang sedang dibuka yang dapat ditutup.');
+      }
+      tx.update(ref, { status: 'closed', closedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    }
+  });
 }
 
 // ==========================================
-// 5. SEED / RESET DATA DEMO KE FIRESTORE
+// 5. INISIALISASI DATA DEMO FIRESTORE
 // ==========================================
 
-export async function seedInitialDataToFirestore(): Promise<void> {
+export async function seedInitialDataToFirestore(
+  actor: Pengguna | null,
+  { onlyWhenSessionsEmpty = false } = {},
+): Promise<void> {
+  assertAsisten(actor);
   const db = getDb();
-  if (!db) return;
+  if (!db) throw new Error('Firebase belum dikonfigurasi untuk inisialisasi data.');
 
-  const batch = writeBatch(db);
-
-  for (const k of initialState.kelas) {
-    batch.set(doc(db, 'classes', k.id), {
-      nama: k.nama,
-      praktikumId: k.praktikumId,
-      praktikumNama: 'Praktikum Pemrograman Komputer',
-      praktikumKode: 'PPK',
-      archived: false,
-      createdBy: 'asisten-1',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+  if (onlyWhenSessionsEmpty) {
+    const existing = await getDocsFromServer(query(collection(db, 'sessions'), limit(1)));
+    if (!existing.empty) return;
   }
 
-  for (const u of initialState.pengguna) {
-    if (u.peran === 'praktikan') {
-      const memberId = buildClassMemberId(u.kelasId, u.id);
-      batch.set(doc(db, 'classMembers', memberId), {
-        classId: u.kelasId,
-        uid: u.id,
-        nama: u.nama,
-        nim: u.nim,
-        active: true,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+  await runTransaction(db, async (tx) => {
+    const marker = doc(db, 'practicumInitialization', 'demo');
+    if ((await tx.get(marker)).exists()) return;
+
+    const read = async <T extends { id: string }>(name: string, fixtures: T[]) =>
+      Promise.all(fixtures.map(async (fixture) => {
+        const ref = doc(db, name, fixture.id);
+        return { fixture, ref, snapshot: await tx.get(ref) };
+      }));
+    const [classes, schedules, sessions] = await Promise.all([
+      read('classes', initialState.kelas),
+      read('schedules', DEFAULT_SCHEDULES),
+      read('sessions', initialState.sesi),
+    ]);
+    const audit = { createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    const activeClasses = new Set<string>();
+    for (const { fixture: k, ref, snapshot } of classes) {
+      if (snapshot.data()?.archived === true) continue;
+      activeClasses.add(k.id);
+      if (snapshot.exists()) continue;
+      tx.set(ref, {
+        nama: k.nama,
+        praktikumId: k.praktikumId,
+        praktikumNama: 'Praktikum Pemrograman Komputer',
+        praktikumKode: 'PPK',
+        archived: false,
+        createdBy: actor.id,
+        ...audit,
       });
     }
-  }
 
-  for (const j of DEFAULT_SCHEDULES) {
-    batch.set(doc(db, 'schedules', j.id), {
-      classId: j.kelasId,
-      praktikumId: j.praktikumId,
-      hari: j.hari,
-      jamMulai: j.jamMulai,
-      jamSelesai: j.jamSelesai,
-      startAt: j.jamMulai,
-      endAt: j.jamSelesai,
-      ruang: j.ruang,
-      topik: j.topik,
-      archived: false,
-      createdBy: j.asistenId,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  }
+    const activeScheduleByClass = new Map<string, string>();
+    for (const { fixture: j, ref, snapshot } of schedules) {
+      if (!activeClasses.has(j.kelasId)) continue;
+      const data = snapshot.data();
+      if (data && (data.archived === true || data.classId !== j.kelasId)) continue;
+      activeScheduleByClass.set(j.kelasId, j.id);
+      if (snapshot.exists()) continue;
+      tx.set(ref, {
+        classId: j.kelasId,
+        praktikumId: j.praktikumId,
+        hari: j.hari,
+        jamMulai: j.jamMulai,
+        jamSelesai: j.jamSelesai,
+        startAt: j.jamMulai,
+        endAt: j.jamSelesai,
+        ruang: j.ruang,
+        topik: j.topik,
+        archived: false,
+        createdBy: actor.id,
+        ...audit,
+      });
+    }
 
-  for (const s of initialState.sesi) {
-    // Sesuai Rules create session: status awal 'closed', openedAt: null, closedAt: null
-    batch.set(doc(db, 'sessions', s.id), {
-      classId: s.kelasId,
-      scheduleId: s.kelasId === 'kelas-a' ? 'jadwal-a' : 'jadwal-b',
-      praktikumId: s.praktikumId,
-      asistenUid: s.asistenId,
-      asistenNama: 'Nauval',
-      topik: s.topik,
-      ruang: s.ruang,
-      tanggal: s.tanggal,
-      jamMulai: s.jamMulai,
-      jamSelesai: s.jamSelesai,
-      startAt: `${s.tanggal}T${s.jamMulai}:00`,
-      endAt: `${s.tanggal}T${s.jamSelesai}:00`,
-      status: 'closed',
-      openedAt: null,
-      closedAt: null,
-      archived: false,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  }
-
-  await batch.commit();
+    for (const { fixture: s, ref, snapshot } of sessions) {
+      const scheduleId = activeScheduleByClass.get(s.kelasId);
+      if (snapshot.exists() || !scheduleId) continue;
+      tx.set(ref, {
+        classId: s.kelasId,
+        scheduleId,
+        praktikumId: s.praktikumId,
+        asistenUid: actor.id,
+        asistenNama: actor.nama,
+        topik: s.topik,
+        ruang: s.ruang,
+        tanggal: s.tanggal,
+        jamMulai: s.jamMulai,
+        jamSelesai: s.jamSelesai,
+        startAt: `${s.tanggal}T${s.jamMulai}:00`,
+        endAt: `${s.tanggal}T${s.jamSelesai}:00`,
+        status: 'closed',
+        openedAt: null,
+        closedAt: null,
+        archived: false,
+        ...audit,
+      });
+    }
+    tx.set(marker, { initializedBy: actor.id, initializedAt: serverTimestamp() });
+  });
 }
 
 // ==========================================
@@ -599,10 +670,11 @@ export function subscribeRegisteredPraktikanUsers(
     q,
     (snap) => {
       const list: RegisteredPraktikanAccount[] = snap.docs
+        .filter((d) => d.data().uid === d.id)
         .map((d) => {
           const data = d.data();
           return {
-            uid: String(data.uid ?? d.id),
+            uid: d.id,
             nama: String(data.nama ?? data.name ?? data.email ?? d.id),
             email: String(data.email ?? '-'),
             nim: typeof data.nim === 'string' && data.nim.trim() ? data.nim.trim() : undefined,
@@ -654,6 +726,7 @@ function mapSessionDoc(id: string, data: Record<string, unknown>): Sesi {
     praktikumId: String(data.praktikumId ?? 'praktikum-ppk'),
     kelasId: String(data.classId ?? data.kelasId ?? 'kelas-a'),
     asistenId: String(data.asistenUid ?? data.asistenId ?? 'asisten-1'),
+    asistenNama: typeof data.asistenNama === 'string' ? data.asistenNama : undefined,
     scheduleId: data.scheduleId ? String(data.scheduleId) : undefined,
     labId: data.labId ? String(data.labId) : undefined,
     labNama: data.labNama ? String(data.labNama) : undefined,
@@ -677,6 +750,26 @@ function mapSessionDoc(id: string, data: Record<string, unknown>): Sesi {
     ),
     status: toStatusSesi(data.status, data.openedAt, data.closedAt),
   };
+}
+
+function mapActiveMembers(docs: QueryDocumentSnapshot[]): Praktikan[] {
+  const members: Praktikan[] = [];
+  for (const doc of docs) {
+    const { uid, classId, active, nama, nim } = doc.data();
+    if (
+      active !== true || typeof uid !== 'string' || !uid ||
+      typeof classId !== 'string' || !classId || doc.id !== buildClassMemberId(classId, uid)
+    ) continue;
+
+    members.push({
+      id: uid,
+      peran: 'praktikan',
+      nama: String(nama ?? 'Praktikan'),
+      nim: String(nim ?? '-'),
+      kelasId: classId,
+    });
+  }
+  return members;
 }
 
 export interface PracticumSnapshotCallbacks {
@@ -776,7 +869,9 @@ export function subscribePracticumRealtime(
       unsubList.push(
         onSnapshot(
           query(collection(db, 'sessions'), where('classId', '==', cid)),
+          { includeMetadataChanges: true },
           (snap) => {
+            if (snap.metadata.hasPendingWrites) return;
             const items = snap.docs
               .filter((d) => d.data().archived !== true)
               .map((d) => mapSessionDoc(d.id, d.data() as Record<string, unknown>));
@@ -797,18 +892,7 @@ export function subscribePracticumRealtime(
     const unsubMembers = onSnapshot(
       membersQuery,
       (snap) => {
-        const activeMembers: Praktikan[] = snap.docs
-          .filter((d) => d.data().active !== false)
-          .map((d) => {
-            const data = d.data();
-            return {
-              id: String(data.uid ?? data.praktikanId ?? d.id),
-              peran: 'praktikan',
-              nama: String(data.nama ?? data.name ?? 'Praktikan'),
-              nim: String(data.nim ?? '-'),
-              kelasId: String(data.classId ?? data.kelasId ?? 'kelas-a'),
-            };
-          });
+        const activeMembers = mapActiveMembers(snap.docs);
 
         callbacks.onMembers(activeMembers);
 
@@ -870,7 +954,7 @@ export function subscribePracticumRealtime(
               asistenId: data.createdBy ? String(data.createdBy) : undefined,
             };
           });
-        if (list.length > 0) callbacks.onClasses(list);
+        callbacks.onClasses(list);
       },
       (err) => callbacks.onError(`Gagal memuat data kelas: ${err.message}`),
     ),
@@ -880,22 +964,8 @@ export function subscribePracticumRealtime(
   unsubs.push(
     onSnapshot(
       collection(db, 'classMembers'),
-      (snap) => {
-        const list: Praktikan[] = snap.docs
-          .filter((d) => d.data().active !== false)
-          .map((d) => {
-            const data = d.data();
-            return {
-              id: String(data.uid ?? data.praktikanId ?? d.id),
-              peran: 'praktikan',
-              nama: String(data.nama ?? data.name ?? 'Praktikan'),
-              nim: String(data.nim ?? '-'),
-              kelasId: String(data.classId ?? data.kelasId ?? 'kelas-a'),
-            };
-          });
-        if (list.length > 0) callbacks.onMembers(list);
-      },
-      () => {},
+      (snap) => callbacks.onMembers(mapActiveMembers(snap.docs)),
+      (err) => callbacks.onError(`Gagal memuat keanggotaan kelas: ${err.message}`),
     ),
   );
 
@@ -917,13 +987,13 @@ export function subscribePracticumRealtime(
   unsubs.push(
     onSnapshot(
       collection(db, 'sessions'),
+      { includeMetadataChanges: true },
       (snap) => {
+        if (snap.metadata.hasPendingWrites) return;
         const list: Sesi[] = snap.docs
           .filter((d) => d.data().archived !== true)
           .map((d) => mapSessionDoc(d.id, d.data() as Record<string, unknown>));
-        if (list.length > 0) {
-          callbacks.onSessions(list);
-        }
+        callbacks.onSessions(list);
       },
       (err) => callbacks.onError(`Gagal memuat sesi: ${err.message}`),
     ),
@@ -979,15 +1049,12 @@ export function subscribeAuthUserRealtime(
             email: fbUser.email ?? undefined,
           });
         } else {
-          const fallbackKelasId = String(
-            userData.kelasId ?? userData.classId ?? 'kelas-a',
-          );
           onUserChange({
             id: uid,
             peran: 'praktikan',
             nama,
             nim: String(userData.nim ?? uid.slice(0, 10)),
-            kelasId: memberKelasIds?.[0] ?? fallbackKelasId,
+            kelasId: memberKelasIds?.[0] ?? '',
             ...(memberKelasIds !== undefined ? { kelasIds: memberKelasIds } : {}),
             email: fbUser.email ?? undefined,
           });
@@ -1008,20 +1075,10 @@ export function subscribeAuthUserRealtime(
       memberQueryUnsub = onSnapshot(
         query(collection(db, 'classMembers'), where('uid', '==', uid)),
         (snap) => {
-          const activeDocs = snap.docs.filter((d) => d.data().active !== false);
-          memberKelasIds = Array.from(
-            new Set(
-              activeDocs
-                .map((d) => {
-                  const m = d.data();
-                  return String(m.classId ?? m.kelasId ?? '');
-                })
-                .filter(Boolean),
-            ),
-          );
-          const firstDoc = activeDocs[0];
-          if (firstDoc) {
-            const m = firstDoc.data();
+          const members = mapActiveMembers(snap.docs);
+          memberKelasIds = Array.from(new Set(members.map((m) => m.kelasId)));
+          const m = members[0];
+          if (m) {
             if (!userData.nama && m.nama) userData = { ...userData, nama: m.nama };
             if (!userData.nim && m.nim) userData = { ...userData, nim: m.nim };
           }

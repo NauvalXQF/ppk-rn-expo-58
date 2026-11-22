@@ -156,10 +156,16 @@ export function selectDetailSesi(
     state.pengguna.find(
       (u): u is Asisten => u.id === sesi.asistenId && u.peran === 'asisten',
     ) ??
-    (state.currentUser?.peran === 'asisten' ? state.currentUser : undefined) ??
-    state.pengguna.find((u): u is Asisten => u.peran === 'asisten');
+    (state.currentUser?.peran === 'asisten' && state.currentUser.id === sesi.asistenId
+      ? state.currentUser
+      : {
+          id: sesi.asistenId,
+          peran: 'asisten',
+          nama: sesi.asistenNama || 'Asisten Praktikum',
+          nip: '-',
+        });
 
-  if (!praktikum || !kelas || !asisten) {
+  if (!praktikum) {
     return null;
   }
 

@@ -63,6 +63,7 @@ export interface Sesi {
   praktikumId: string;
   kelasId: string;
   asistenId: string;
+  asistenNama?: string;
   scheduleId?: string;
   labId?: string;
   labNama?: string;
