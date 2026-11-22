@@ -39,7 +39,9 @@ service cloud.firestore {
     function isAnggotaKelas(classId) {
       return isPraktikan()
         && exists(/databases/$(database)/documents/classMembers/$(classId + '_' + request.auth.uid))
-        && anggotaKelas(classId).active == true;
+        && anggotaKelas(classId).active == true
+        && anggotaKelas(classId).classId == classId
+        && anggotaKelas(classId).uid == request.auth.uid;
     }
 
     // ==================== Profil pengguna ====================
@@ -74,10 +76,48 @@ service cloud.firestore {
     }
 
     match /classMembers/{memberId} {
+      function identitasAnggotaValid(data) {
+        return data.classId is string && data.classId.size() > 0
+          && data.uid is string && data.uid.size() > 0
+          && memberId == data.classId + '_' + data.uid;
+      }
+
+      function dapatAktifkanAnggota(data) {
+        let profil = get(/databases/$(database)/documents/users/$(data.uid)).data;
+        let kelas = get(/databases/$(database)/documents/classes/$(data.classId)).data;
+        return profil.role == 'praktikan' && profil.uid == data.uid
+          && kelas.get('archived', false) == false
+          && data.nama is string && data.nama.size() > 0
+          && data.nim is string;
+      }
+
       allow read: if isAsisten()
         || (isPraktikan() && resource.data.uid == request.auth.uid);
-      allow create, update: if isAsisten();
+      allow create: if isAsisten()
+        && request.resource.data.keys().hasOnly(['classId', 'uid', 'nama', 'nim', 'active', 'createdAt', 'updatedAt'])
+        && identitasAnggotaValid(request.resource.data)
+        && request.resource.data.active == true
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && dapatAktifkanAnggota(request.resource.data);
+      allow update: if isAsisten()
+        && identitasAnggotaValid(request.resource.data)
+        && request.resource.data.updatedAt == request.time
+        && (
+          (hanyaFieldBerubah(['nama', 'nim', 'active', 'updatedAt'])
+            && request.resource.data.active == true
+            && dapatAktifkanAnggota(request.resource.data))
+          || (hanyaFieldBerubah(['active', 'updatedAt']) && request.resource.data.active == false)
+        );
       allow delete: if false;
+    }
+
+    match /practicumInitialization/demo {
+      allow get: if isAsisten();
+      allow create: if isAsisten()
+        && request.resource.data.keys().hasOnly(['initializedBy', 'initializedAt'])
+        && request.resource.data.initializedBy == request.auth.uid
+        && request.resource.data.initializedAt == request.time;
     }
 
     match /schedules/{scheduleId} {
@@ -88,25 +128,73 @@ service cloud.firestore {
     }
 
     match /sessions/{sessionId} {
+      function belumPernahDibuka() {
+        return resource.data.status == 'closed'
+          && resource.data.openedAt == null
+          && resource.data.closedAt == null;
+      }
+
+      function transisiSesiValid() {
+        return (
+          hanyaFieldBerubah(['status', 'openedAt', 'updatedAt'])
+            && belumPernahDibuka()
+            && request.resource.data.status == 'open'
+            && request.resource.data.openedAt == request.time
+        ) || (
+          hanyaFieldBerubah(['status', 'closedAt', 'updatedAt'])
+            && resource.data.status == 'open'
+            && resource.data.openedAt is timestamp
+            && resource.data.openedAt <= request.time
+            && resource.data.closedAt == null
+            && request.resource.data.status == 'closed'
+            && request.resource.data.closedAt == request.time
+        );
+      }
+
+      function editSesiValid() {
+        let data = request.resource.data;
+        return data.topik is string && data.topik.size() > 0
+          && data.ruang is string && data.ruang.size() > 0
+          && (
+            hanyaFieldBerubah(['topik', 'ruang', 'updatedAt'])
+            || (
+              belumPernahDibuka()
+              && hanyaFieldBerubah([
+                'topik', 'ruang', 'tanggal', 'jamMulai', 'jamSelesai', 'startAt', 'endAt', 'updatedAt'
+              ])
+              && data.tanggal.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+              && data.jamMulai.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
+              && data.jamSelesai.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
+              && data.jamMulai < data.jamSelesai
+              && data.startAt == data.tanggal + 'T' + data.jamMulai + ':00'
+              && data.endAt == data.tanggal + 'T' + data.jamSelesai + ':00'
+            )
+          );
+      }
+
       allow read: if isAsisten()
         || (isPraktikan() && isAnggotaKelas(resource.data.classId));
 
       allow create: if isAsisten()
         && request.resource.data.status == 'closed'
         && request.resource.data.openedAt == null
-        && request.resource.data.closedAt == null;
+        && request.resource.data.closedAt == null
+        && request.resource.data.get('archived', false) == false;
 
-      // Hanya asisten, hanya transisi buka/tutup, dan hanya field audit sesi.
       allow update: if isAsisten()
-        && hanyaFieldBerubah(['status', 'openedAt', 'closedAt', 'updatedAt'])
+        && resource.data.get('archived', false) == false
+        && request.resource.data.updatedAt == request.time
         && (
-          (resource.data.status == 'closed'
-            && request.resource.data.status == 'open'
-            && resource.data.openedAt == null
-            && request.resource.data.closedAt == null)
-          ||
-          (resource.data.status == 'open'
-            && request.resource.data.status == 'closed')
+          transisiSesiValid()
+          || editSesiValid()
+          || (
+            hanyaFieldBerubah(['archived', 'updatedAt'])
+            && request.resource.data.archived == true
+            && resource.data.status == 'closed'
+            && resource.data.openedAt is timestamp
+            && resource.data.closedAt is timestamp
+            && resource.data.openedAt <= resource.data.closedAt
+          )
         );
 
       allow delete: if false;
@@ -124,6 +212,7 @@ service cloud.firestore {
         && request.resource.data.sessionId == sessionId
         && request.resource.data.status == 'hadir'
         && sesi(sessionId).status == 'open'
+        && sesi(sessionId).get('archived', false) == false
         && isAnggotaKelas(sesi(sessionId).classId);
 
       // Presensi tidak boleh diubah atau dihapus dari klien.

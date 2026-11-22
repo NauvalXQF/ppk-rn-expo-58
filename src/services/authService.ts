@@ -9,8 +9,8 @@ import {
   doc,
   getDoc,
   onSnapshot,
+  runTransaction,
   serverTimestamp,
-  setDoc,
   type DocumentData,
 } from 'firebase/firestore';
 
@@ -50,6 +50,8 @@ export async function daftarPraktikan(input: {
   email: string;
   password: string;
 }): Promise<User> {
+  const nama = input.nama.trim();
+  if (nama.length < 2) throw new Error('Nama minimal 2 karakter.');
   const auth = getFirebaseAuth();
   const credential = await createUserWithEmailAndPassword(
     auth,
@@ -57,18 +59,9 @@ export async function daftarPraktikan(input: {
     input.password,
   );
 
-  const nama = input.nama.trim();
   await updateProfile(credential.user, { displayName: nama });
 
-  // Registrasi mandiri selalu menghasilkan role praktikan.
-  await setDoc(doc(getFirebaseDb(), KOLEKSI_USERS, credential.user.uid), {
-    uid: credential.user.uid,
-    email: credential.user.email,
-    nama,
-    role: 'praktikan' satisfies Role,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  await pastikanProfil(credential.user, nama);
 
   return credential.user;
 }
@@ -93,28 +86,41 @@ export async function keluarDariAplikasi(): Promise<void> {
  * Memastikan dokumen users/{uid} tersedia. Dokumen lama yang belum punya profil
  * (misalnya dibuat manual dari Firebase Console) akan dilengkapi sebagai praktikan.
  */
-export async function pastikanProfil(user: User): Promise<ProfilPengguna> {
-  const ref = doc(getFirebaseDb(), KOLEKSI_USERS, user.uid);
-  const snapshot = await getDoc(ref);
-
-  if (snapshot.exists()) {
-    return normalisasiProfil(user.uid, snapshot.data(), user);
+export async function pastikanProfil(user: User, namaRegistrasi?: string): Promise<ProfilPengguna> {
+  const db = getFirebaseDb();
+  const ref = doc(db, KOLEKSI_USERS, user.uid);
+  // Sesi yang sudah punya profil tetap dapat dipulihkan dari cache Firestore.
+  if (namaRegistrasi === undefined) {
+    const snapshot = await getDoc(ref);
+    if (snapshot.exists()) return normalisasiProfil(user.uid, snapshot.data(), user);
   }
 
-  const profil: ProfilPengguna = {
-    uid: user.uid,
-    email: user.email ?? '',
-    nama: user.displayName ?? user.email?.split('@')[0] ?? 'Pengguna',
-    role: 'praktikan',
-  };
+  return runTransaction(db, async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (snapshot.exists()) {
+      const profil = normalisasiProfil(user.uid, snapshot.data(), user);
+      if (namaRegistrasi !== undefined && profil.role === 'praktikan' && profil.nama !== namaRegistrasi) {
+        tx.update(ref, { nama: namaRegistrasi, updatedAt: serverTimestamp() });
+        return { ...profil, nama: namaRegistrasi };
+      }
+      return profil;
+    }
 
-  await setDoc(ref, {
-    ...profil,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    const nama = (namaRegistrasi ?? user.displayName ?? user.email?.split('@')[0] ?? '').trim();
+    const profil: ProfilPengguna = {
+      uid: user.uid,
+      email: user.email ?? '',
+      nama: nama.length >= 2 ? nama : 'Pengguna',
+      role: 'praktikan',
+    };
+
+    tx.set(ref, {
+      ...profil,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return profil;
   });
-
-  return profil;
 }
 
 export function langgananProfil(
@@ -165,9 +171,6 @@ export function pesanErrorAuth(error: unknown): string {
   }
 }
 
-// TODO(P2): hapus fallback ini setelah kelas & keanggotaan tersedia di Firestore.
-const KELAS_SEMENTARA = 'kelas-a';
-
 export function kePenggunaAplikasi(profil: ProfilPengguna): Pengguna {
   if (profil.role === 'asisten') {
     return {
@@ -183,6 +186,6 @@ export function kePenggunaAplikasi(profil: ProfilPengguna): Pengguna {
     peran: 'praktikan',
     nama: profil.nama,
     nim: profil.nim ?? '-',
-    kelasId: profil.kelasId ?? KELAS_SEMENTARA,
+    kelasId: '',
   };
 }
