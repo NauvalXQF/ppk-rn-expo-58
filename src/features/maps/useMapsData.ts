@@ -15,6 +15,12 @@ interface ActivityData {
   error?: string;
 }
 
+interface MembershipData {
+  ids?: string[];
+  cached?: boolean;
+  error?: string;
+}
+
 function isPermissionDenied(error: unknown): boolean {
   return (error as { code?: string } | undefined)?.code === 'permission-denied';
 }
@@ -64,23 +70,26 @@ export function useLaboratoryData(focused: boolean) {
 }
 
 export function useMapsActivity(uid: string, isAssistant: boolean, focused: boolean) {
-  const [membership, setMembership] = useState<{ ids?: string[]; error?: string }>({});
-  const [remote, setRemote] = useState<{ key: string; entries: ActivityData[] }>();
   const [attempt, setAttempt] = useState(0);
   const [now, setNow] = useState(Date.now);
-  const membershipKey = JSON.stringify(membership.ids ?? []);
-  const scopeKey = scopeIdentity(isAssistant, membershipKey, attempt);
+  // A returning tab or account must wait for a fresh membership and activity subscription.
+  const viewer = useMemo(() => ({ uid, isAssistant, focused, attempt }), [uid, isAssistant, focused, attempt]);
+  const [membershipState, setMembership] = useState<{ viewer: typeof viewer; data: MembershipData }>();
+  const membership = membershipState?.viewer === viewer ? membershipState.data : undefined;
+  const membershipKey = JSON.stringify(membership?.ids ?? []);
+  const scope = useMemo(() => ({ viewer, classIds: JSON.parse(membershipKey) as string[] }), [viewer, membershipKey]);
+  const [remote, setRemote] = useState<{ scope: typeof scope; entries: ActivityData[] }>();
 
   useEffect(() => {
-    if (!focused || isAssistant) return;
+    if (!viewer.focused || viewer.isAssistant) return;
     let active = true;
     const onError = (error: unknown) => {
-      if (active) setMembership({ ids: [], error: activityError(error) });
+      if (active) setMembership({ viewer, data: { ids: [], error: activityError(error) } });
     };
     let unsubscribe: (() => void) | undefined;
     try {
-      unsubscribe = subscribeActiveClassIds(uid, (ids) => {
-        if (active) setMembership({ ids });
+      unsubscribe = subscribeActiveClassIds(viewer.uid, (ids) => {
+        if (active) setMembership({ viewer, data: { ids, cached: ids === undefined } });
       }, onError);
     } catch (error) {
       onError(error);
@@ -89,25 +98,25 @@ export function useMapsActivity(uid: string, isAssistant: boolean, focused: bool
       active = false;
       unsubscribe?.();
     };
-  }, [uid, isAssistant, focused, attempt]);
+  }, [viewer]);
 
   useEffect(() => {
-    if (!focused) return;
+    if (!scope.viewer.focused) return;
     let active = true;
-    const scopes: (string | null)[] = isAssistant ? [null] : JSON.parse(membershipKey);
-    const entries: ActivityData[] = scopes.map(() => ({ cached: {} }));
+    const classIds = scope.viewer.isAssistant ? [null] : scope.classIds;
+    const entries: ActivityData[] = classIds.map(() => ({ cached: {} }));
     const publish = () => {
       if (!active) return;
       setNow(Date.now());
-      setRemote({ key: scopeKey, entries: [...entries] });
+      setRemote({ scope, entries: [...entries] });
     };
-    const subscriptions = scopes.map((scope, index) => {
+    const subscriptions = classIds.map((classId, index) => {
       const onError = (error: unknown) => {
         entries[index] = { cached: {}, error: activityError(error) };
         publish();
       };
       try {
-        return subscribeLabActivity(scope, {
+        return subscribeLabActivity(classId, {
           onSessions: ({ items, fromCache }) => {
             const entry = entries[index];
             if (entry.error) return;
@@ -140,7 +149,7 @@ export function useMapsActivity(uid: string, isAssistant: boolean, focused: bool
       active = false;
       subscriptions.forEach((unsubscribe) => unsubscribe());
     };
-  }, [isAssistant, focused, membershipKey, scopeKey]);
+  }, [scope]);
 
   useEffect(() => {
     if (!focused) return;
@@ -153,7 +162,7 @@ export function useMapsActivity(uid: string, isAssistant: boolean, focused: bool
     };
   }, [focused]);
 
-  const entries = remote?.key === scopeKey ? remote.entries : undefined;
+  const entries = remote?.scope === scope ? remote.entries : undefined;
   const classes = useMemo(() => new Map(
     entries?.flatMap((entry) => entry.classes?.map((item) => [item.id, item] as const) ?? []) ?? [],
   ), [entries]);
@@ -163,22 +172,15 @@ export function useMapsActivity(uid: string, isAssistant: boolean, focused: bool
     entries?.flatMap((entry) => entry.schedules ?? []) ?? [],
     now,
   ), [entries, now]);
-  const hasScope = isAssistant || Boolean(membership.ids?.length);
+  const hasScope = isAssistant || Boolean(membership?.ids?.length);
 
   return {
     activities,
     classes,
-    error: membership.error ?? entries?.find((entry) => entry.error)?.error,
-    cached: entries?.some((entry) => Object.values(entry.cached).some(Boolean)),
-    loading: (!isAssistant && !membership.ids) || (hasScope && (!entries ||
-      entries.some((entry) => !entry.error && (!entry.sessions || !entry.schedules)))),
-    retry: () => {
-      if (!isAssistant) setMembership({});
-      setAttempt((previous) => previous + 1);
-    },
+    error: membership?.error ?? entries?.find((entry) => entry.error)?.error,
+    cached: membership?.cached || entries?.some((entry) => Object.values(entry.cached).some(Boolean)),
+    loading: focused && ((!isAssistant && !membership?.ids) || (hasScope && (!entries ||
+      entries.some((entry) => !entry.error && (!entry.sessions || !entry.schedules))))),
+    retry: () => setAttempt((previous) => previous + 1),
   };
-}
-
-function scopeIdentity(isAssistant: boolean, classKey: string, attempt: number) {
-  return `${isAssistant ? 'asisten' : classKey}:${attempt}`;
 }

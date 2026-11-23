@@ -1,161 +1,178 @@
-import { memo, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import MapView, { Circle, Marker } from 'react-native-maps';
-import { SymbolView } from 'expo-symbols';
-import { Colors, Radius, Spacing } from '@/constants/theme';
-import type { Laboratory, LaboratoryCoordinates } from '@/types/laboratory';
-import type { LaboratoryMapProps, LabPreviewProps } from './LaboratoryMap';
-import { SIMULATED_CAMPUS_CENTER } from './simulatedLaboratories';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet } from 'react-native';
+import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import type { LaboratoryCoordinates } from '@/types/laboratory';
+import html from './leafletHtml.generated';
+import { MapFrame, type MapStatus } from './MapFrame';
+import {
+  encodeMapMessage, isMapPoint, mapLabs, mapLocation, mapUpdates, previewLabs, readMapEvent,
+  type MapCommand, type MapState,
+} from './mapProtocol';
+import type { LaboratoryMapProps, LabPickerMapProps, LabPreviewProps } from './mapTypes';
 
-const circleStyle = {
-  fillColor: 'rgba(6, 118, 71, 0.15)',
-  strokeColor: Colors.success,
-  strokeWidth: 1,
+const START_TIMEOUT = 12000;
+// Inline HTML requires the wildcard. The navigation callback explicitly denies other documents.
+const INLINE_HTML_ORIGINS = ['*'];
+let instanceCount = 0;
+
+type NativeMapProps = MapState & Pick<LaboratoryMapProps, 'ref' | 'focused'> & {
+  preview?: boolean;
+  onSelect?: LaboratoryMapProps['onSelect'];
+  onLocationPicked?: LabPickerMapProps['onLocationPicked'];
 };
 
-function regionAround(point: LaboratoryCoordinates, delta: number) {
-  return {
-    latitude: point.latitude, longitude: point.longitude,
-    latitudeDelta: delta, longitudeDelta: delta,
-  };
+function NativeMap(props: NativeMapProps) {
+  const [attempt, setAttempt] = useState(0);
+  return <MapDocument key={attempt} {...props} onRetry={() => setAttempt((previous) => previous + 1)} />;
 }
 
-const LabMarker = memo(function LabMarker({ lab, ongoing, onSelect }: {
-  lab: Laboratory;
-  ongoing: boolean;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <>
-      <Circle center={lab} radius={lab.radiusMeters} {...circleStyle} />
-      <Marker
-        coordinate={lab}
-        anchor={{ x: 0.5, y: 1 }}
-        accessibilityLabel={lab.nama}
-        title={lab.nama}
-        description={lab.gedung || undefined}
-        stopPropagation
-        onPress={() => onSelect(lab.id)}
-      >
-        <View style={[styles.pin, ongoing && styles.ongoingPin]}>
-          <SymbolView name={{ ios: 'desktopcomputer', android: 'computer' }} tintColor={Colors.surface} size={14} />
-          <Text style={styles.pinText}>{lab.kode}</Text>
-        </View>
-      </Marker>
-    </>
-  );
-});
-
-export default function LaboratoryMap({
-  ref, laboratories, activeLabIds, userLocation, isAssistant, allowSimulation, onSelect,
-}: LaboratoryMapProps) {
-  const map = useRef<MapView>(null);
+function MapDocument({
+  ref, labs, location, selection, picker, onSelect, onLocationPicked, focused, preview = false, onRetry,
+}: NativeMapProps & { onRetry: () => void }) {
+  const picking = picker !== undefined;
+  const [document] = useState(() => {
+    const instance = String(++instanceCount);
+    return {
+      instance,
+      source: {
+        html: html.replace('PPK_MAP_INSTANCE', instance).replace('PPK_MAP_PREVIEW', String(preview))
+          .replace('PPK_MAP_PICKER', String(picking)),
+      },
+    };
+  });
+  const [status, setStatus] = useState<MapStatus>('loading');
   const [ready, setReady] = useState(false);
-  const [laidOut, setLaidOut] = useState(false);
-  const centered = useRef(false);
-  const firstPoint = laboratories[0] ?? (allowSimulation ? SIMULATED_CAMPUS_CENTER : userLocation);
+  // The package defaults its additional props to undefined, which narrows JSX props to never.
+  const webView = useRef<WebView<unknown>>(null);
+  const alive = useRef(false);
+  const failed = useRef(false);
+  const incoming = useRef(0);
+  const outgoing = useRef(0);
+  const previous = useRef<MapState>(undefined);
+  const pendingRecenter = useRef<LaboratoryCoordinates>(null);
 
-  useImperativeHandle(ref, () => ({
-    recenter: (point) => map.current?.animateToRegion(regionAround(point, 0.004), 350),
-  }), []);
+  const fail = useCallback(() => {
+    if (!alive.current) return;
+    failed.current = true;
+    pendingRecenter.current = null;
+    setStatus('failed');
+  }, []);
+
+  const send = useCallback((command: MapCommand) => {
+    if (!alive.current || failed.current || !webView.current) return;
+    const encoded = encodeMapMessage(command, document.instance, ++outgoing.current);
+    if (encoded) webView.current.postMessage(encoded);
+    else fail();
+  }, [document.instance, fail]);
+
+  useLayoutEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      pendingRecenter.current = null;
+    };
+  }, []);
 
   useEffect(() => {
-    if (!ready || !laidOut || centered.current || laboratories.length === 0) return;
-    centered.current = true;
-    if (laboratories.length === 1) {
-      map.current?.animateToRegion(regionAround(laboratories[0], 0.004), 350);
-    } else {
-      map.current?.fitToCoordinates([...laboratories], {
-        edgePadding: { top: 100, right: 64, bottom: 100, left: 64 },
-        animated: true,
-      });
-    }
-  }, [ready, laidOut, laboratories]);
+    if (ready) return;
+    const timer = setTimeout(fail, START_TIMEOUT);
+    return () => clearTimeout(timer);
+  }, [ready, fail]);
 
-  if (!firstPoint && !ready) {
-    return (
-      <View style={styles.fallback}>
-        <Text style={styles.message}>Peta akan tampil saat koordinat lab atau lokasi kamu tersedia.</Text>
-      </View>
-    );
+  useEffect(() => {
+    if (!focused) pendingRecenter.current = null;
+    if (!ready || failed.current) return;
+    const latest = { labs, location, selection, picker };
+    for (const command of mapUpdates(previous.current, latest)) send(command);
+    previous.current = latest;
+    if (pendingRecenter.current) {
+      send({ type: 'recenter', data: pendingRecenter.current });
+      pendingRecenter.current = null;
+    }
+  }, [ready, focused, labs, location, selection, picker, send]);
+
+  useImperativeHandle(ref, () => ({
+    recenter(point) {
+      if (!focused || !isMapPoint(point) || failed.current) return;
+      const data = { latitude: point.latitude, longitude: point.longitude };
+      if (ready) send({ type: 'recenter', data });
+      else pendingRecenter.current = data;
+    },
+  }), [focused, ready, send]);
+
+  function receive(event: WebViewMessageEvent) {
+    if (!alive.current || failed.current) return;
+    const message = readMapEvent(event.nativeEvent.data, document.instance, incoming.current);
+    if (!message) return;
+    incoming.current = message.sequence;
+    switch (message.type) {
+      case 'ready':
+        setReady(true);
+        setStatus('ready');
+        break;
+      case 'labSelected':
+        if (!picking && ready && focused && labs.some(({ id }) => id === message.id)) onSelect?.(message.id);
+        break;
+      case 'locationPicked':
+        if (picking && ready && focused) onLocationPicked?.(message.point);
+        break;
+      case 'mapError':
+        if (message.code === 'renderer') fail();
+        else setStatus('tiles');
+        break;
+    }
   }
 
-  const heading = userLocation?.heading;
-  const hasHeading = heading != null && Number.isFinite(heading) && heading >= 0;
   return (
-    <MapView
-      ref={map}
-      style={StyleSheet.absoluteFill}
-      initialRegion={firstPoint ? regionAround(firstPoint, 0.006) : undefined}
-      onMapReady={() => setReady(true)}
-      onLayout={() => setLaidOut(true)}
-      toolbarEnabled={false}
-      showsMyLocationButton={false}
-    >
-      {laboratories.map((lab) => (
-        <LabMarker key={lab.id} lab={lab} ongoing={activeLabIds.has(lab.id)} onSelect={onSelect} />
-      ))}
-      {userLocation ? (
-        <Marker
-          coordinate={userLocation}
-          title="Lokasi kamu"
-          anchor={{ x: 0.5, y: 0.5 }}
-          flat
-          rotation={hasHeading ? heading : 0}
-          zIndex={2}
-        >
-          <View style={[styles.userHalo, isAssistant && styles.assistantHalo]}>
-            <View style={[styles.userDot, isAssistant && styles.assistantDot]}>
-              {hasHeading ? <Text style={styles.heading}>▲</Text> : null}
-            </View>
-          </View>
-        </Marker>
-      ) : null}
-    </MapView>
+    <MapFrame status={status} preview={preview} picker={picking} labs={labs} onSelect={onSelect} onRetry={onRetry}>
+      {status === 'failed' ? null : (
+        <WebView<unknown>
+          ref={webView}
+          source={document.source}
+          style={styles.map}
+          originWhitelist={INLINE_HTML_ORIGINS}
+          onShouldStartLoadWithRequest={({ url }) => url === 'about:blank'}
+          onMessage={receive}
+          onError={fail}
+          onHttpError={({ nativeEvent }) => { if (nativeEvent.url === 'about:blank') fail(); }}
+          onContentProcessDidTerminate={fail}
+          onRenderProcessGone={fail}
+          applicationNameForUserAgent="PPKRNExpo58/1.0"
+          cacheEnabled
+          cacheMode="LOAD_DEFAULT"
+          mixedContentMode="never"
+          allowFileAccess={false}
+          allowFileAccessFromFileURLs={false}
+          allowUniversalAccessFromFileURLs={false}
+          javaScriptCanOpenWindowsAutomatically={false}
+          setSupportMultipleWindows={false}
+          thirdPartyCookiesEnabled={false}
+          scrollEnabled={false}
+          overScrollMode="never"
+        />
+      )}
+    </MapFrame>
   );
 }
 
-export function LabPreview({ point, radius }: LabPreviewProps) {
-  const delta = Math.max(0.003, (radius / 111000) * 3.5);
-  return (
-    <MapView
-      style={styles.preview}
-      region={regionAround(point, delta)}
-      scrollEnabled={false}
-      zoomEnabled={false}
-      rotateEnabled={false}
-      pitchEnabled={false}
-      toolbarEnabled={false}
-    >
-      <Marker coordinate={point} />
-      <Circle center={point} radius={radius} {...circleStyle} />
-    </MapView>
-  );
+export default function LaboratoryMap({
+  ref, laboratories, activeLabIds, selectedLabId, userLocation, isAssistant, focused, onSelect,
+}: LaboratoryMapProps) {
+  const labs = useMemo(() => mapLabs(laboratories, activeLabIds), [laboratories, activeLabIds]);
+  const location = useMemo(() => mapLocation(userLocation, isAssistant), [userLocation, isAssistant]);
+  return <NativeMap ref={ref} labs={labs} location={location} selection={selectedLabId ?? null} focused={focused} onSelect={onSelect} />;
 }
 
-const styles = StyleSheet.create({
-  fallback: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.lg },
-  message: { color: Colors.textMuted, textAlign: 'center' },
-  pin: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    backgroundColor: Colors.textMuted,
-    borderColor: Colors.surface,
-    borderRadius: Radius.sm,
-    borderWidth: 2,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-  },
-  ongoingPin: { backgroundColor: Colors.success },
-  pinText: { color: Colors.surface, fontSize: 11, fontWeight: '700' },
-  userHalo: { padding: 4, borderRadius: Radius.pill, backgroundColor: Colors.primarySoft },
-  assistantHalo: { backgroundColor: Colors.successSoft },
-  userDot: {
-    width: 20, height: 20, borderRadius: Radius.pill, borderColor: Colors.surface, borderWidth: 2,
-    backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
-  },
-  assistantDot: { backgroundColor: Colors.success },
-  heading: { color: Colors.surface, fontSize: 9 },
-  preview: { height: 160, borderRadius: Radius.md },
-});
+export function LabPreview({ point: { latitude, longitude }, radius }: LabPreviewProps) {
+  const labs = useMemo(() => previewLabs({ point: { latitude, longitude }, radius }), [latitude, longitude, radius]);
+  return <NativeMap labs={labs} location={null} selection={null} focused preview />;
+}
+
+const EMPTY_LABS: MapState['labs'] = [];
+
+export function LabPickerMap({ center, point, radius, onLocationPicked }: LabPickerMapProps) {
+  const picker = useMemo(() => ({ center, point, radius }), [center, point, radius]);
+  return <NativeMap labs={EMPTY_LABS} location={null} selection={null} focused picker={picker} onLocationPicked={onLocationPicked} />;
+}
+
+const styles = StyleSheet.create({ map: { flex: 1, backgroundColor: 'transparent' } });
