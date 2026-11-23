@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import {
   AI_STATUS_LABEL,
   LEAVE_DECISION_LABEL,
@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: FontSize.xs,
-    fontWeight: '700',
+    fontFamily: FontFamily.medium,
   },
 });
 

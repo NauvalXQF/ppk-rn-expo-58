@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
+import { AppIcon } from '@/components/ui/AppIcon';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FormField } from '@/components/ui/FormField';
+import { IconButton } from '@/components/ui/IconButton';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
-import { SectionHeader } from '@/components/ui/SectionHeader';
-import { Colors, FontSize, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Shadow, Spacing } from '@/constants/theme';
 import { PresensiSuccess } from '@/features/sesi/praktikan/PresensiSuccess';
 import { useGeofence } from '@/hooks/useGeofence';
 import { useApp } from '@/store/app-context';
@@ -47,7 +48,7 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
 
   if (!detail) {
     return (
-      <ScreenContainer>
+      <ScreenContainer hasTabBar={false}>
         <EmptyState
           title="Sesi tidak ditemukan"
           description="Sesi praktikum yang Anda cari tidak tersedia atau telah dihapus."
@@ -60,9 +61,28 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
 
   const { sesi, kelas, presensiSaya } = detail;
 
+  const headerNav = (
+    <View style={styles.navRow}>
+      <IconButton
+        accessibilityLabel="Kembali"
+        onPress={() => router.back()}
+      >
+        <AppIcon name="chevron-left" size={20} color={Colors.text} />
+      </IconButton>
+      <Text style={styles.navTitle}>Presensi GPS</Text>
+      <IconButton
+        accessibilityLabel="Lihat peta lab"
+        onPress={() => router.push('/(tabs)/peta' as Href)}
+      >
+        <AppIcon name="map-pin" size={18} color={Colors.text} />
+      </IconButton>
+    </View>
+  );
+
   if (!isPraktikan) {
     return (
-      <ScreenContainer>
+      <ScreenContainer hasTabBar={false}>
+        {headerNav}
         <SessionSummaryCard detail={detail} labNama={geofence.labTarget.labNama} />
         <InfoBanner
           tone="info"
@@ -122,7 +142,9 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
   const activeError = localError ?? error;
 
   return (
-    <ScreenContainer>
+    <ScreenContainer hasTabBar={false}>
+      {headerNav}
+
       <SessionSummaryCard detail={detail} labNama={geofence.labTarget.labNama} />
 
       {activeError ? <InfoBanner tone="danger" message={activeError} /> : null}
@@ -200,7 +222,6 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
           />
 
           <AppCard style={styles.formCard}>
-            <SectionHeader title="Konfirmasi Kehadiran" />
             <FormField
               label="Catatan Presensi (opsional)"
               placeholder={`Mis. Hadir di ${geofence.labTarget.labNama}`}
@@ -212,15 +233,18 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
               editable={!loading}
             />
             <Text style={styles.helperText}>
-              Tombol presensi hanya aktif saat sesi berstatus Dibuka dan jarak perangkat berada di dalam radius {Math.round(geofence.labTarget.radiusMeters)} meter.
+              Tombol kirim aktif saat sesi berstatus Dibuka dan perangkat berada
+              di dalam radius {Math.round(geofence.labTarget.radiusMeters)} meter.
             </Text>
-            <AppButton
-              label="Kirim Presensi Kehadiran"
-              onPress={handleOpenConfirm}
-              disabled={!canSubmit}
-              loading={loading}
-            />
           </AppCard>
+
+          <AppButton
+            label="Kirim Presensi Kehadiran"
+            onPress={handleOpenConfirm}
+            disabled={!canSubmit}
+            loading={loading}
+            style={Shadow.floating}
+          />
         </View>
       ) : null}
 
@@ -241,15 +265,27 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  navRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.xs,
+  },
+  navTitle: {
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.medium,
+    color: Colors.text,
+  },
   sectionGap: {
-    gap: Spacing.md,
+    gap: 12,
   },
   formCard: {
-    gap: Spacing.md,
+    gap: Spacing.sm,
   },
   helperText: {
     fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
-    lineHeight: 18,
+    lineHeight: 17,
   },
 });

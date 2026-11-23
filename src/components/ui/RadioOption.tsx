@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
 interface RadioOptionProps {
   selected: boolean;
@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
   radioCircle: {
     width: 20,
     height: 20,
-    borderRadius: 10,
+    borderRadius: Radius.pill,
     borderWidth: 2,
     borderColor: Colors.border,
     alignItems: 'center',
@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
   radioInner: {
     width: 10,
     height: 10,
-    borderRadius: 5,
+    borderRadius: Radius.pill,
     backgroundColor: Colors.primary,
   },
   textContainer: {
@@ -78,8 +78,8 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   title: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   titleSelected: {
@@ -87,6 +87,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },
 });

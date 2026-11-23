@@ -6,7 +6,7 @@ import {
   StyleSheet,
   type TextInputProps,
 } from 'react-native';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
 interface FormFieldProps extends TextInputProps {
   label: string;
@@ -52,7 +52,7 @@ export function FormField({
 
 const styles = StyleSheet.create({
   container: {
-    gap: Spacing.xs,
+    gap: 6,
   },
   labelRow: {
     flexDirection: 'row',
@@ -61,26 +61,29 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: FontSize.sm,
-    fontWeight: '600',
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   counter: {
     fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },
   input: {
-    minHeight: 44,
+    minHeight: 48,
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: Radius.md,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    fontSize: FontSize.sm,
+    paddingVertical: 10,
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.regular,
     color: Colors.text,
     backgroundColor: Colors.surface,
   },
   inputMultiline: {
-    minHeight: 80,
+    minHeight: 88,
+    paddingTop: 12,
     textAlignVertical: 'top',
   },
   inputError: {
@@ -88,10 +91,12 @@ const styles = StyleSheet.create({
   },
   helperText: {
     fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },
   errorText: {
     fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.danger,
   },
 });

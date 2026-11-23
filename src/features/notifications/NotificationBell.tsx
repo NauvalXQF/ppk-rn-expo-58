@@ -7,10 +7,19 @@ import {
   Text,
   View,
 } from 'react-native';
+import { AppIcon } from '@/components/ui/AppIcon';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AppButton } from '@/components/ui/AppButton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { IconButton } from '@/components/ui/IconButton';
+import {
+  Colors,
+  FontFamily,
+  FontSize,
+  Radius,
+  Shadow,
+  Spacing,
+} from '@/constants/theme';
 import { useNotifications } from '@/hooks/useNotifications';
 import type {
   NotificationAuditRecord,
@@ -70,24 +79,21 @@ export function NotificationBell() {
 
   return (
     <>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Notifikasi${unreadCount > 0 ? `, ${unreadCount} belum dibaca` : ''}`}
-        onPress={() => setVisible(true)}
-        style={({ pressed }) => [
-          styles.bellButton,
-          pressed && styles.bellButtonPressed,
-        ]}
-      >
-        <Text style={styles.bellIcon}>🔔</Text>
+      <View style={styles.bellWrap}>
+        <IconButton
+          accessibilityLabel={`Notifikasi${unreadCount > 0 ? `, ${unreadCount} belum dibaca` : ''}`}
+          onPress={() => setVisible(true)}
+        >
+          <AppIcon name="bell" size={19} color={Colors.text} />
+        </IconButton>
         {unreadCount > 0 ? (
-          <View style={styles.badge}>
+          <View pointerEvents="none" style={styles.badge}>
             <Text style={styles.badgeText}>
               {unreadCount > 99 ? '99+' : String(unreadCount)}
             </Text>
           </View>
         ) : null}
-      </Pressable>
+      </View>
 
       <Modal
         visible={visible}
@@ -96,82 +102,102 @@ export function NotificationBell() {
         onRequestClose={() => setVisible(false)}
       >
         <View style={styles.backdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setVisible(false)}
+          />
           <View style={styles.sheet}>
-            <View style={styles.sheetHeader}>
-              <View>
-                <Text style={styles.sheetTitle}>Pemberitahuan</Text>
-                <Text style={styles.sheetSubtitle}>
-                  {unreadCount > 0
-                    ? `${unreadCount} pemberitahuan belum dibaca`
-                    : 'Semua pemberitahuan sudah dibaca'}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => setVisible(false)}
-                style={styles.closeBtn}
-              >
-                <Text style={styles.closeBtnText}>Tutup</Text>
-              </Pressable>
-            </View>
+            <SafeAreaView edges={['bottom']}>
+              <View style={styles.handle} />
+              <View style={styles.sheetHeader}>
+                <View style={styles.titleCol}>
+                  <Text style={styles.sheetTitle}>Notifikasi</Text>
+                  <Text style={styles.sheetSubtitle}>
+                    {unreadCount > 0
+                      ? `${unreadCount} belum dibaca`
+                      : 'Semua sudah dibaca'}
+                  </Text>
+                </View>
 
-            {unreadCount > 0 ? (
-              <View style={styles.markAllWrap}>
-                <AppButton
-                  label="Tandai Semua Dibaca"
-                  variant="ghost"
-                  onPress={markAllAsRead}
-                />
-              </View>
-            ) : null}
-
-            <ScrollView
-              style={styles.listScroll}
-              contentContainerStyle={styles.listContent}
-            >
-              {notifications.length === 0 ? (
-                <EmptyState
-                  title="Belum ada notifikasi"
-                  description="Pemberitahuan saat sesi dibuka, jadwal berubah, atau keputusan izin akan muncul di sini."
-                />
-              ) : (
-                notifications.map((item) => {
-                  const meta = TYPE_META[item.type] ?? TYPE_META.session_opened;
-                  const unread = !item.read;
-                  return (
+                <View style={styles.headerActions}>
+                  {unreadCount > 0 ? (
                     <Pressable
-                      key={item.id}
-                      onPress={() => handleSelectItem(item)}
+                      onPress={markAllAsRead}
                       style={({ pressed }) => [
-                        styles.notifItem,
-                        unread && styles.notifItemUnread,
-                        pressed && styles.notifItemPressed,
+                        styles.markPill,
+                        pressed && styles.pressed,
                       ]}
                     >
-                      <View style={styles.notifTopRow}>
-                        <View
-                          style={[
-                            styles.typeChip,
-                            { backgroundColor: meta.bg },
-                          ]}
-                        >
-                          <Text
-                            style={[styles.typeChipText, { color: meta.color }]}
-                          >
-                            {meta.label}
-                          </Text>
-                        </View>
-                        <Text style={styles.timeText}>
-                          {formatNotificationTime(item.createdAt)}
-                        </Text>
-                      </View>
-                      <Text style={styles.notifTitle}>{item.title}</Text>
-                      <Text style={styles.notifBody}>{item.body}</Text>
-                      <Text style={styles.tapHint}>Ketuk untuk membuka layar terkait →</Text>
+                      <Text style={styles.markPillText}>Tandai dibaca</Text>
                     </Pressable>
-                  );
-                })
-              )}
-            </ScrollView>
+                  ) : null}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Tutup notifikasi"
+                    onPress={() => setVisible(false)}
+                    style={({ pressed }) => [
+                      styles.closeCircle,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <AppIcon name="x" size={18} color={Colors.text} />
+                  </Pressable>
+                </View>
+              </View>
+
+              <ScrollView
+                style={styles.listScroll}
+                contentContainerStyle={styles.listContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {notifications.length === 0 ? (
+                  <EmptyState
+                    title="Belum ada notifikasi"
+                    description="Pemberitahuan saat sesi dibuka, jadwal berubah, atau keputusan izin akan muncul di sini."
+                  />
+                ) : (
+                  notifications.map((item) => {
+                    const meta =
+                      TYPE_META[item.type] ?? TYPE_META.session_opened;
+                    const unread = !item.read;
+                    return (
+                      <Pressable
+                        key={item.id}
+                        onPress={() => handleSelectItem(item)}
+                        style={({ pressed }) => [
+                          styles.notifItem,
+                          unread && styles.notifItemUnread,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <View style={styles.notifTopRow}>
+                          <View
+                            style={[
+                              styles.typeChip,
+                              { backgroundColor: meta.bg },
+                            ]}
+                          >
+                            <Text
+                              style={[styles.typeChipText, { color: meta.color }]}
+                            >
+                              {meta.label}
+                            </Text>
+                          </View>
+                          <View style={styles.metaRight}>
+                            <Text style={styles.timeText}>
+                              {formatNotificationTime(item.createdAt)}
+                            </Text>
+                            {unread ? <View style={styles.unreadDot} /> : null}
+                          </View>
+                        </View>
+                        <Text style={styles.notifTitle}>{item.title}</Text>
+                        <Text style={styles.notifBody}>{item.body}</Text>
+                      </Pressable>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </SafeAreaView>
           </View>
         </View>
       </Modal>
@@ -180,103 +206,117 @@ export function NotificationBell() {
 }
 
 const styles = StyleSheet.create({
-  bellButton: {
-    width: 42,
-    height: 42,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+  bellWrap: {
     position: 'relative',
-  },
-  bellButtonPressed: {
-    backgroundColor: Colors.neutralSoft,
-  },
-  bellIcon: {
-    fontSize: 18,
   },
   badge: {
     position: 'absolute',
-    top: -4,
-    right: -4,
-    minWidth: 20,
-    height: 20,
-    paddingHorizontal: 5,
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
     borderRadius: Radius.pill,
     backgroundColor: Colors.danger,
+    borderWidth: 1.5,
+    borderColor: Colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   badgeText: {
     fontSize: 10,
-    fontWeight: '800',
-    color: '#FFFFFF',
+    fontFamily: FontFamily.semibold,
+    color: Colors.textOnDark,
   },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(16, 24, 40, 0.45)',
+    backgroundColor: Colors.backdrop,
     justifyContent: 'flex-end',
   },
   sheet: {
-    maxHeight: '80%',
+    maxHeight: '82%',
     backgroundColor: Colors.surface,
-    borderTopLeftRadius: Radius.lg,
-    borderTopRightRadius: Radius.lg,
-    padding: Spacing.lg,
-    gap: Spacing.sm,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    paddingHorizontal: Spacing.md + 4,
+    paddingTop: 12,
+    paddingBottom: Spacing.md,
+    ...Shadow.floating,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.handle,
+    alignSelf: 'center',
+    marginBottom: Spacing.md,
   },
   sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  titleCol: {
+    flex: 1,
+    gap: 2,
   },
   sheetTitle: {
-    fontSize: FontSize.lg,
-    fontWeight: '800',
+    fontSize: FontSize.xl,
+    fontFamily: FontFamily.regular,
     color: Colors.text,
   },
   sheetSubtitle: {
     fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },
-  closeBtn: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs + 2,
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  markPill: {
+    backgroundColor: Colors.primarySoft,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: Radius.pill,
+  },
+  markPillText: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
+    color: Colors.primary,
+  },
+  closeCircle: {
+    width: 36,
+    height: 36,
     borderRadius: Radius.pill,
     backgroundColor: Colors.neutralSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  closeBtnText: {
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    color: Colors.text,
-  },
-  markAllWrap: {
-    alignSelf: 'flex-end',
+  pressed: {
+    opacity: 0.8,
   },
   listScroll: {
-    flexGrow: 0,
+    maxHeight: 460,
   },
   listContent: {
-    gap: Spacing.sm,
+    gap: 10,
     paddingBottom: Spacing.md,
   },
   notifItem: {
-    padding: Spacing.md,
-    borderRadius: Radius.md,
+    backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
-    backgroundColor: Colors.surface,
-    gap: 4,
+    borderRadius: Radius.md,
+    padding: 14,
+    gap: 6,
   },
   notifItemUnread: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primarySoft,
-  },
-  notifItemPressed: {
-    opacity: 0.88,
+    backgroundColor: Colors.unreadSurface,
+    borderColor: Colors.unreadBorder,
   },
   notifTopRow: {
     flexDirection: 'row',
@@ -285,32 +325,39 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   typeChip: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
     borderRadius: Radius.pill,
   },
   typeChipText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
+  },
+  metaRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   timeText: {
-    fontSize: 11,
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.accentBlue,
   },
   notifTitle: {
     fontSize: FontSize.sm,
-    fontWeight: '700',
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   notifBody: {
     fontSize: FontSize.xs,
-    color: Colors.text,
-    lineHeight: 18,
-  },
-  tapHint: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: Colors.primary,
-    marginTop: 2,
+    fontFamily: FontFamily.regular,
+    color: Colors.textMuted,
+    lineHeight: 17,
   },
 });

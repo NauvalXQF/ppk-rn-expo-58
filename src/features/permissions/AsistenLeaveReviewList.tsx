@@ -1,16 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { FilterChip } from '@/components/ui/FilterChip';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import {
@@ -137,28 +137,14 @@ export function AsistenLeaveReviewList({
       />
 
       <View style={styles.filterRow}>
-        {FILTER_OPTIONS.map((option) => {
-          const selected = activeFilter === option.key;
-          return (
-            <Pressable
-              key={option.key}
-              onPress={() => setActiveFilter(option.key)}
-              style={[
-                styles.filterChip,
-                selected && styles.filterChipSelected,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  selected && styles.filterTextSelected,
-                ]}
-              >
-                {option.label} ({counts[option.key]})
-              </Text>
-            </Pressable>
-          );
-        })}
+        {FILTER_OPTIONS.map((option) => (
+          <FilterChip
+            key={option.key}
+            label={`${option.label} (${counts[option.key]})`}
+            active={activeFilter === option.key}
+            onPress={() => setActiveFilter(option.key)}
+          />
+        ))}
       </View>
 
       {actionError ? <InfoBanner tone="danger" message={actionError} /> : null}
@@ -361,31 +347,33 @@ const styles = StyleSheet.create({
   },
   praktikanName: {
     fontSize: FontSize.md,
-    fontWeight: '700',
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   metaText: {
     fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },
   sessionText: {
     fontSize: FontSize.sm,
-    fontWeight: '600',
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   reasonBox: {
-    backgroundColor: Colors.background,
-    borderRadius: Radius.sm,
-    padding: Spacing.sm,
+    backgroundColor: Colors.glassStrong,
+    borderRadius: Radius.md,
+    padding: 12,
     gap: 2,
   },
   reasonLabel: {
     fontSize: FontSize.xs,
-    fontWeight: '700',
+    fontFamily: FontFamily.medium,
     color: Colors.textMuted,
   },
   reasonText: {
     fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
     color: Colors.text,
     lineHeight: 20,
   },

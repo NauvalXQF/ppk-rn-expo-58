@@ -1,9 +1,16 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Colors, FontSize, Spacing } from '@/constants/theme';
-import type { StatusSesi } from '@/types/models';
-import { AppCard } from '@/components/ui/AppCard';
-import { StatusBadge } from '@/components/ui/StatusBadge';
+import React, { useState } from 'react';
+import { Animated, View, Text, StyleSheet, Pressable } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  Colors,
+  FontFamily,
+  FontSize,
+  Gradients,
+  Radius,
+  Shadow,
+  Spacing,
+} from '@/constants/theme';
+import { LABEL_STATUS, type StatusSesi } from '@/types/models';
 
 export interface SessionCardProps {
   praktikum: string;
@@ -15,10 +22,54 @@ export interface SessionCardProps {
   status: StatusSesi;
   meta?: string;
   metaTone?: 'default' | 'success' | 'warning' | 'danger';
+  index?: number;
   onPress: () => void;
 }
 
+const COURSE_GRADIENTS = [
+  Gradients.courseA,
+  Gradients.courseB,
+  Gradients.courseC,
+] as const;
+
+function CardDecoration({ variant }: { variant: number }) {
+  const mode = variant % 3;
+  if (mode === 0) {
+    // Asterisk
+    return (
+      <View pointerEvents="none" style={styles.decoWrap}>
+        <View style={[styles.decoBar, { transform: [{ rotate: '0deg' }] }]} />
+        <View style={[styles.decoBar, { transform: [{ rotate: '60deg' }] }]} />
+        <View style={[styles.decoBar, { transform: [{ rotate: '120deg' }] }]} />
+      </View>
+    );
+  }
+  if (mode === 1) {
+    // Star 4
+    return (
+      <View pointerEvents="none" style={styles.decoWrap}>
+        <View style={styles.decoDiamond} />
+        <View
+          style={[
+            styles.decoDiamond,
+            { transform: [{ rotate: '45deg' }, { scale: 0.78 }] },
+          ]}
+        />
+      </View>
+    );
+  }
+  // Flower
+  return (
+    <View pointerEvents="none" style={styles.decoWrap}>
+      <View style={[styles.decoPetal, { transform: [{ rotate: '0deg' }] }]} />
+      <View style={[styles.decoPetal, { transform: [{ rotate: '60deg' }] }]} />
+      <View style={[styles.decoPetal, { transform: [{ rotate: '120deg' }] }]} />
+    </View>
+  );
+}
+
 export function SessionCard({
+  praktikum,
   kelas,
   topik,
   tanggal,
@@ -27,83 +78,160 @@ export function SessionCard({
   status,
   meta,
   metaTone = 'default',
+  index = 0,
   onPress,
 }: SessionCardProps) {
-  const getMetaColor = (): string => {
-    switch (metaTone) {
-      case 'success':
-        return Colors.success;
-      case 'warning':
-        return Colors.warning;
-      case 'danger':
-        return Colors.danger;
-      default:
-        return Colors.textMuted;
-    }
+  const [scale] = useState(() => new Animated.Value(1));
+  const [opacity] = useState(() => new Animated.Value(1));
+
+  const animateTo = (toScale: number, toOpacity: number) => {
+    Animated.parallel([
+      Animated.timing(scale, {
+        toValue: toScale,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: toOpacity,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+    ]).start();
   };
 
+  const gradientColors = COURSE_GRADIENTS[index % COURSE_GRADIENTS.length];
+  const secondaryChip = meta || `${ruang} · ${waktu}`;
+  const secondaryColor =
+    metaTone === 'success'
+      ? Colors.success
+      : metaTone === 'warning'
+        ? Colors.warning
+        : metaTone === 'danger'
+          ? Colors.danger
+          : Colors.text;
+
   return (
-    <AppCard onPress={onPress} style={styles.card}>
-      <View style={styles.headerRow}>
-        <Text style={styles.kelasText}>{kelas}</Text>
-        <StatusBadge status={status} />
-      </View>
+    <Animated.View style={{ transform: [{ scale }], opacity }}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={() => animateTo(0.97, 0.9)}
+        onPressOut={() => animateTo(1, 1)}
+        accessibilityRole="button"
+        accessibilityLabel={`${topik}, ${kelas}, ${LABEL_STATUS[status]}`}
+        style={styles.outer}
+      >
+      <LinearGradient
+        colors={gradientColors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.gradient}
+      >
+        <CardDecoration variant={index} />
 
-      <Text style={styles.topikText}>{topik}</Text>
+        <View style={styles.chipRow}>
+          <View style={styles.chip}>
+            <Text style={styles.chipText}>{LABEL_STATUS[status] ?? status}</Text>
+          </View>
+          <View style={styles.chip}>
+            <Text style={[styles.chipText, { color: secondaryColor }]} numberOfLines={1}>
+              {secondaryChip}
+            </Text>
+          </View>
+        </View>
 
-      <View style={styles.metaInfoRow}>
-        <Text style={styles.detailText}>
-          {tanggal} · {waktu}
-        </Text>
-        <Text style={styles.detailText}>{ruang}</Text>
-      </View>
-
-      {meta ? (
-        <View style={styles.footerRow}>
-          <Text style={[styles.metaText, { color: getMetaColor() }]}>
-            {meta}
+        <View style={styles.bottomContent}>
+          <Text style={styles.topikText} numberOfLines={1}>
+            {topik}
+          </Text>
+          <Text style={styles.descText} numberOfLines={2}>
+            {kelas} · {praktikum} · {tanggal}, {waktu} · {ruang}
           </Text>
         </View>
-      ) : null}
-    </AppCard>
+      </LinearGradient>
+    </Pressable>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    gap: Spacing.xs + 2,
+  outer: {
+    borderRadius: Radius.lg,
+    ...Shadow.card,
   },
-  headerRow: {
-    flexDirection: 'row',
+  gradient: {
+    minHeight: 138,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
     justifyContent: 'space-between',
+    gap: Spacing.md,
+    overflow: 'hidden',
+  },
+  chipRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    paddingRight: 52,
   },
-  kelasText: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textMuted,
-    letterSpacing: 0.3,
+  chip: {
+    backgroundColor: Colors.glassStrong,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
   },
-  topikText: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
+  chipText: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
-  metaInfoRow: {
-    gap: 2,
+  bottomContent: {
+    gap: 4,
+    paddingRight: 64,
   },
-  detailText: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
+  topikText: {
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.medium,
+    color: Colors.text,
   },
-  footerRow: {
-    marginTop: Spacing.xs,
-    paddingTop: Spacing.xs,
-    borderTopWidth: 1,
-    borderTopColor: Colors.neutralSoft,
+  descText: {
+    fontSize: FontSize.xs + 1,
+    fontFamily: FontFamily.regular,
+    color: Colors.text,
+    opacity: 0.72,
+    lineHeight: 17,
   },
-  metaText: {
-    fontSize: FontSize.xs,
-    fontWeight: '600',
+  decoWrap: {
+    position: 'absolute',
+    right: -18,
+    top: '50%',
+    marginTop: -48,
+    width: 96,
+    height: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.48,
+  },
+  decoBar: {
+    position: 'absolute',
+    width: 28,
+    height: 92,
+    borderRadius: 10,
+    backgroundColor: Colors.surface,
+  },
+  decoDiamond: {
+    position: 'absolute',
+    width: 68,
+    height: 68,
+    borderRadius: 14,
+    backgroundColor: Colors.surface,
+  },
+  decoPetal: {
+    position: 'absolute',
+    width: 34,
+    height: 92,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.surface,
   },
 });

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius } from '@/constants/theme';
 import { LABEL_STATUS, type StatusSesi } from '@/types/models';
 
 interface StatusBadgeProps {
@@ -12,16 +12,16 @@ const statusStyles: Record<
   { backgroundColor: string; color: string }
 > = {
   dijadwalkan: {
-    backgroundColor: '#E8F0FE',
-    color: '#1A56DB',
+    backgroundColor: Colors.warningSoft,
+    color: Colors.warning,
   },
   dibuka: {
-    backgroundColor: '#E6F9EE',
-    color: '#067647',
+    backgroundColor: Colors.successSoft,
+    color: Colors.success,
   },
   ditutup: {
-    backgroundColor: '#F2F4F7',
-    color: '#475467',
+    backgroundColor: Colors.neutralSoft,
+    color: Colors.textMuted,
   },
 };
 
@@ -39,15 +39,13 @@ export function StatusBadge({ status }: StatusBadgeProps) {
 
 const styles = StyleSheet.create({
   badge: {
-    paddingHorizontal: Spacing.sm + 2,
-    paddingVertical: Spacing.xs,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: Radius.pill,
     alignSelf: 'flex-start',
   },
   label: {
     fontSize: FontSize.xs,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontFamily: FontFamily.medium,
   },
 });

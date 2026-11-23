@@ -4,14 +4,11 @@ import { StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { InfoBanner } from '@/components/ui/InfoBanner';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { useNotifications } from '@/hooks/useNotifications';
 
 /**
  * Banner aktivasi & status izin push notification (SRS-07 & SRS-08).
- * Mengikuti spesifikasi `docs/sprint-3/navigasi-ui.md` §6:
- * menampilkan peringatan jelas saat izin ditolak/nonaktif dengan tombol
- * "Izinkan Pemberitahuan" atau "Buka Pengaturan Aplikasi".
  */
 export function NotificationPrompt() {
   const {
@@ -42,7 +39,7 @@ export function NotificationPrompt() {
       : null;
 
     return (
-      <AppCard style={styles.activeCard}>
+      <AppCard style={styles.card}>
         <View style={styles.activeHeader}>
           <View style={styles.activeBadge}>
             <Text style={styles.activeBadgeText}>Aktif</Text>
@@ -51,7 +48,7 @@ export function NotificationPrompt() {
         </View>
         <Text style={styles.activeDesc}>
           {tokenShort
-            ? `Perangkat terdaftar untuk menerima notifikasi sesi dibuka, perubahan jadwal, dan keputusan izin (${tokenShort}).`
+            ? `Perangkat terdaftar untuk info sesi dibuka, perubahan jadwal, dan keputusan izin (${tokenShort}).`
             : statusMessage ||
               'Izin notifikasi aktif. Aplikasi siap menerima pemberitahuan kegiatan praktikum.'}
         </Text>
@@ -62,7 +59,7 @@ export function NotificationPrompt() {
   const isPermanentlyDenied = permissionStatus === 'denied' && !canAskAgain;
 
   return (
-    <AppCard style={styles.promptCard}>
+    <AppCard style={styles.card}>
       <InfoBanner
         tone="warning"
         message="Pemberitahuan push nonaktif. Anda mungkin melewatkan info sesi dibuka."
@@ -97,14 +94,8 @@ export function NotificationPrompt() {
 }
 
 const styles = StyleSheet.create({
-  promptCard: {
-    gap: Spacing.sm,
-  },
-  actionWrap: {
-    marginTop: Spacing.xs,
-  },
-  activeCard: {
-    gap: Spacing.xs,
+  card: {
+    gap: 10,
   },
   activeHeader: {
     flexDirection: 'row',
@@ -112,24 +103,28 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   activeBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: Radius.pill,
     backgroundColor: Colors.successSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.pill,
   },
   activeBadgeText: {
     fontSize: FontSize.xs,
-    fontWeight: '700',
+    fontFamily: FontFamily.medium,
     color: Colors.success,
   },
   activeTitle: {
     fontSize: FontSize.sm,
-    fontWeight: '700',
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   activeDesc: {
     fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
-    lineHeight: 18,
+    lineHeight: 17,
+  },
+  actionWrap: {
+    marginTop: 2,
   },
 });

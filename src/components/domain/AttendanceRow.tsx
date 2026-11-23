@@ -1,11 +1,11 @@
 import React from 'react';
 import { View, Text, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
 export interface AttendanceRowProps {
   nama: string;
   nim: string;
-  waktu: string; // sudah diformat, mis. "10.04"
+  waktu: string;
   catatan?: string;
   kelas?: string;
   style?: StyleProp<ViewStyle>;
@@ -24,16 +24,14 @@ export function AttendanceRow({
   return (
     <View style={[styles.container, style]}>
       <View style={styles.topRow}>
-        <Text style={styles.nama} numberOfLines={1}>
-          {nama}
-        </Text>
-        <Text style={styles.waktu}>{waktu}</Text>
-      </View>
-
-      <View style={styles.bottomRow}>
-        <Text style={styles.nim} numberOfLines={1}>
-          {subtitle}
-        </Text>
+        <View style={styles.infoCol}>
+          <Text style={styles.nama} numberOfLines={1}>
+            {nama}
+          </Text>
+          <Text style={styles.nim} numberOfLines={1}>
+            {subtitle} · {waktu}
+          </Text>
+        </View>
         <View style={styles.badgeHadir}>
           <Text style={styles.badgeText}>Hadir</Text>
         </View>
@@ -41,9 +39,8 @@ export function AttendanceRow({
 
       {catatan ? (
         <View style={styles.catatanBox}>
-          <Text style={styles.catatanLabel}>Catatan:</Text>
           <Text style={styles.catatanText} numberOfLines={2}>
-            {catatan}
+            Catatan: {catatan}
           </Text>
         </View>
       ) : null}
@@ -57,7 +54,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     borderWidth: 1,
     borderRadius: Radius.md,
-    padding: Spacing.md,
+    padding: Spacing.md - 2,
     marginBottom: Spacing.sm,
     gap: Spacing.xs,
   },
@@ -67,56 +64,41 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: Spacing.sm,
   },
+  infoCol: {
+    flex: 1,
+    gap: 2,
+  },
   nama: {
     fontSize: FontSize.md,
-    fontWeight: '700',
+    fontFamily: FontFamily.medium,
     color: Colors.text,
-    flex: 1,
-  },
-  waktu: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.textMuted,
-  },
-  bottomRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
   },
   nim: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
-    flex: 1,
   },
   badgeHadir: {
     backgroundColor: Colors.successSoft,
-    paddingHorizontal: Spacing.sm + 2,
-    paddingVertical: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: Radius.pill,
   },
   badgeText: {
     fontSize: FontSize.xs,
-    fontWeight: '700',
+    fontFamily: FontFamily.medium,
     color: Colors.success,
   },
   catatanBox: {
-    marginTop: Spacing.xs,
+    marginTop: 2,
     backgroundColor: Colors.neutralSoft,
     borderRadius: Radius.sm,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-  },
-  catatanLabel: {
-    fontSize: FontSize.xs - 1,
-    fontWeight: '600',
-    color: Colors.textMuted,
-    marginBottom: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   catatanText: {
     fontSize: FontSize.xs,
-    color: Colors.text,
-    fontStyle: 'italic',
+    fontFamily: FontFamily.regular,
+    color: Colors.textMuted,
   },
 });
-

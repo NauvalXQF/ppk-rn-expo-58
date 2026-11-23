@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Colors, FontSize, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
 
 interface SectionHeaderProps {
   title: string;
@@ -24,12 +24,13 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xs,
   },
   title: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   rightText: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },
 });

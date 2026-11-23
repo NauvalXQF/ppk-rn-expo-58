@@ -1,152 +1,170 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
+  Animated,
   Text,
   StyleSheet,
   Pressable,
   ActivityIndicator,
+  Platform,
+  type StyleProp,
   type ViewStyle,
   type TextStyle,
 } from 'react-native';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import * as Haptics from 'expo-haptics';
+import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+type ButtonSize = 'md' | 'sm';
 
 interface AppButtonProps {
   label: string;
   onPress: () => void;
   variant?: ButtonVariant;
+  size?: ButtonSize;
   disabled?: boolean;
   loading?: boolean;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function AppButton({
   label,
   onPress,
   variant = 'primary',
+  size = 'md',
   disabled = false,
   loading = false,
   style,
 }: AppButtonProps) {
-  const getContainerStyle = (pressed: boolean): ViewStyle[] => {
-    const list: ViewStyle[] = [styles.base];
+  const [scale] = useState(() => new Animated.Value(1));
+  const [opacity] = useState(() => new Animated.Value(1));
 
-    if (variant === 'primary') {
-      list.push(styles.primary);
-      if (pressed) list.push(styles.primaryPressed);
-    } else if (variant === 'secondary') {
-      list.push(styles.secondary);
-      if (pressed) list.push(styles.secondaryPressed);
-    } else if (variant === 'danger') {
-      list.push(styles.danger);
-      if (pressed) list.push(styles.dangerPressed);
-    } else if (variant === 'ghost') {
-      list.push(styles.ghost);
-      if (pressed) list.push(styles.ghostPressed);
-    }
-
-    if (disabled) {
-      list.push(styles.disabled);
-    }
-
-    if (style) {
-      list.push(style);
-    }
-
-    return list;
+  const animateTo = (toScale: number, toOpacity: number) => {
+    Animated.parallel([
+      Animated.timing(scale, {
+        toValue: toScale,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: toOpacity,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+    ]).start();
   };
 
-  const getTextStyle = (): TextStyle[] => {
-    const list: TextStyle[] = [styles.text];
-    if (variant === 'primary' || variant === 'danger') {
-      list.push(styles.textLight);
-    } else if (variant === 'secondary') {
-      list.push(styles.textSecondary);
-    } else if (variant === 'ghost') {
-      list.push(styles.textGhost);
-    }
+  const isDisabled = disabled || loading;
 
-    if (disabled) {
-      list.push(styles.textDisabled);
-    }
+  const containerStyle: StyleProp<ViewStyle> = [
+    styles.base,
+    size === 'sm' ? styles.sm : styles.md,
+    variant === 'primary' && styles.primary,
+    variant === 'secondary' && styles.secondary,
+    variant === 'danger' && styles.danger,
+    variant === 'ghost' && styles.ghost,
+    isDisabled && styles.disabled,
+    style,
+  ];
 
-    return list;
+  const textStyle: StyleProp<TextStyle> = [
+    styles.textBase,
+    size === 'sm' && styles.textSm,
+    variant === 'primary' && styles.textPrimary,
+    variant === 'secondary' && styles.textSecondary,
+    variant === 'danger' && styles.textDanger,
+    variant === 'ghost' && styles.textGhost,
+  ];
+
+  const indicatorColor =
+    variant === 'primary'
+      ? Colors.textOnDark
+      : variant === 'danger'
+        ? Colors.danger
+        : Colors.primary;
+
+  const handlePress = () => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
+    onPress();
   };
 
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled || loading}
-      style={({ pressed }) => getContainerStyle(pressed)}
-      accessibilityRole="button"
-    >
-      {loading ? (
-        <ActivityIndicator
-          size="small"
-          color={variant === 'primary' || variant === 'danger' ? '#FFFFFF' : Colors.primary}
-        />
-      ) : (
-        <Text style={getTextStyle()}>{label}</Text>
-      )}
-    </Pressable>
+    <Animated.View style={{ transform: [{ scale }], opacity }}>
+      <Pressable
+        onPress={handlePress}
+        disabled={isDisabled}
+        onPressIn={() => {
+          if (isDisabled) return;
+          animateTo(0.97, 0.9);
+        }}
+        onPressOut={() => animateTo(1, 1)}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled: isDisabled, busy: loading }}
+        style={containerStyle}
+      >
+        {loading ? (
+          <ActivityIndicator size="small" color={indicatorColor} />
+        ) : (
+          <Text style={textStyle}>{label}</Text>
+        )}
+      </Pressable>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 44,
-    paddingVertical: Spacing.sm + 2,
-    paddingHorizontal: Spacing.md,
-    borderRadius: Radius.md,
-    justifyContent: 'center',
+    borderRadius: Radius.pill,
     alignItems: 'center',
+    justifyContent: 'center',
     flexDirection: 'row',
+  },
+  md: {
+    minHeight: 50,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 12,
+  },
+  sm: {
+    minHeight: 36,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 7,
   },
   primary: {
     backgroundColor: Colors.primary,
   },
-  primaryPressed: {
-    backgroundColor: Colors.primaryPressed,
-  },
   secondary: {
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.glassStrong,
     borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  secondaryPressed: {
-    backgroundColor: Colors.neutralSoft,
+    borderColor: Colors.glassBorder,
   },
   danger: {
-    backgroundColor: Colors.danger,
-  },
-  dangerPressed: {
-    backgroundColor: '#B42318',
+    backgroundColor: Colors.dangerSoft,
   },
   ghost: {
     backgroundColor: 'transparent',
   },
-  ghostPressed: {
-    backgroundColor: Colors.neutralSoft,
-  },
   disabled: {
-    backgroundColor: Colors.border,
-    borderColor: Colors.border,
-    opacity: 0.6,
+    opacity: 0.45,
   },
-  text: {
+  textBase: {
     fontSize: FontSize.sm,
-    fontWeight: '600',
+    fontFamily: FontFamily.medium,
   },
-  textLight: {
-    color: '#FFFFFF',
+  textSm: {
+    fontSize: FontSize.xs,
+  },
+  textPrimary: {
+    color: Colors.textOnDark,
   },
   textSecondary: {
     color: Colors.text,
   },
-  textGhost: {
-    color: Colors.textMuted,
+  textDanger: {
+    color: Colors.danger,
   },
-  textDisabled: {
-    color: Colors.textMuted,
+  textGhost: {
+    color: Colors.primary,
   },
 });

@@ -1,13 +1,7 @@
 import React from 'react';
-import {
-  Modal,
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-} from 'react-native';
+import { Modal, View, Text, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius, Shadow, Spacing } from '@/constants/theme';
 import { AppButton } from './AppButton';
 
 export interface ConfirmSheetProps {
@@ -80,48 +74,44 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(16, 24, 40, 0.45)',
+    backgroundColor: Colors.backdrop,
   },
   backdrop: {
     ...StyleSheet.absoluteFill,
   },
   sheetContainer: {
     backgroundColor: Colors.surface,
-    borderTopLeftRadius: Radius.lg,
-    borderTopRightRadius: Radius.lg,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
     maxWidth: 600,
     width: '100%',
     alignSelf: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 8,
+    ...Shadow.floating,
   },
   safeArea: {
     width: '100%',
   },
   content: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
+    paddingTop: Spacing.sm + 4,
     paddingBottom: Spacing.lg,
     gap: Spacing.md,
   },
   dragHandle: {
     width: 40,
     height: 4,
-    backgroundColor: Colors.border,
     borderRadius: Radius.pill,
+    backgroundColor: Colors.handle,
     alignSelf: 'center',
-    marginBottom: Spacing.xs,
   },
   title: {
     fontSize: FontSize.lg,
-    fontWeight: '700',
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   description: {
     fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
     lineHeight: 20,
   },

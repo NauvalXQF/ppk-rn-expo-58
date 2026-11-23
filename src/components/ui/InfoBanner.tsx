@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
 type BannerTone = 'info' | 'success' | 'warning' | 'danger' | 'neutral';
 
@@ -12,32 +12,27 @@ interface InfoBannerProps {
 
 const toneStyles: Record<
   BannerTone,
-  { backgroundColor: string; color: string; borderColor: string }
+  { backgroundColor: string; color: string }
 > = {
   info: {
     backgroundColor: Colors.primarySoft,
     color: Colors.primary,
-    borderColor: '#D1E0FF',
   },
   success: {
     backgroundColor: Colors.successSoft,
     color: Colors.success,
-    borderColor: '#B4EDCD',
   },
   warning: {
     backgroundColor: Colors.warningSoft,
     color: Colors.warning,
-    borderColor: '#FEDF89',
   },
   danger: {
     backgroundColor: Colors.dangerSoft,
     color: Colors.danger,
-    borderColor: '#FDA29B',
   },
   neutral: {
     backgroundColor: Colors.neutralSoft,
     color: Colors.text,
-    borderColor: Colors.border,
   },
 };
 
@@ -52,15 +47,12 @@ export function InfoBanner({
     <View
       style={[
         styles.banner,
-        {
-          backgroundColor: config.backgroundColor,
-          borderColor: config.borderColor,
-        },
+        { backgroundColor: config.backgroundColor },
       ]}
     >
       <Text style={[styles.text, { color: config.color }]}>{message}</Text>
       {description ? (
-        <Text style={[styles.description, { color: config.color }]}>
+        <Text style={[styles.description, { color: Colors.text }]}>
           {description}
         </Text>
       ) : null}
@@ -70,19 +62,19 @@ export function InfoBanner({
 
 const styles = StyleSheet.create({
   banner: {
-    padding: Spacing.md,
+    padding: Spacing.md - 2,
     borderRadius: Radius.md,
-    borderWidth: 1,
   },
   text: {
     fontSize: FontSize.sm,
-    lineHeight: 20,
-    fontWeight: '500',
+    lineHeight: 19,
+    fontFamily: FontFamily.medium,
   },
   description: {
     marginTop: Spacing.xs,
     fontSize: FontSize.xs,
-    lineHeight: 18,
-    opacity: 0.85,
+    lineHeight: 16,
+    fontFamily: FontFamily.regular,
+    opacity: 0.8,
   },
 });
