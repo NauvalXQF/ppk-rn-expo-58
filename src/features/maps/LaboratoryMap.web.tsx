@@ -4,27 +4,29 @@ import './leafletMap.css';
 import { MapFrame, type MapStatus } from './MapFrame';
 import { createLeafletMap } from './leafletMap';
 import { isMapPoint, mapLabs, mapLocation, mapUpdates, previewLabs, type MapState } from './mapProtocol';
-import type { LaboratoryMapProps, LabPreviewProps } from './mapTypes';
+import type { LaboratoryMapProps, LabPickerMapProps, LabPreviewProps } from './mapTypes';
 import type { LaboratoryCoordinates } from '@/types/laboratory';
 
 type WebMapProps = MapState & Pick<LaboratoryMapProps, 'ref' | 'focused'> & {
   preview?: boolean;
   onSelect?: LaboratoryMapProps['onSelect'];
+  onLocationPicked?: LabPickerMapProps['onLocationPicked'];
 };
 
-function WebMap({ ref, labs, location, selection, onSelect, focused, preview = false }: WebMapProps) {
+function WebMap({ ref, labs, location, selection, picker, onSelect, onLocationPicked, focused, preview = false }: WebMapProps) {
+  const picking = picker !== undefined;
   const container = useRef<HTMLDivElement>(null);
   const renderer = useRef<ReturnType<typeof createLeafletMap>>(null);
   const pendingRecenter = useRef<LaboratoryCoordinates>(null);
   const applied = useRef<MapState>(undefined);
-  const current = useRef({ labs, location, selection, onSelect, focused });
+  const current = useRef({ labs, location, selection, picker, onSelect, onLocationPicked, focused });
   const [status, setStatus] = useState<MapStatus>('loading');
   const [attempt, setAttempt] = useState(0);
 
   useLayoutEffect(() => {
-    current.current = { labs, location, selection, onSelect, focused };
+    current.current = { labs, location, selection, picker, onSelect, onLocationPicked, focused };
     if (!focused) pendingRecenter.current = null;
-  }, [labs, location, selection, onSelect, focused]);
+  }, [labs, location, selection, picker, onSelect, onLocationPicked, focused]);
 
   useImperativeHandle(ref, () => ({
     recenter(point) {
@@ -48,12 +50,15 @@ function WebMap({ ref, labs, location, selection, onSelect, focused, preview = f
             const state = current.current;
             if (!disposed && state.focused && state.labs.some((lab) => lab.id === id)) state.onSelect?.(id);
           },
+          onLocationPicked: picking ? (point) => {
+            if (!disposed && current.current.focused) current.current.onLocationPicked?.(point);
+          } : undefined,
           onTileStatus: (failed) => {
             if (!disposed) setStatus((status) => status === 'failed' ? status : failed ? 'tiles' : 'ready');
           },
         });
-        const { labs, location, selection } = current.current;
-        const snapshot = { labs, location, selection };
+        const { labs, location, selection, picker } = current.current;
+        const snapshot = { labs, location, selection, picker };
         map.apply({ type: 'snapshot', data: snapshot });
         applied.current = snapshot;
         renderer.current = map;
@@ -80,14 +85,14 @@ function WebMap({ ref, labs, location, selection, onSelect, focused, preview = f
       applied.current = undefined;
       map?.dispose();
     };
-  }, [attempt, preview]);
+  }, [attempt, picking, preview]);
 
   useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => {
       const map = renderer.current;
       if (cancelled || !map) return;
-      const next = { labs, location, selection };
+      const next = { labs, location, selection, picker };
       try {
         for (const message of mapUpdates(applied.current, next)) map.apply(message);
         applied.current = next;
@@ -98,7 +103,7 @@ function WebMap({ ref, labs, location, selection, onSelect, focused, preview = f
       }
     });
     return () => { cancelled = true; };
-  }, [labs, location, selection]);
+  }, [labs, location, selection, picker]);
 
   useEffect(() => {
     if (focused) renderer.current?.resize();
@@ -114,8 +119,9 @@ function WebMap({ ref, labs, location, selection, onSelect, focused, preview = f
   }
 
   return (
-    <MapFrame status={status} preview={preview} labs={labs} onSelect={onSelect} onRetry={retry}>
-      <div ref={container} className="ppk-leaflet-map" aria-label={preview ? 'Pratinjau peta' : 'Peta laboratorium'} />
+    <MapFrame status={status} preview={preview} picker={picking} labs={labs} onSelect={onSelect} onRetry={retry}>
+      <div ref={container} className="ppk-leaflet-map"
+        aria-label={picking ? 'Peta pemilihan lokasi' : preview ? 'Pratinjau peta' : 'Peta laboratorium'} />
     </MapFrame>
   );
 }
@@ -131,4 +137,11 @@ export default function LaboratoryMap({
 export function LabPreview({ point: { latitude, longitude }, radius }: LabPreviewProps) {
   const labs = useMemo(() => previewLabs({ point: { latitude, longitude }, radius }), [latitude, longitude, radius]);
   return <WebMap labs={labs} location={null} selection={null} focused preview />;
+}
+
+const EMPTY_LABS: MapState['labs'] = [];
+
+export function LabPickerMap({ center, point, radius, onLocationPicked }: LabPickerMapProps) {
+  const picker = useMemo(() => ({ center, point, radius }), [center, point, radius]);
+  return <WebMap labs={EMPTY_LABS} location={null} selection={null} focused picker={picker} onLocationPicked={onLocationPicked} />;
 }

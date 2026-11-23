@@ -57,7 +57,7 @@ ${read(join(__dirname, 'leafletMap.css'))}
 </head>
 <body>
 <!-- ${license} -->
-<div id="map" class="ppk-leaflet-map" data-instance="PPK_MAP_INSTANCE" data-preview="PPK_MAP_PREVIEW"></div>
+<div id="map" class="ppk-leaflet-map" data-instance="PPK_MAP_INSTANCE" data-preview="PPK_MAP_PREVIEW" data-picker="PPK_MAP_PICKER"></div>
 <script>${script}</script>
 </body>
 </html>`;

@@ -1,6 +1,6 @@
 import type { Laboratory, LaboratoryCoordinates } from '@/types/laboratory';
 import { validCoordinates, validRadius } from '../../services/maps/laboratories';
-import type { LabPreviewProps, LaboratoryMapProps } from './mapTypes';
+import type { LabPickerState, LabPreviewProps, LaboratoryMapProps } from './mapTypes';
 
 export const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const TILE_ATTRIBUTION_URL = 'https://www.openstreetmap.org/copyright';
@@ -18,6 +18,7 @@ export interface MapState {
   labs: readonly MapLab[];
   location: MapPosition | null;
   selection: string | null;
+  picker?: LabPickerState;
 }
 
 export type MapCommand =
@@ -25,11 +26,13 @@ export type MapCommand =
   | { type: 'labs'; data: MapState['labs'] }
   | { type: 'location'; data: MapState['location'] }
   | { type: 'selection'; data: MapState['selection'] }
+  | { type: 'picker'; data: LabPickerState }
   | { type: 'recenter'; data: LaboratoryCoordinates };
 
 export type MapEvent =
   | { type: 'ready' }
   | { type: 'labSelected'; id: string }
+  | { type: 'locationPicked'; point: LaboratoryCoordinates }
   | { type: 'mapError'; code: 'tiles' | 'renderer' };
 
 type Envelope = { version: typeof MAP_VERSION; instance: string; sequence: number };
@@ -46,6 +49,12 @@ function validId(value: unknown): value is string {
 export function isMapPoint(value: unknown): value is LaboratoryCoordinates {
   return isRecord(value) && typeof value.latitude === 'number' &&
     typeof value.longitude === 'number' && validCoordinates(value.latitude, value.longitude);
+}
+
+function isPicker(value: unknown): value is LabPickerState {
+  return isRecord(value) && (value.center === null || isMapPoint(value.center)) &&
+    (value.point === null || isMapPoint(value.point)) &&
+    (value.radius === null || (typeof value.radius === 'number' && validRadius(value.radius)));
 }
 
 function validHeading(value: unknown): value is number {
@@ -130,8 +139,10 @@ export function readMapCommand(raw: unknown, instance: string, previous: number)
   const { value: { type, data }, envelope } = packet;
   switch (type) {
     case 'snapshot':
-      if (isRecord(data) && isLabList(data.labs) && isLocation(data.location) && isSelection(data.selection)) {
-        return { ...envelope, type, data: { labs: data.labs, location: data.location, selection: data.selection } };
+      if (isRecord(data) && isLabList(data.labs) && isLocation(data.location) && isSelection(data.selection) &&
+        (data.picker === undefined || isPicker(data.picker))) {
+        const { labs, location, selection, picker } = data;
+        return { ...envelope, type, data: { labs, location, selection, ...(picker && { picker }) } };
       }
       return;
     case 'labs':
@@ -143,6 +154,9 @@ export function readMapCommand(raw: unknown, instance: string, previous: number)
     case 'selection':
       if (isSelection(data)) return { ...envelope, type, data };
       return;
+    case 'picker':
+      if (isPicker(data)) return { ...envelope, type, data };
+      return;
     case 'recenter':
       if (isMapPoint(data)) return { ...envelope, type, data };
       return;
@@ -152,12 +166,17 @@ export function readMapCommand(raw: unknown, instance: string, previous: number)
 export function readMapEvent(raw: unknown, instance: string, previous: number): (Envelope & MapEvent) | undefined {
   const packet = readEnvelope(raw, instance, previous);
   if (!packet) return;
-  const { value: { type, id, code }, envelope } = packet;
+  const { value: { type, id, code, point }, envelope } = packet;
   switch (type) {
     case 'ready':
       return { ...envelope, type };
     case 'labSelected':
       if (validId(id)) return { ...envelope, type, id };
+      return;
+    case 'locationPicked':
+      if (isMapPoint(point)) {
+        return { ...envelope, type, point: { latitude: point.latitude, longitude: point.longitude } };
+      }
       return;
     case 'mapError':
       if (code === 'tiles' || code === 'renderer') return { ...envelope, type, code };
@@ -171,5 +190,6 @@ export function mapUpdates(previous: MapState | undefined, next: MapState): MapC
   if (previous.labs !== next.labs) changes.push({ type: 'labs', data: next.labs });
   if (previous.location !== next.location) changes.push({ type: 'location', data: next.location });
   if (previous.selection !== next.selection) changes.push({ type: 'selection', data: next.selection });
+  if (next.picker && previous.picker !== next.picker) changes.push({ type: 'picker', data: next.picker });
   return changes;
 }

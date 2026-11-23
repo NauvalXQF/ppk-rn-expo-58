@@ -20,3 +20,13 @@ export interface LabPreviewProps {
   point: LaboratoryCoordinates;
   radius: number;
 }
+
+export interface LabPickerState {
+  center: LaboratoryCoordinates | null;
+  point: LaboratoryCoordinates | null;
+  radius: number | null;
+}
+
+export interface LabPickerMapProps extends LabPickerState {
+  onLocationPicked: (point: LaboratoryCoordinates) => void;
+}

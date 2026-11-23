@@ -8,7 +8,7 @@ import {
   encodeMapMessage, isMapPoint, mapLabs, mapLocation, mapUpdates, previewLabs, readMapEvent,
   type MapCommand, type MapState,
 } from './mapProtocol';
-import type { LaboratoryMapProps, LabPreviewProps } from './mapTypes';
+import type { LaboratoryMapProps, LabPickerMapProps, LabPreviewProps } from './mapTypes';
 
 const START_TIMEOUT = 12000;
 // Inline HTML requires the wildcard. The navigation callback explicitly denies other documents.
@@ -18,6 +18,7 @@ let instanceCount = 0;
 type NativeMapProps = MapState & Pick<LaboratoryMapProps, 'ref' | 'focused'> & {
   preview?: boolean;
   onSelect?: LaboratoryMapProps['onSelect'];
+  onLocationPicked?: LabPickerMapProps['onLocationPicked'];
 };
 
 function NativeMap(props: NativeMapProps) {
@@ -26,13 +27,17 @@ function NativeMap(props: NativeMapProps) {
 }
 
 function MapDocument({
-  ref, labs, location, selection, onSelect, focused, preview = false, onRetry,
+  ref, labs, location, selection, picker, onSelect, onLocationPicked, focused, preview = false, onRetry,
 }: NativeMapProps & { onRetry: () => void }) {
+  const picking = picker !== undefined;
   const [document] = useState(() => {
     const instance = String(++instanceCount);
     return {
       instance,
-      source: { html: html.replace('PPK_MAP_INSTANCE', instance).replace('PPK_MAP_PREVIEW', String(preview)) },
+      source: {
+        html: html.replace('PPK_MAP_INSTANCE', instance).replace('PPK_MAP_PREVIEW', String(preview))
+          .replace('PPK_MAP_PICKER', String(picking)),
+      },
     };
   });
   const [status, setStatus] = useState<MapStatus>('loading');
@@ -77,14 +82,14 @@ function MapDocument({
   useEffect(() => {
     if (!focused) pendingRecenter.current = null;
     if (!ready || failed.current) return;
-    const latest = { labs, location, selection };
+    const latest = { labs, location, selection, picker };
     for (const command of mapUpdates(previous.current, latest)) send(command);
     previous.current = latest;
     if (pendingRecenter.current) {
       send({ type: 'recenter', data: pendingRecenter.current });
       pendingRecenter.current = null;
     }
-  }, [ready, focused, labs, location, selection, send]);
+  }, [ready, focused, labs, location, selection, picker, send]);
 
   useImperativeHandle(ref, () => ({
     recenter(point) {
@@ -106,7 +111,10 @@ function MapDocument({
         setStatus('ready');
         break;
       case 'labSelected':
-        if (ready && focused && labs.some(({ id }) => id === message.id)) onSelect?.(message.id);
+        if (!picking && ready && focused && labs.some(({ id }) => id === message.id)) onSelect?.(message.id);
+        break;
+      case 'locationPicked':
+        if (picking && ready && focused) onLocationPicked?.(message.point);
         break;
       case 'mapError':
         if (message.code === 'renderer') fail();
@@ -116,7 +124,7 @@ function MapDocument({
   }
 
   return (
-    <MapFrame status={status} preview={preview} labs={labs} onSelect={onSelect} onRetry={onRetry}>
+    <MapFrame status={status} preview={preview} picker={picking} labs={labs} onSelect={onSelect} onRetry={onRetry}>
       {status === 'failed' ? null : (
         <WebView<unknown>
           ref={webView}
@@ -158,6 +166,13 @@ export default function LaboratoryMap({
 export function LabPreview({ point: { latitude, longitude }, radius }: LabPreviewProps) {
   const labs = useMemo(() => previewLabs({ point: { latitude, longitude }, radius }), [latitude, longitude, radius]);
   return <NativeMap labs={labs} location={null} selection={null} focused preview />;
+}
+
+const EMPTY_LABS: MapState['labs'] = [];
+
+export function LabPickerMap({ center, point, radius, onLocationPicked }: LabPickerMapProps) {
+  const picker = useMemo(() => ({ center, point, radius }), [center, point, radius]);
+  return <NativeMap labs={EMPTY_LABS} location={null} selection={null} focused picker={picker} onLocationPicked={onLocationPicked} />;
 }
 
 const styles = StyleSheet.create({ map: { flex: 1, backgroundColor: 'transparent' } });

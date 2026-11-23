@@ -1,5 +1,6 @@
-import type { Circle, Marker } from 'leaflet';
+import type { Circle, CircleMarker, LeafletMouseEvent, Marker } from 'leaflet';
 import { TILE_URL, isMapPoint, type MapCommand, type MapState } from './mapProtocol';
+import type { LabPickerState } from './mapTypes';
 import type { LaboratoryCoordinates } from '@/types/laboratory';
 
 type Leaflet = typeof import('leaflet');
@@ -8,9 +9,14 @@ type Lab = MapState['labs'][number];
 export function createLeafletMap(
   L: Leaflet,
   container: HTMLDivElement,
-  options: { preview: boolean; onSelect: (id: string) => void; onTileStatus: (failed: boolean) => void },
+  options: {
+    preview: boolean;
+    onSelect?: (id: string) => void;
+    onLocationPicked?: (point: LaboratoryCoordinates) => void;
+    onTileStatus: (failed: boolean) => void;
+  },
 ) {
-  const { preview, onSelect, onTileStatus } = options;
+  const { preview, onSelect, onLocationPicked, onTileStatus } = options;
   const map = L.map(container, {
     attributionControl: false,
     zoomControl: !preview,
@@ -32,6 +38,9 @@ export function createLeafletMap(
   let tileLoaded = false;
   let reportedTileFailure = false;
   let disposed = false;
+  let pickerStarted = false;
+  let pickedMarker: CircleMarker | undefined;
+  let pickedRadius: Circle | undefined;
 
   const resetTileBatch = () => { tileFailed = false; tileLoaded = false; };
   function reportTileFailure(failed: boolean) {
@@ -121,7 +130,7 @@ export function createLeafletMap(
       labelMarker(marker, lab);
       if (!preview) {
         marker.bindPopup(popup(lab), { autoPan: false });
-        marker.on('click', () => onSelect(lab.id));
+        marker.on('click', () => onSelect?.(lab.id));
       }
       layers.set(lab.id, { circle, marker, lab });
       if (preview) previewFramePending = true;
@@ -181,6 +190,43 @@ export function createLeafletMap(
     }
   }
 
+  function pickLocation({ latlng }: LeafletMouseEvent) {
+    const picked = { latitude: latlng.lat, longitude: latlng.lng };
+    if (!disposed && pickerStarted && isMapPoint(picked)) onLocationPicked?.(picked);
+  }
+
+  function updatePicker({ center, point: picked, radius }: LabPickerState) {
+    if (!pickerStarted) {
+      if (center) map.setView(point(center), 17, { animate: false });
+      pickerStarted = true;
+    }
+    if (!picked) {
+      pickedMarker?.remove();
+      pickedMarker = undefined;
+      pickedRadius?.remove();
+      pickedRadius = undefined;
+      return;
+    }
+    const coordinates = point(picked);
+    if (radius === null) {
+      pickedRadius?.remove();
+      pickedRadius = undefined;
+    } else if (pickedRadius) {
+      pickedRadius.setLatLng(coordinates).setRadius(radius);
+    } else {
+      pickedRadius = L.circle(coordinates, {
+        radius, color: '#1a56db', fillOpacity: 0.15, weight: 1, interactive: false,
+      }).addTo(map);
+    }
+    if (pickedMarker) pickedMarker.setLatLng(coordinates);
+    else pickedMarker = L.circleMarker(coordinates, {
+      radius: 9, color: '#fff', weight: 3, fillColor: '#1a56db', fillOpacity: 1, interactive: false,
+    }).addTo(map);
+    pickedMarker.bringToFront();
+  }
+
+  if (onLocationPicked) map.on('click', pickLocation);
+
   function resize() {
     if (!container.clientWidth || !container.clientHeight) return;
     map.invalidateSize({ pan: false, debounceMoveend: true });
@@ -191,6 +237,13 @@ export function createLeafletMap(
   observer?.observe(container);
   return {
     apply(message: MapCommand) {
+      if (onLocationPicked) {
+        if (message.type === 'snapshot') {
+          if (message.data.picker) updatePicker(message.data.picker);
+          if (!map.hasLayer(tiles)) tiles.addTo(map);
+        } else if (message.type === 'picker') updatePicker(message.data);
+        return;
+      }
       switch (message.type) {
         case 'snapshot':
           setLabs(message.data.labs);
@@ -218,6 +271,7 @@ export function createLeafletMap(
       if (disposed) return;
       disposed = true;
       observer?.disconnect();
+      if (onLocationPicked) map.off('click', pickLocation);
       tiles.off();
       map.remove();
     },

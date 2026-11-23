@@ -10,6 +10,7 @@ export function startNativeMap(browser: MapWindow, container: HTMLDivElement) {
   const document = container.ownerDocument;
   const instance = container.dataset.instance ?? '';
   const preview = container.dataset.preview === 'true';
+  const picker = container.dataset.picker === 'true';
   let incoming = 0;
   let outgoing = 0;
   let tilesFailed = false;
@@ -22,6 +23,7 @@ export function startNativeMap(browser: MapWindow, container: HTMLDivElement) {
     const map = createLeafletMap(browser.L, container, {
       preview,
       onSelect: (id) => post({ type: 'labSelected', id }),
+      onLocationPicked: picker ? (point) => post({ type: 'locationPicked', point }) : undefined,
       onTileStatus: (failed) => {
         if (failed === tilesFailed) return;
         tilesFailed = failed;

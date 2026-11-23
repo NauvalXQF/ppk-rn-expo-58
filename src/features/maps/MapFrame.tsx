@@ -19,13 +19,14 @@ export function MapAttribution() {
   );
 }
 
-export function MapFrame({ children, labs, onSelect, onRetry, status, preview }: {
+export function MapFrame({ children, labs, onSelect, onRetry, status, preview, picker }: {
   children: ReactNode;
   labs?: MapState['labs'];
   onSelect?: (id: string) => void;
   onRetry?: () => void;
   status: MapStatus;
   preview: boolean;
+  picker?: boolean;
 }) {
   return (
     <View style={preview ? styles.preview : styles.frame}>
@@ -57,6 +58,7 @@ export function MapFrame({ children, labs, onSelect, onRetry, status, preview }:
           </ScrollView>
         ) : null}
       </View>
+      {picker ? <MapAttribution /> : null}
     </View>
   );
 }

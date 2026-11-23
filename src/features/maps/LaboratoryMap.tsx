@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { Colors, Spacing } from '@/constants/theme';
-import type { LaboratoryMapProps, LabPreviewProps } from './mapTypes';
+import type { LaboratoryMapProps, LabPickerMapProps, LabPreviewProps } from './mapTypes';
 
 export default function LaboratoryMap(_props: LaboratoryMapProps) {
   return (
@@ -12,6 +12,10 @@ export default function LaboratoryMap(_props: LaboratoryMapProps) {
 
 export function LabPreview(_props: LabPreviewProps) {
   return null;
+}
+
+export function LabPickerMap(_props: LabPickerMapProps) {
+  return <View style={styles.fallback}><Text style={styles.message}>Peta pemilihan lokasi tidak tersedia.</Text></View>;
 }
 
 const styles = StyleSheet.create({
