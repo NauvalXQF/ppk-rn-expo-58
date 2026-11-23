@@ -164,7 +164,14 @@ test('submitAttendanceToFirestore enforces role, session state, geofence radius,
   const praktikanA = initialState.pengguna.find((u) => u.id === 'praktikan-1');
   const asisten = initialState.pengguna.find((u) => u.id === 'asisten-1');
   const closedSession = initialState.sesi.find((s) => s.id === 'sesi-2');
-  const openSession = { ...closedSession, status: 'dibuka' };
+  const openSession = {
+    ...closedSession,
+    status: 'dibuka',
+    tanggal: '2026-04-20',
+    jamMulai: '10:00',
+    jamSelesai: '12:00',
+  };
+  const validWaktuPresensi = new Date('2026-04-20T10:30:00').toISOString();
 
   const inRadiusGeo = {
     latitude: SIMULATED_LOCATIONS.inRadiusLabAi.latitude,
@@ -220,6 +227,7 @@ test('submitAttendanceToFirestore enforces role, session state, geofence radius,
         sesiId: openSession.id,
         praktikanId: praktikanA.id,
         localSesi: openSession,
+        waktuPresensi: validWaktuPresensi,
         geo: outRadiusGeo,
       }),
     /di luar radius laboratorium/,
@@ -231,6 +239,7 @@ test('submitAttendanceToFirestore enforces role, session state, geofence radius,
         sesiId: openSession.id,
         praktikanId: praktikanA.id,
         localSesi: openSession,
+        waktuPresensi: validWaktuPresensi,
         alreadyAttendedLocally: true,
         geo: inRadiusGeo,
       }),
@@ -249,11 +258,36 @@ test('submitAttendanceToFirestore enforces role, session state, geofence radius,
     /maksimal 120 karakter/,
   );
 
+  await assert.rejects(
+    () =>
+      submitAttendanceToFirestore(praktikanA, {
+        sesiId: openSession.id,
+        praktikanId: praktikanA.id,
+        localSesi: openSession,
+        waktuPresensi: new Date('2026-04-20T09:55:00').toISOString(),
+        geo: inRadiusGeo,
+      }),
+    /belum dimulai/,
+  );
+
+  await assert.rejects(
+    () =>
+      submitAttendanceToFirestore(praktikanA, {
+        sesiId: openSession.id,
+        praktikanId: praktikanA.id,
+        localSesi: openSession,
+        waktuPresensi: new Date('2026-04-20T12:05:00').toISOString(),
+        geo: inRadiusGeo,
+      }),
+    /telah berakhir/,
+  );
+
   const saved = await submitAttendanceToFirestore(praktikanA, {
     sesiId: openSession.id,
     praktikanId: praktikanA.id,
     catatan: '  Hadir tepat waktu  ',
     localSesi: openSession,
+    waktuPresensi: validWaktuPresensi,
     geo: inRadiusGeo,
   });
 

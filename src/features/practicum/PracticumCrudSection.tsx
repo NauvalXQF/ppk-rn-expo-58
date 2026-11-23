@@ -36,6 +36,7 @@ export function PracticumCrudSection() {
   const {
     state,
     loading,
+    error,
     isRemote,
     simpanKelas,
     hapusKelas,
@@ -91,6 +92,17 @@ export function PracticumCrudSection() {
   >([]);
 
   const isAsistenUser = state.currentUser?.peran === 'asisten';
+  const defaultKelasId = state.kelas[0]?.id ?? '';
+  const activeKelasPeserta = state.kelas.some((k) => k.id === kelasPeserta)
+    ? kelasPeserta
+    : defaultKelasId;
+  const activeKelasJadwal = state.kelas.some((k) => k.id === kelasJadwal)
+    ? kelasJadwal
+    : defaultKelasId;
+  const activeKelasSesi = state.kelas.some((k) => k.id === kelasSesi)
+    ? kelasSesi
+    : defaultKelasId;
+
   useEffect(() => {
     if (!isRemote || !isAsistenUser || !expanded || activeTab !== 'peserta') {
       return;
@@ -150,7 +162,7 @@ export function PracticumCrudSection() {
         id: editPesertaId ?? (uidPeserta.trim() || undefined),
         nama: namaPeserta,
         nim: nimPeserta,
-        kelasId: kelasPeserta,
+        kelasId: activeKelasPeserta,
       });
       showSuccess(
         editPesertaId
@@ -167,7 +179,7 @@ export function PracticumCrudSection() {
     try {
       await simpanJadwal({
         id: editJadwalId,
-        kelasId: kelasJadwal,
+        kelasId: activeKelasJadwal,
         hari: hariJadwal,
         jamMulai: mulaiJadwal,
         jamSelesai: selesaiJadwal,
@@ -188,7 +200,7 @@ export function PracticumCrudSection() {
       const existing = state.sesi.find((s) => s.id === editSesiId);
       await simpanSesi({
         id: editSesiId,
-        kelasId: kelasSesi,
+        kelasId: activeKelasSesi,
         topik: topikSesi,
         ruang: ruangSesi,
         tanggal: tanggalSesi,
@@ -295,6 +307,7 @@ export function PracticumCrudSection() {
                 ))}
               </View>
 
+              {error ? <InfoBanner tone="danger" message={error} /> : null}
               {feedback ? <InfoBanner tone="success" message={feedback} /> : null}
 
               <ScrollView
@@ -311,7 +324,7 @@ export function PracticumCrudSection() {
                 title={editSesiId ? 'Ubah Sesi' : 'Tambah Sesi Praktikum'}
               />
               <Text style={styles.fieldLabel}>Pilih Kelas</Text>
-              {renderKelasSelector(kelasSesi, setKelasSesi)}
+              {renderKelasSelector(activeKelasSesi, setKelasSesi)}
               <FormField
                 label="Topik Sesi"
                 placeholder="Mis. Integrasi Firebase & Firestore"
@@ -423,7 +436,7 @@ export function PracticumCrudSection() {
                 title={editJadwalId ? 'Ubah Jadwal' : 'Tambah Jadwal Praktikum'}
               />
               <Text style={styles.fieldLabel}>Pilih Kelas</Text>
-              {renderKelasSelector(kelasJadwal, setKelasJadwal)}
+              {renderKelasSelector(activeKelasJadwal, setKelasJadwal)}
               <FormField
                 label="Informasi / Topik Jadwal"
                 placeholder="Mis. Praktikum Reguler PPK"
@@ -606,6 +619,14 @@ export function PracticumCrudSection() {
                   <View style={styles.chipRow}>
                     {registeredAccounts.map((acc) => {
                       const active = uidPeserta === acc.uid;
+                      const existingMembership = pesertaList.find(
+                        (p) => p.id === acc.uid,
+                      );
+                      const existingClassName = existingMembership
+                        ? (state.kelas.find(
+                            (k) => k.id === existingMembership.kelasId,
+                          )?.nama ?? existingMembership.kelasId)
+                        : null;
                       return (
                         <Pressable
                           key={acc.uid}
@@ -613,6 +634,9 @@ export function PracticumCrudSection() {
                             setUidPeserta(acc.uid);
                             setNamaPeserta(acc.nama);
                             if (acc.nim) setNimPeserta(acc.nim);
+                            if (existingMembership) {
+                              setKelasPeserta(existingMembership.kelasId);
+                            }
                           }}
                           style={[styles.chip, active && styles.chipActive]}
                         >
@@ -623,6 +647,7 @@ export function PracticumCrudSection() {
                             ]}
                           >
                             {acc.nama} · {acc.email}
+                            {existingClassName ? ` (${existingClassName})` : ''}
                           </Text>
                         </Pressable>
                       );
@@ -650,7 +675,7 @@ export function PracticumCrudSection() {
                 onChangeText={setNimPeserta}
               />
               <Text style={styles.fieldLabel}>Pilih Kelas</Text>
-              {renderKelasSelector(kelasPeserta, setKelasPeserta)}
+              {renderKelasSelector(activeKelasPeserta, setKelasPeserta)}
 
               <View style={styles.actionRow}>
                 {editPesertaId ? (

@@ -220,6 +220,24 @@ export async function saveClassMemberToFirestore(
   const db = getDb();
   if (!db) throw new Error('Firebase belum dikonfigurasi untuk mengelola peserta.');
 
+  const activeMembershipsSnap = await getDocs(
+    query(
+      collection(db, 'classMembers'),
+      where('uid', '==', uid),
+      where('active', '==', true),
+    ),
+  );
+  const conflictMember = activeMembershipsSnap.docs.find((d) => {
+    const data = d.data();
+    return data.active === true && data.classId !== kelasId;
+  });
+  if (conflictMember) {
+    const existingClassId = String(conflictMember.data().classId ?? '');
+    throw new Error(
+      `Praktikan sudah terdaftar di kelas ${existingClassId || 'lain'}. Satu user hanya boleh memiliki satu kelas.`,
+    );
+  }
+
   await runTransaction(db, async (tx) => {
     const ref = doc(db, 'classMembers', memberId);
     const [profil, kelas, anggota] = await Promise.all([

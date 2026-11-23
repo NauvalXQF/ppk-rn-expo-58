@@ -16,6 +16,7 @@ import { PresensiSuccess } from '@/features/sesi/praktikan/PresensiSuccess';
 import { useGeofence } from '@/hooks/useGeofence';
 import { useApp } from '@/store/app-context';
 import { isPraktikanInClass, selectDetailSesi } from '@/store/selectors';
+import { evaluateSessionScheduleWindow } from '@/utils/date';
 import { LocationStatusCard } from './LocationStatusCard';
 import { SessionSummaryCard } from './SessionSummaryCard';
 
@@ -36,11 +37,15 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
   const isPraktikan = user?.peran === 'praktikan';
   const isEligibleKelas =
     isPraktikan && detail ? isPraktikanInClass(user, detail.sesi.kelasId) : false;
+  const scheduleCheck = detail
+    ? evaluateSessionScheduleWindow(detail.sesi)
+    : { isWithinSchedule: true, status: 'INVALID' as const };
   const shouldTrackLocation = Boolean(
     detail &&
       isPraktikan &&
       isEligibleKelas &&
       detail.sesi.status === 'dibuka' &&
+      scheduleCheck.isWithinSchedule &&
       !detail.presensiSaya,
   );
 
@@ -101,6 +106,7 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
   const canSubmit =
     isEligibleKelas &&
     sesi.status === 'dibuka' &&
+    scheduleCheck.isWithinSchedule &&
     !presensiSaya &&
     geofence.verification?.status === 'DALAM_RADIUS' &&
     geofence.reading !== null &&
@@ -203,7 +209,22 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
         </View>
       ) : null}
 
-      {isEligibleKelas && !presensiSaya && sesi.status === 'dibuka' ? (
+      {isEligibleKelas && !presensiSaya && sesi.status === 'dibuka' && !scheduleCheck.isWithinSchedule ? (
+        <View style={styles.sectionGap}>
+          <InfoBanner
+            tone="warning"
+            message={scheduleCheck.message ?? 'Di luar jadwal sesi praktikum.'}
+            description="Presensi hanya dapat dilakukan pada rentang tanggal dan jam sesi yang telah dijadwalkan."
+          />
+          <AppButton
+            label="Kirim Presensi Kehadiran"
+            onPress={() => {}}
+            disabled
+          />
+        </View>
+      ) : null}
+
+      {isEligibleKelas && !presensiSaya && sesi.status === 'dibuka' && scheduleCheck.isWithinSchedule ? (
         <View style={styles.sectionGap}>
           <LocationStatusCard
             labTarget={geofence.labTarget}

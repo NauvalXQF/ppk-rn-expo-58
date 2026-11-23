@@ -45,7 +45,6 @@ export default function ProfilRoute() {
   const user = state.currentUser;
 
   const [confirmGantiVisible, setConfirmGantiVisible] = useState(false);
-  const [confirmResetVisible, setConfirmResetVisible] = useState(false);
   const [loadingKeluar, setLoadingKeluar] = useState(false);
 
   if (!user) {
@@ -73,11 +72,6 @@ export default function ProfilRoute() {
       setLoadingKeluar(false);
       setConfirmGantiVisible(false);
     }
-  };
-
-  const handleResetData = () => {
-    dispatch({ type: 'RESET_DATA' });
-    router.replace('/');
   };
 
   return (
@@ -125,11 +119,6 @@ export default function ProfilRoute() {
           onPress={() => setConfirmGantiVisible(true)}
           loading={loadingKeluar}
         />
-        <AppButton
-          label="Reset Data Demo"
-          variant="danger"
-          onPress={() => setConfirmResetVisible(true)}
-        />
       </View>
 
       <Text style={styles.versionText}>
@@ -143,16 +132,6 @@ export default function ProfilRoute() {
         confirmLabel="Ya, Keluar"
         onConfirm={handleGantiPengguna}
         onClose={() => setConfirmGantiVisible(false)}
-      />
-
-      <ConfirmSheet
-        visible={confirmResetVisible}
-        title="Reset Data Demo"
-        description="Semua data presensi dan status sesi akan dikembalikan ke kondisi awal demo."
-        confirmLabel="Ya, Reset Data"
-        tone="danger"
-        onConfirm={handleResetData}
-        onClose={() => setConfirmResetVisible(false)}
       />
     </ScreenContainer>
   );

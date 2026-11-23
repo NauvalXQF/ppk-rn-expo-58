@@ -50,7 +50,7 @@ export function JadwalScreen() {
 
   const filterOptions = useMemo(() => {
     if (isAsisten) {
-      const kelasChips = state.kelas.slice(0, 2).map((k) => ({
+      const kelasChips = state.kelas.map((k) => ({
         key: `kelas:${k.id}`,
         label: k.nama,
       }));

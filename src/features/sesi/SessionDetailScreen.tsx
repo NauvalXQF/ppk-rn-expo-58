@@ -15,7 +15,7 @@ import {
   Shadow,
   Spacing,
 } from '@/constants/theme';
-import { formatJam, formatTanggal } from '@/utils/date';
+import { evaluateSessionScheduleWindow, formatJam, formatTanggal } from '@/utils/date';
 import { LABEL_STATUS } from '@/types/models';
 import { AppButton } from '@/components/ui/AppButton';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -74,10 +74,12 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
   const formattedTanggal = formatTanggal(sesi.tanggal);
   const formattedWaktu = `${formatJam(sesi.jamMulai)}–${formatJam(sesi.jamSelesai)}`;
   const isAsisten = user?.peran === 'asisten';
+  const scheduleCheck = evaluateSessionScheduleWindow(sesi);
   const showFloatingCta =
     user?.peran === 'praktikan' &&
     isPraktikanInClass(user, sesi.kelasId) &&
     sesi.status === 'dibuka' &&
+    scheduleCheck.isWithinSchedule &&
     !presensiSaya;
 
   return (
@@ -111,18 +113,14 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
                 <AppIcon name="chevron-left" size={20} color={Colors.text} />
               </IconButton>
 
-              {isAsisten ? (
-                <View style={styles.modePill}>
-                  <Text style={styles.modePillText}>Mode Asisten</Text>
-                </View>
-              ) : (
+              {!isAsisten ? (
                 <IconButton
                   accessibilityLabel="Lihat peta lab"
                   onPress={() => router.push('/(tabs)/peta' as Href)}
                 >
                   <AppIcon name="map-pin" size={18} color={Colors.text} />
                 </IconButton>
-              )}
+              ) : null}
             </View>
 
             <View style={styles.metaChips}>
@@ -224,19 +222,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  modePill: {
-    backgroundColor: Colors.glassStrong,
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-    borderRadius: Radius.pill,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-  },
-  modePillText: {
-    fontSize: FontSize.xs,
-    fontFamily: FontFamily.medium,
-    color: Colors.text,
   },
   metaChips: {
     flexDirection: 'row',
