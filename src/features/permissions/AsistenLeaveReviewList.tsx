@@ -19,6 +19,7 @@ import {
   type PermissionRepository,
   type PermissionServiceOptions,
 } from '@/services/permissionService';
+import { notifyLeaveDecided } from '@/services/notifications/notificationDispatcher';
 import { safeFormatDate, safeFormatTime } from './formatters';
 import {
   AiClassificationBadge,
@@ -90,7 +91,7 @@ export function AsistenLeaveReviewList({
     setPendingDecision(null);
 
     try {
-      await decideLeaveRequest(
+      const decided = await decideLeaveRequest(
         {
           actor,
           requestId: request.id,
@@ -101,6 +102,16 @@ export function AsistenLeaveReviewList({
           repository,
         },
       );
+      if (decided.status === 'approved' || decided.status === 'rejected') {
+        notifyLeaveDecided({
+          requestId: decided.id,
+          recipientUid: decided.uid,
+          decision: decided.status,
+          sessionId: decided.sessionId,
+          sessionTopic: decided.sessionTopic,
+          decisionNote: decided.decisionNote,
+        }).catch(() => {});
+      }
     } catch (error) {
       setActionError(
         error instanceof Error

@@ -32,6 +32,10 @@ import {
   updateSessionStatusInFirestore,
 } from '@/services/practicumService';
 import { resolveSessionLabTarget } from '@/services/location/geofenceService';
+import {
+  notifyScheduleChanged,
+  notifySessionOpened,
+} from '@/services/notifications/notificationDispatcher';
 import { isPraktikanInClass } from '@/store/selectors';
 import type { GeoAttendancePayload } from '@/types/geoAttendance';
 import type {
@@ -361,10 +365,12 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const currentUserRef = useRef(state.currentUser);
+  const stateRef = useRef(state);
 
   useEffect(() => {
     currentUserRef.current = state.currentUser;
-  }, [state.currentUser]);
+    stateRef.current = state;
+  }, [state]);
 
   const clearError = useCallback(() => setError(null), []);
 
@@ -486,14 +492,31 @@ export function AppProvider({ children }: PropsWithChildren) {
   const bukaSesi = useCallback(
     async (sesiId: string) => {
       await runAsync(async () => {
+        const targetSesi = state.sesi.find((s) => s.id === sesiId);
         if (isRemote) {
           await updateSessionStatusInFirestore(state.currentUser, sesiId, 'open');
         } else {
           rawDispatch({ type: 'BUKA_SESI', sesiId });
         }
+
+        if (targetSesi) {
+          const fallbackMembers = state.pengguna.filter(
+            (u): u is Praktikan => u.peran === 'praktikan',
+          );
+          notifySessionOpened(
+            {
+              sessionId: targetSesi.id,
+              classId: targetSesi.kelasId,
+              topik: targetSesi.topik,
+              labNama: targetSesi.labNama,
+              ruang: targetSesi.ruang,
+            },
+            { fallbackMembers },
+          ).catch(() => {});
+        }
       });
     },
-    [isRemote, runAsync, state.currentUser],
+    [isRemote, runAsync, state.currentUser, state.pengguna, state.sesi],
   );
 
   const tutupSesi = useCallback(
@@ -608,14 +631,30 @@ export function AppProvider({ children }: PropsWithChildren) {
       topik: string;
     }) =>
       runAsync(async () => {
+        const isUpdate = Boolean(input.id?.trim());
         const saved = await saveScheduleToFirestore(state.currentUser, input);
         rawDispatch({
-          type: input.id ? 'UBAH_JADWAL' : 'TAMBAH_JADWAL',
+          type: isUpdate ? 'UBAH_JADWAL' : 'TAMBAH_JADWAL',
           jadwal: saved,
         });
+        if (isUpdate) {
+          const fallbackMembers = state.pengguna.filter(
+            (u): u is Praktikan => u.peran === 'praktikan',
+          );
+          notifyScheduleChanged(
+            {
+              classId: saved.kelasId,
+              scheduleId: saved.id,
+              topik: saved.topik,
+              ruang: saved.ruang,
+              waktu: `${saved.hari}, ${saved.jamMulai}-${saved.jamSelesai}`,
+            },
+            { fallbackMembers },
+          ).catch(() => {});
+        }
         return saved;
       }),
-    [runAsync, state.currentUser],
+    [runAsync, state.currentUser, state.pengguna],
   );
 
   const hapusJadwal = useCallback(
@@ -640,13 +679,41 @@ export function AppProvider({ children }: PropsWithChildren) {
       status?: StatusSesi;
     }) =>
       runAsync(async () => {
+        const isUpdate = Boolean(input.id?.trim());
+        const previousSesi = isUpdate
+          ? state.sesi.find((s) => s.id === input.id)
+          : undefined;
         const saved = await saveSessionToFirestore(state.currentUser, input);
         if (!isRemote) {
-          rawDispatch({ type: input.id ? 'UBAH_SESI' : 'TAMBAH_SESI', sesi: saved });
+          rawDispatch({ type: isUpdate ? 'UBAH_SESI' : 'TAMBAH_SESI', sesi: saved });
+        }
+        const jadwalBerubah =
+          isUpdate &&
+          (!previousSesi ||
+            previousSesi.ruang !== saved.ruang ||
+            previousSesi.tanggal !== saved.tanggal ||
+            previousSesi.jamMulai !== saved.jamMulai ||
+            previousSesi.jamSelesai !== saved.jamSelesai ||
+            previousSesi.topik !== saved.topik);
+        if (jadwalBerubah) {
+          const fallbackMembers = state.pengguna.filter(
+            (u): u is Praktikan => u.peran === 'praktikan',
+          );
+          notifyScheduleChanged(
+            {
+              classId: saved.kelasId,
+              sessionId: saved.id,
+              scheduleId: saved.scheduleId,
+              topik: saved.topik,
+              ruang: saved.ruang,
+              waktu: `${saved.tanggal} ${saved.jamMulai}-${saved.jamSelesai}`,
+            },
+            { fallbackMembers },
+          ).catch(() => {});
         }
         return saved;
       }),
-    [isRemote, runAsync, state.currentUser],
+    [isRemote, runAsync, state.currentUser, state.pengguna, state.sesi],
   );
 
   const hapusSesi = useCallback(
@@ -685,13 +752,33 @@ export function AppProvider({ children }: PropsWithChildren) {
       }
 
       if (action.type === 'BUKA_SESI') {
+        const targetSesi = stateRef.current.sesi.find(
+          (s) => s.id === action.sesiId,
+        );
+        const fallbackMembers = stateRef.current.pengguna.filter(
+          (u): u is Praktikan => u.peran === 'praktikan',
+        );
         updateSessionStatusInFirestore(
           actor,
           action.sesiId,
           'open',
-        ).catch((err: unknown) =>
-          setError(err instanceof Error ? err.message : 'Gagal membuka sesi.'),
-        );
+        )
+          .then(() => {
+            if (!targetSesi) return;
+            notifySessionOpened(
+              {
+                sessionId: targetSesi.id,
+                classId: targetSesi.kelasId,
+                topik: targetSesi.topik,
+                labNama: targetSesi.labNama,
+                ruang: targetSesi.ruang,
+              },
+              { fallbackMembers },
+            ).catch(() => {});
+          })
+          .catch((err: unknown) =>
+            setError(err instanceof Error ? err.message : 'Gagal membuka sesi.'),
+          );
       } else if (action.type === 'TUTUP_SESI') {
         updateSessionStatusInFirestore(
           actor,

@@ -16,6 +16,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { SessionCard } from '@/components/domain/SessionCard';
+import { NotificationBell } from '@/features/notifications/NotificationBell';
 import { PracticumCrudSection } from '@/features/practicum/PracticumCrudSection';
 
 export function JadwalScreen() {
@@ -28,9 +29,12 @@ export function JadwalScreen() {
 
   return (
     <ScreenContainer>
-      <View style={styles.header}>
-        <Text style={styles.screenTitle}>Jadwal & Sesi</Text>
-        <Text style={styles.subtitle}>Praktikum Pemrograman Komputer</Text>
+      <View style={styles.headerRow}>
+        <View style={styles.header}>
+          <Text style={styles.screenTitle}>Jadwal & Sesi</Text>
+          <Text style={styles.subtitle}>Praktikum Pemrograman Komputer</Text>
+        </View>
+        <NotificationBell />
       </View>
 
       {error ? <InfoBanner tone="danger" message={error} /> : null}
@@ -146,9 +150,16 @@ export function JadwalScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    gap: 2,
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.sm,
     marginBottom: Spacing.xs,
+  },
+  header: {
+    flex: 1,
+    gap: 2,
   },
   screenTitle: {
     fontSize: FontSize.xl,

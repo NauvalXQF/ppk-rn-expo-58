@@ -40,6 +40,13 @@
         {
           "locationWhenInUsePermission": "Aplikasi membutuhkan akses lokasi untuk memvalidasi presensi praktikum di laboratorium."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#1A56DB"
+        }
       ]
     ],
     "experiments": {
