@@ -25,6 +25,8 @@ export function subscribeLaboratories(
     collection(getFirebaseDb(), 'laboratories'),
     { includeMetadataChanges: true },
     (snapshot) => {
+      // Keep markers and selection on the last accepted values until Firestore settles the write.
+      if (snapshot.metadata.hasPendingWrites) return;
       const laboratories = snapshot.docs.flatMap((item) => {
         const laboratory = readLaboratory(item.id, item.data());
         return laboratory ? [laboratory] : [];

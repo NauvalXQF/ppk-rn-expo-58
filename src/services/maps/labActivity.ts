@@ -74,6 +74,10 @@ function nextOccurrence(schedule: LabSchedule, now: number): ScheduledActivity {
   return { ...schedule, start: start.getTime(), end: end.getTime() };
 }
 
+function scheduleKey(classId: string, scheduleId: string): string {
+  return JSON.stringify([classId, scheduleId]);
+}
+
 export function getLabActivities(
   sessions: readonly LabSession[],
   schedules: readonly LabSchedule[],
@@ -95,9 +99,10 @@ export function getLabActivities(
 
   for (const session of sessions) {
     if (session.scheduleId) {
-      const dates = materializedDates.get(session.scheduleId) ?? new Set<string>();
+      const key = scheduleKey(session.classId, session.scheduleId);
+      const dates = materializedDates.get(key) ?? new Set<string>();
       dates.add(localDateKey(session.start));
-      materializedDates.set(session.scheduleId, dates);
+      materializedDates.set(key, dates);
     }
     if (!session.labId) continue;
     if (session.status === 'dibuka' ||
@@ -128,7 +133,7 @@ export function getLabActivities(
 
   for (const schedule of schedules) {
     const occurrence = nextOccurrence(schedule, now);
-    const dates = materializedDates.get(schedule.id);
+    const dates = materializedDates.get(scheduleKey(schedule.classId, schedule.id));
     const hasSession = dates && ('start' in schedule || dates.has(localDateKey(occurrence.start)));
     if (occurrence.start > now && occurrence.start < upcomingCutoff && !hasSession) {
       forLab(schedule.labId).upcoming.push(occurrence);

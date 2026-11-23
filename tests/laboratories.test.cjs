@@ -14,10 +14,15 @@ function loadMapsSource(name, runtimeModules = {}) {
   }).outputText;
   const module = { exports: {} };
   const requireSource = (id) => runtimeModules[id] ?? require(id);
-  runInThisContext(`(function(module, exports, require) { ${code}\n })`, { filename: file })(
-    module, module.exports, requireSource,
+  runInThisContext(`(function(module, exports, require, __DEV__) { ${code}\n })`, { filename: file })(
+    module, module.exports, requireSource, false,
   );
   return module.exports;
+}
+
+function jsxElements(node) {
+  if (Array.isArray(node)) return node.flatMap(jsxElements);
+  return node?.props ? [node, ...jsxElements(node.props.children)] : [];
 }
 
 const laboratories = loadMapsSource('services/maps/laboratories');
@@ -114,6 +119,16 @@ test('combines sessions and schedules without duplicating a materialized slot an
   assert.equal(activity.get('lab-c').upcoming[0].start, new Date(2026, 10, 20, 9).getTime());
   const midnight = new Date(2026, 10, 21).getTime();
   assert.equal(getLabActivities([session('outside', 'dijadwalkan', midnight, midnight + hour)], [], now).size, 0);
+});
+
+test('a session from another class does not suppress a linked upcoming schedule', () => {
+  const schedule = { id: 'shared', labId: 'lab-a', classId: 'kelas-a', start: now + hour, end: now + 2 * hour };
+  const foreignSession = session('foreign', 'dijadwalkan', schedule.start, schedule.end, {
+    scheduleId: schedule.id, classId: 'kelas-b', labId: 'lab-b',
+  });
+  const result = getLabActivities([foreignSession], [schedule], now);
+  assert.deepEqual(result.get('lab-a')?.upcoming, [schedule]);
+  assert.equal(result.get('lab-b')?.upcoming[0].id, foreignSession.id);
 });
 
 test('accepts Sprint 2 local session datetime and rejects malformed dates and times', () => {
@@ -230,6 +245,116 @@ test('does not start lab or activity subscriptions while the map tab is unfocuse
   callbacks.membership[1](['kelas-a']);
   callbacks.activity[1].onError(new Error('late callback'));
   assert.deepEqual(updates, []);
+});
+
+test('activity replaces scoped listeners when membership, focus, or account changes', () => {
+  const state = [];
+  const memo = [];
+  const effects = [];
+  const memberships = [];
+  const subscriptions = [];
+  let index = 0;
+  let effectsToRun;
+  const sameDeps = (a, b) => a?.length === b.length && b.every((value, i) => Object.is(value, a[i]));
+  const { useMapsActivity: renderMapsActivity } = loadMapsSource('features/maps/useMapsData', {
+    react: {
+      useState: (initial) => {
+        const slot = index++;
+        if (!(slot in state)) state[slot] = typeof initial === 'function' ? initial() : initial;
+        return [state[slot], (next) => { state[slot] = typeof next === 'function' ? next(state[slot]) : next; }];
+      },
+      useMemo: (compute, deps) => {
+        const slot = index++;
+        if (!sameDeps(memo[slot]?.deps, deps)) memo[slot] = { deps, value: compute() };
+        return memo[slot].value;
+      },
+      useEffect: (setup, deps) => {
+        const slot = index++;
+        if (!sameDeps(effects[slot]?.deps, deps)) effectsToRun.push(() => {
+          effects[slot]?.cleanup?.();
+          effects[slot] = { deps, cleanup: setup() };
+        });
+      },
+    },
+    '@/services/maps/laboratoryService': {},
+    '@/services/maps/labActivity': { getLabActivities },
+    '@/services/maps/labActivityService': {
+      subscribeActiveClassIds: (uid, emit) => {
+        const item = { uid, emit, stopped: false };
+        memberships.push(item);
+        return () => { item.stopped = true; };
+      },
+      subscribeLabActivity: (classId, callbacks) => {
+        const item = { classId, callbacks, stopped: false };
+        subscriptions.push(item);
+        return () => { item.stopped = true; };
+      },
+    },
+  });
+  function render(uid = 'student', focused = true) {
+    index = 0;
+    effectsToRun = [];
+    const result = renderMapsActivity(uid, false, focused);
+    effectsToRun.forEach((run) => run());
+    return result;
+  }
+
+  try {
+    assert.equal(render().loading, true);
+    assert.equal(subscriptions.length, 0);
+    memberships[0].emit(['kelas-a']);
+    render();
+    const first = subscriptions[0];
+    assert.equal(first.classId, 'kelas-a');
+    const start = Date.now() - hour;
+    first.callbacks.onSessions({ items: [session('real', 'dibuka', start, start + hour)], fromCache: false });
+    first.callbacks.onSchedules({ items: [], fromCache: false });
+    assert.equal(render().activities.get(lab.id).ongoing.id, 'real');
+    const nextStart = Date.now() + hour;
+    first.callbacks.onSchedules({
+      items: [{ id: 'next', classId: 'kelas-a', labId: lab.id, start: nextStart, end: nextStart + hour }],
+      fromCache: false,
+    });
+    assert.equal(render().activities.get(lab.id).upcoming[0].id, 'next');
+    first.callbacks.onSessions({
+      items: [session('real', 'ditutup', start, start + hour, { closedTime: Date.now() })], fromCache: false,
+    });
+    const closed = render().activities.get(lab.id);
+    assert.equal(closed.ongoing, undefined);
+    assert.equal(closed.lastCompleted.id, 'real');
+    first.callbacks.onSchedules({ items: [], fromCache: false });
+    assert.deepEqual(render().activities.get(lab.id).upcoming, []);
+    memberships[0].emit(['kelas-a']);
+    render();
+    assert.equal(subscriptions.length, 1);
+
+    memberships[0].emit([]);
+    assert.equal(render().activities.size, 0);
+    assert.equal(first.stopped, true);
+    memberships[0].emit(['kelas-a']);
+    assert.equal(render().activities.size, 0);
+    const second = subscriptions[1];
+    first.callbacks.onSessions({ items: [session('late', 'dibuka', start, start + hour)], fromCache: false });
+    assert.equal(render().activities.size, 0);
+
+    assert.equal(render('student', false).activities.size, 0);
+    assert.equal(second.stopped, true);
+    assert.equal(memberships[0].stopped, true);
+    assert.equal(render().loading, true);
+    assert.equal(subscriptions.length, 2);
+    assert.equal(memberships[1].uid, 'student');
+    memberships[1].emit(['kelas-a']);
+    render();
+    assert.equal(subscriptions.length, 3);
+
+    assert.equal(render('other').activities.size, 0);
+    assert.equal(subscriptions[2].stopped, true);
+    assert.equal(subscriptions.length, 3);
+    assert.equal(memberships[1].stopped, true);
+    assert.equal(memberships[2].uid, 'other');
+  } finally {
+    effects.forEach((effect) => effect.cleanup?.());
+  }
 });
 
 test('the native map entry defers load failures to the render boundary', async () => {
@@ -479,12 +604,17 @@ test('the Firestore activity adapter excludes archived, cancelled, and malformed
     return { docs: rows.map(([id, data]) => ({ id, data: () => data })), metadata: { fromCache: false } };
   }
   const unsubscribe = subscribeLabActivity(null, {
-    onSessions: ({ items }) => assert.deepEqual(items.map(({ id }) => id), ['valid']),
+    onSessions: ({ items }) => assert.deepEqual(items.map(({ id, labId }) => [id, labId]), [
+      ['valid', 'lab-a'], ['missing-lab', ''], ['space-padded-lab', ' lab-a '], ['invalid-path', ''],
+    ]),
     onSchedules: ({ items }) => assert.deepEqual(items.map(({ id }) => id), ['valid', 'weekly']),
   });
   try {
     listeners.sessions(snapshot([
       ['valid', { ...details, status: 'closed' }],
+      ['missing-lab', { ...details, labId: undefined, ruang: 'Lab A', status: 'open' }],
+      ['space-padded-lab', { ...details, labId: ' lab-a ', status: 'open' }],
+      ['invalid-path', { ...details, labId: 'laboratories/lab-a', status: 'open' }],
       ['cancelled', { ...details, status: 'cancelled' }],
       ['unknown', { ...details, status: 'unknown' }],
       ['archived', { ...details, status: 'closed', archived: true }],
@@ -496,10 +626,203 @@ test('the Firestore activity adapter excludes archived, cancelled, and malformed
       ['cancelled', { ...details, status: 'cancelled' }],
       ['archived', { ...details, archived: true }],
       ['bad-date', { ...weekly, startAt: '2026-02-30T10:00:00' }],
+      ['missing-lab', { ...details, labId: undefined, ruang: 'Lab A' }],
+      ['invalid-path', { ...details, labId: 'laboratories/lab-a' }],
     ]));
   } finally {
     unsubscribe();
   }
+});
+
+test('membership requires a server-confirmed active document for the current UID', () => {
+  let emit;
+  let stopped = false;
+  const updates = [];
+  const { subscribeActiveClassIds } = loadMapsSource('services/maps/labActivityService', {
+    'firebase/firestore': {
+      collection: (_db, name) => name,
+      where: (...args) => args,
+      query: (...args) => args,
+      onSnapshot: (target, options, callback) => {
+        assert.deepEqual(target, ['classMembers', ['uid', '==', 'student']]);
+        emit = typeof options === 'function' ? options : callback;
+        return () => { stopped = true; };
+      },
+    },
+    '@/config/firebase': { getFirebaseDb: () => ({}) },
+    '@/services/practicumService': {},
+    './labActivity': labActivity,
+  });
+  const unsubscribe = subscribeActiveClassIds('student', (ids) => updates.push(ids), assert.fail);
+  const rows = [
+    ['kelas-a_student', 'kelas-a', 'student', true],
+    ['kelas-b_student', 'kelas-b', 'student', false],
+    ['kelas-c_other', 'kelas-c', 'other', true],
+    ['wrong-id', 'kelas-d', 'student', true],
+  ];
+  const docs = rows.map(([id, classId, uid, active]) => ({ id, data: () => ({ classId, uid, active }) }));
+  emit({ docs, metadata: { fromCache: true, hasPendingWrites: false } });
+  emit({ docs, metadata: { fromCache: false, hasPendingWrites: true } });
+  emit({ docs, metadata: { fromCache: false, hasPendingWrites: false } });
+  emit({ docs: [], metadata: { fromCache: false, hasPendingWrites: false } });
+  assert.deepEqual(updates, [undefined, undefined, ['kelas-a'], []]);
+  unsubscribe();
+  assert.equal(stopped, true);
+});
+
+test('lab listener ignores optimistic archives and publishes the confirmed active list', () => {
+  let emit;
+  let stopped = false;
+  const updates = [];
+  const { subscribeLaboratories } = loadMapsSource('services/maps/laboratoryService', {
+    'firebase/firestore': {
+      collection: (_db, name) => name,
+      onSnapshot: (target, options, callback) => {
+        assert.equal(target, 'laboratories');
+        assert.equal(options.includeMetadataChanges, true);
+        emit = callback;
+        return () => { stopped = true; };
+      },
+    },
+    '@/config/firebase': { getFirebaseDb: () => ({}) },
+    './laboratories': laboratories,
+  });
+  const unsubscribe = subscribeLaboratories((snapshot) => updates.push(snapshot), assert.fail);
+  const archived = { ...lab, aktif: false };
+  const emitLab = (item, hasPendingWrites, fromCache = false) => emit({
+    docs: [{ id: item.id, data: () => item }], size: 1, metadata: { fromCache, hasPendingWrites },
+  });
+  emitLab(lab, false, true);
+  emitLab(lab, false);
+  emitLab(archived, true);
+  assert.equal(updates.length, 2);
+  assert.equal(updates[0].fromCache, true);
+  assert.deepEqual(activeLaboratories(updates.at(-1).laboratories), [lab]);
+  emitLab(archived, false);
+  assert.deepEqual(activeLaboratories(updates.at(-1).laboratories), []);
+  unsubscribe();
+  assert.equal(stopped, true);
+});
+
+test('lab CRUD persists the master schema and waits for acknowledgements or errors', async () => {
+  const writes = [];
+  const pending = [];
+  const write = (method) => (ref, payload) => {
+    writes.push({ method, ref, payload });
+    return new Promise((resolve, reject) => pending.push({ resolve, reject }));
+  };
+  const { saveLaboratory, archiveLaboratory } = loadMapsSource('services/maps/laboratoryService', {
+    'firebase/firestore': {
+      collection: (_db, name) => name,
+      doc: (ref, ...path) => ({ id: path.at(-1) ?? 'generated-id', collection: typeof ref === 'string' ? ref : path[0] }),
+      serverTimestamp: () => 'server-time',
+      setDoc: write('create'),
+      updateDoc: write('update'),
+    },
+    '@/config/firebase': { getFirebaseDb: () => ({}) },
+    './laboratories': laboratories,
+  });
+  const actor = { uid: 'assistant', role: 'asisten' };
+  const student = { uid: 'student', role: 'praktikan' };
+  await assert.rejects(saveLaboratory(student, lab), /Hanya asisten/);
+  await assert.rejects(archiveLaboratory(student, lab.id), /Hanya asisten/);
+  await assert.rejects(saveLaboratory(actor, { ...lab, radiusMeters: 5 }), /Radius/);
+  assert.deepEqual(writes, []);
+
+  let confirmed = false;
+  const creating = saveLaboratory(actor, { ...lab, nama: ' Lab A ' }).then(() => { confirmed = true; });
+  await flushAsyncWork();
+  assert.equal(confirmed, false);
+  assert.deepEqual(writes[0], {
+    method: 'create', ref: { collection: 'laboratories', id: 'generated-id' },
+    payload: { ...lab, id: 'generated-id', updatedAt: 'server-time', createdBy: actor.uid, createdAt: 'server-time' },
+  });
+  pending[0].resolve();
+  await creating;
+  assert.equal(confirmed, true);
+
+  const updated = { ...lab, latitude: -7.06, longitude: 110.45, radiusMeters: 50 };
+  const updating = saveLaboratory(actor, updated, lab.id);
+  assert.deepEqual(writes[1], {
+    method: 'update', ref: { collection: 'laboratories', id: lab.id },
+    payload: {
+      nama: lab.nama, kode: lab.kode, gedung: lab.gedung, kapasitas: lab.kapasitas,
+      latitude: -7.06, longitude: 110.45, radiusMeters: 50, updatedAt: 'server-time',
+    },
+  });
+  pending[1].reject(Object.assign(new Error('offline'), { code: 'unavailable' }));
+  await assert.rejects(updating, { code: 'unavailable' });
+
+  const archiving = archiveLaboratory(actor, lab.id);
+  assert.deepEqual(writes[2], {
+    method: 'update', ref: { collection: 'laboratories', id: lab.id },
+    payload: { aktif: false, updatedAt: 'server-time' },
+  });
+  pending[2].resolve();
+  await archiving;
+});
+
+test('the maps screen closes an archived marker selection and preserves the attendance shortcut for the open session', () => {
+  const states = [];
+  const navigations = [];
+  let cursor = 0;
+  let currentLabs = [lab];
+  const { MapsScreen } = loadMapsSource('features/maps/MapsScreen.tsx', {
+    react: {
+      useState: (initial) => {
+        const index = cursor++;
+        if (!(index in states)) states[index] = initial;
+        return [states[index], (value) => { states[index] = value; }];
+      },
+      useMemo: (compute) => compute(),
+      useCallback: (callback) => callback,
+      useRef: (current) => ({ current }),
+    },
+    'expo-router': {
+      useIsFocused: () => true,
+      useSitemap: () => ({ href: '/presensi/[sesiId]', children: [] }),
+      router: { push: (href) => navigations.push(href) },
+    },
+    'react-native': { StyleSheet: { create: (styles) => styles }, Text: 'text', View: 'view' },
+    'react-native-safe-area-context': { SafeAreaView: 'safe-area' },
+    '@/components/ui/AppButton': { AppButton: 'button' },
+    '@/components/ui/InfoBanner': { InfoBanner: 'banner' },
+    '@/constants/theme': { Colors: {}, FontSize: {}, Radius: {}, Spacing: {} },
+    '@/services/maps/laboratories': laboratories,
+    './LabActivitySheet': { LabActivitySheet: 'activity' },
+    './LabManagementModal': { LabManagementModal: 'management' },
+    './LaboratoryMap': 'map',
+    './MapFrame': { MapAttribution: 'attribution' },
+    './simulatedLaboratories': { simulatedLaboratories: [] },
+    './useMapsData': {
+      useLaboratoryData: () => ({ snapshot: { laboratories: currentLabs, documentCount: currentLabs.length, fromCache: false } }),
+      useMapsActivity: () => ({
+        activities: getLabActivities([session('open-session', 'dibuka', now, now + hour)], [], now),
+        classes: new Map(),
+      }),
+    },
+    './useUserLocation': { useUserLocation: () => ({ state: { status: 'located' } }) },
+  });
+  function render() {
+    cursor = 0;
+    return jsxElements(MapsScreen({ actor: { uid: 'student', role: 'praktikan' } }));
+  }
+  const map = () => render().find(({ type }) => type === 'map');
+  const sheet = () => render().find(({ type }) => type === 'activity');
+
+  map().props.onSelect(lab.id);
+  assert.equal(sheet().props.lab.id, lab.id);
+  assert.equal(render().some(({ type }) => type === 'management'), false);
+  sheet().props.onAttendance();
+  assert.deepEqual(navigations, ['/presensi/open-session']);
+  map().props.onSelect(lab.id);
+  currentLabs = [{ ...lab, radiusMeters: 50 }];
+  assert.equal(sheet().props.lab.radiusMeters, 50);
+  currentLabs = [{ ...lab, aktif: false }];
+  assert.equal(sheet(), undefined);
+  assert.deepEqual(map().props.laboratories, []);
+  currentLabs = [lab];
+  assert.equal(sheet(), undefined);
 });
 
 test('lab form confirms writes, prevents double-submit, and keeps the draft on failure', async () => {
@@ -540,11 +863,7 @@ test('lab form confirms writes, prevents double-submit, and keeps the draft on f
     const tree = LabManagementModal({
       visible: true, actor: { role: 'asisten' }, laboratories: [lab], writable: true,
     });
-    function flatten(node) {
-      if (Array.isArray(node)) return node.flatMap(flatten);
-      return node?.props ? [node, ...flatten(node.props.children)] : [];
-    }
-    return flatten(tree);
+    return jsxElements(tree);
   }
   const button = (label) => elements().find((item) => item.type === 'button' && item.props.label === label);
   button('Edit').props.onPress();

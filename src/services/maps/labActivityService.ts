@@ -27,6 +27,11 @@ function optionalText(value: unknown): string | undefined {
   return typeof value === 'string' ? value.trim() || undefined : undefined;
 }
 
+function documentId(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() && !value.includes('/') && value !== '.' && value !== '..'
+    ? value : undefined;
+}
+
 function activityTime(value: unknown): number {
   return value instanceof Timestamp ? value.toMillis() : parseActivityTime(value);
 }
@@ -39,7 +44,7 @@ function readSession(id: string, data: DocumentData): LabSession | null {
   const { status } = data;
   if (data.archived === true ||
     !['scheduled', 'open', 'closed', 'dijadwalkan', 'dibuka', 'ditutup'].includes(status)) return null;
-  const classId = optionalText(data.classId);
+  const classId = documentId(data.classId);
   const start = activityTime(data.startAt ?? `${data.tanggal}T${data.jamMulai}`);
   const end = activityTime(data.endAt ?? `${data.tanggal}T${data.jamSelesai}`);
   const closedTime = activityTime(data.closedAt);
@@ -47,9 +52,9 @@ function readSession(id: string, data: DocumentData): LabSession | null {
   return {
     id,
     // Keep unlinked sessions only to identify schedules that already have a concrete session.
-    labId: optionalText(data.labId) ?? '',
+    labId: documentId(data.labId) ?? '',
     classId,
-    scheduleId: optionalText(data.scheduleId),
+    scheduleId: documentId(data.scheduleId),
     topic: optionalText(data.topik),
     assistant: optionalText(data.asistenNama),
     status: toStatusSesi(status, data.openedAt, data.closedAt),
@@ -60,8 +65,8 @@ function readSession(id: string, data: DocumentData): LabSession | null {
 }
 
 function readSchedule(id: string, data: DocumentData): LabSchedule | null {
-  const labId = optionalText(data.labId);
-  const classId = optionalText(data.classId);
+  const labId = documentId(data.labId);
+  const classId = documentId(data.classId);
   const { status, startAt, endAt } = data;
   if (data.archived === true || !classId || !labId ||
     (status != null && status !== 'scheduled' && status !== 'dijadwalkan')) return null;
@@ -82,16 +87,22 @@ function readSchedule(id: string, data: DocumentData): LabSchedule | null {
 
 export function subscribeActiveClassIds(
   uid: string,
-  onChange: (classIds: string[]) => void,
+  onChange: (classIds: string[] | undefined) => void,
   onError: (error: Error) => void,
 ) {
   return onSnapshot(
     query(collection(getFirebaseDb(), 'classMembers'), where('uid', '==', uid)),
+    { includeMetadataChanges: true },
     (snapshot) => {
+      if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) {
+        onChange(undefined);
+        return;
+      }
       const ids = snapshot.docs.flatMap((item) => {
         const data = item.data();
-        const classId = optionalText(data.classId);
-        return classId && data.active === true ? [classId] : [];
+        const classId = documentId(data.classId);
+        return classId && data.active === true && data.uid === uid && item.id === `${classId}_${uid}`
+          ? [classId] : [];
       });
       onChange([...new Set(ids)].sort());
     },
