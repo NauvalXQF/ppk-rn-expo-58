@@ -104,7 +104,7 @@ export function subscribeActiveClassIds(
         return classId && data.active === true && data.uid === uid && item.id === `${classId}_${uid}`
           ? [classId] : [];
       });
-      onChange([...new Set(ids)].sort());
+      onChange([...new Set(ids)].sort().slice(0, 1));
     },
     onError,
   );

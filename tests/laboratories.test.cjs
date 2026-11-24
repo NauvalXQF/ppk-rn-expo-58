@@ -666,8 +666,15 @@ test('membership requires a server-confirmed active document for the current UID
   emit({ docs, metadata: { fromCache: true, hasPendingWrites: false } });
   emit({ docs, metadata: { fromCache: false, hasPendingWrites: true } });
   emit({ docs, metadata: { fromCache: false, hasPendingWrites: false } });
+  emit({
+    docs: [
+      { id: 'kelas-c_student', data: () => ({ classId: 'kelas-c', uid: 'student', active: true }) },
+      { id: 'kelas-a_student', data: () => ({ classId: 'kelas-a', uid: 'student', active: true }) },
+    ],
+    metadata: { fromCache: false, hasPendingWrites: false },
+  });
   emit({ docs: [], metadata: { fromCache: false, hasPendingWrites: false } });
-  assert.deepEqual(updates, [undefined, undefined, ['kelas-a'], []]);
+  assert.deepEqual(updates, [undefined, undefined, ['kelas-a'], ['kelas-a'], []]);
   unsubscribe();
   assert.equal(stopped, true);
 });

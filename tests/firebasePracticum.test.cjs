@@ -261,3 +261,114 @@ test('assistant session lifecycle preserves relations, audit history and archive
   assert.ok(docs.has(ref + '/attendances/' + praktikan.id));
   await assert.rejects(() => service.saveSessionToFirestore(asisten, { ...inputSesi, id }));
 });
+
+test('schedule and session CRUD persist and map labId and geofence snapshot metadata', async () => {
+  const { docs, service, emit } = setup({
+    'classes/kelas-a': { archived: false },
+    'schedules/jadwal-a': { classId: 'kelas-a', archived: false },
+  });
+
+  const savedSchedule = await service.saveScheduleToFirestore(asisten, {
+    id: 'jadwal-lab',
+    kelasId: 'kelas-a',
+    hari: 'Rabu',
+    jamMulai: '10:00',
+    jamSelesai: '12:00',
+    ruang: 'Lab Basis Data',
+    labId: 'lab-bd',
+    topik: 'Normalisasi',
+  });
+  assert.equal(savedSchedule.labId, 'lab-bd');
+  assert.equal(docs.get('schedules/jadwal-lab').labId, 'lab-bd');
+
+  const mappedSchedules = [];
+  const noop = () => {};
+  service.subscribePracticumRealtime(asisten, {
+    onClasses: noop,
+    onMembers: noop,
+    onSessions: noop,
+    onSchedules: (items) => mappedSchedules.push(items),
+  });
+  emit('schedules', ['schedules/jadwal-lab']);
+  assert.equal(mappedSchedules[0][0].labId, 'lab-bd');
+
+  const createdSession = await service.saveSessionToFirestore(asisten, {
+    ...inputSesi,
+    ruang: 'Lab Basis Data',
+    labId: 'lab-bd',
+    labNama: 'Lab Basis Data',
+    labCoordinates: { latitude: -7.0521, longitude: 110.4402 },
+    radiusMeters: 45,
+  });
+  assert.equal(createdSession.labId, 'lab-bd');
+  assert.deepEqual(docs.get('sessions/' + createdSession.id).labCoordinates, {
+    latitude: -7.0521,
+    longitude: 110.4402,
+  });
+  assert.equal(docs.get('sessions/' + createdSession.id).radiusMeters, 45);
+
+  const updatedSession = await service.saveSessionToFirestore(asisten, {
+    ...inputSesi,
+    id: createdSession.id,
+    ruang: 'Lab Jaringan',
+    labId: 'lab-jar',
+    labNama: 'Lab Jaringan',
+    labCoordinates: { latitude: -7.053, longitude: 110.441 },
+    radiusMeters: 35,
+  });
+  assert.equal(updatedSession.labId, 'lab-jar');
+  assert.equal(docs.get('sessions/' + createdSession.id).labId, 'lab-jar');
+  assert.equal(docs.get('sessions/' + createdSession.id).radiusMeters, 35);
+});
+
+test('praktikan listener enforces single canonical class when duplicate active memberships exist', () => {
+  const refA = 'classMembers/kelas-a_auth-praktikan';
+  const refC = 'classMembers/kelas-c_auth-praktikan';
+  const { service, emit } = setup({
+    [refC]: { uid: praktikan.id, classId: 'kelas-c', active: true, nama: 'Rey' },
+    [refA]: { uid: praktikan.id, classId: 'kelas-a', active: true, nama: 'Rey' },
+  });
+  const membersSeen = [];
+  const noop = () => {};
+  service.subscribePracticumRealtime(praktikan, {
+    onMembers: (members) => membersSeen.push(members),
+    onClasses: noop,
+    onSchedules: noop,
+    onSessions: noop,
+  });
+  emit('classMembers', [refC, refA]);
+  assert.equal(membersSeen.at(-1).length, 1);
+  assert.equal(membersSeen.at(-1)[0].kelasId, 'kelas-a');
+});
+
+test('cleanup-firestore script plans dummy archival and single-class deduplication cleanly', () => {
+  const { isDummyMemberDoc, planClassMembersCleanup } = require('../scripts/cleanup-firestore.cjs');
+  assert.equal(isDummyMemberDoc('kelas-a_praktikan-1', { uid: 'praktikan-1', classId: 'kelas-a' }).isDummy, true);
+  assert.equal(isDummyMemberDoc('kelas-a_uid123', { uid: 'uid123', classId: 'kelas-a' }).isDummy, false);
+
+  const plan = planClassMembersCleanup([
+    { id: 'kelas-a_praktikan-1', data: { uid: 'praktikan-1', classId: 'kelas-a', active: true } },
+    { id: 'kelas-b_praktikan-3', data: { uid: 'praktikan-3', classId: 'kelas-b', active: false } },
+    { id: 'legacy-wrong-id', data: { uid: 'uid-rey', classId: 'kelas-a', active: true } },
+    { id: 'kelas-c_uid-rey', data: { uid: 'uid-rey', classId: 'kelas-c', active: true } },
+    { id: 'kelas-a_uid-rey', data: { uid: 'uid-rey', classId: 'kelas-a', active: true } },
+  ]);
+
+  assert.deepEqual(plan.dummyActions.map((d) => d.id), ['kelas-a_praktikan-1', 'legacy-wrong-id']);
+  assert.deepEqual(plan.kept.map((k) => k.id), ['kelas-a_uid-rey']);
+  assert.deepEqual(plan.duplicateActions.map((d) => d.id), ['kelas-c_uid-rey']);
+});
+
+test('firestore.rules allows lab fields in both editSesiValid branches', () => {
+  const rulesText = fs.readFileSync(path.resolve('firestore.rules'), 'utf8');
+  const editMatch = rulesText.match(/function editSesiValid\(\)\s*\{[\s\S]*?\n\s{6}\}/);
+  assert.ok(editMatch, 'editSesiValid function must exist');
+  const body = editMatch[0];
+  const whitelists = body.match(/hanyaFieldBerubah\(\[[\s\S]*?\]\)/g) || [];
+  assert.equal(whitelists.length, 2);
+  for (const wl of whitelists) {
+    assert.ok(wl.includes("'labId'"), `Missing labId in ${wl}`);
+    assert.ok(wl.includes("'labCoordinates'"), `Missing labCoordinates in ${wl}`);
+    assert.ok(wl.includes("'radiusMeters'"), `Missing radiusMeters in ${wl}`);
+  }
+});

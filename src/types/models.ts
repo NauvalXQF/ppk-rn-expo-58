@@ -55,6 +55,7 @@ export interface Jadwal {
   jamMulai: string;
   jamSelesai: string;
   ruang: string;
+  labId?: string;
   topik: string;
 }
 
