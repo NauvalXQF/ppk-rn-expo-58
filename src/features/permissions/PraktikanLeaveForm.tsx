@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Colors, FontSize, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -9,7 +9,7 @@ import { InfoBanner } from '@/components/ui/InfoBanner';
 import { RadioOption } from '@/components/ui/RadioOption';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { formatJam } from '@/utils/date';
-import { safeFormatDate } from './formatters';
+import { formatLeaveReasonCategory, getLeaveAiResultLabel, safeFormatDate } from './formatters';
 import {
   MAX_LEAVE_REASON_LENGTH,
   submitLeaveRequest,
@@ -111,7 +111,7 @@ export function PraktikanLeaveForm({
           tone: 'success',
           message: 'Pengajuan izin berhasil dikirim.',
           description: category
-            ? `Klasifikasi pendukung AI${expNote}: ${category}. Status saat ini: Menunggu keputusan asisten.`
+            ? `${getLeaveAiResultLabel(category)}${expNote}: ${category}. Status saat ini: Menunggu keputusan asisten.`
             : 'Status saat ini: Menunggu keputusan asisten.',
         });
       }
@@ -181,6 +181,10 @@ export function PraktikanLeaveForm({
         helperText="Alasan akan dianalisis AI sebagai informasi pendukung bagi asisten."
       />
 
+      {reason.trim() ? (
+        <Text style={styles.previewText}>{formatLeaveReasonCategory(reason)}</Text>
+      ) : null}
+
       {submitError ? <InfoBanner tone="danger" message={submitError} /> : null}
 
       {feedback ? (
@@ -212,5 +216,10 @@ const styles = StyleSheet.create({
   },
   sessionList: {
     gap: Spacing.sm,
+  },
+  previewText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
+    color: Colors.textMuted,
   },
 });

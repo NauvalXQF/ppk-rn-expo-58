@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { Colors, FontSize, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -12,7 +12,7 @@ import {
   type PermissionRepository,
   type PermissionServiceOptions,
 } from '@/services/permissionService';
-import { safeFormatDate, safeFormatTime } from './formatters';
+import { formatLeaveReasonCategory, safeFormatDate, safeFormatTime } from './formatters';
 import {
   AiClassificationBadge,
   LeaveDecisionBadge,
@@ -104,6 +104,9 @@ export function PraktikanLeaveHistory({
                 </View>
 
                 <Text style={styles.reasonText}>{item.reason}</Text>
+                <Text style={[styles.metaText, { fontFamily: FontFamily.regular }]}>
+                  {formatLeaveReasonCategory(item.reason)}
+                </Text>
 
                 <View style={styles.badgeRow}>
                   <AiClassificationBadge

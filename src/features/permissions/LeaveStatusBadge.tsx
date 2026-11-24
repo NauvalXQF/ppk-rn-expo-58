@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
+import { getLeaveAiResultLabel } from './formatters';
 import {
   AI_STATUS_LABEL,
   LEAVE_DECISION_LABEL,
@@ -62,10 +63,11 @@ export function AiClassificationBadge({
           ? Math.round(classification.confidence * 100)
           : Math.round(classification.confidence)
         : null;
+    const resultLabel = getLeaveAiResultLabel(classification.category);
     label =
       confidencePct !== null
-        ? `AI: ${classification.category} (${confidencePct}%)`
-        : `AI: ${classification.category}`;
+        ? `${resultLabel}: ${classification.category} (${confidencePct}%)`
+        : `${resultLabel}: ${classification.category}`;
   } else if (classification.status === 'failed') {
     backgroundColor = Colors.warningSoft;
     color = Colors.warning;

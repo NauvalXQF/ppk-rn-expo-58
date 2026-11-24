@@ -789,7 +789,7 @@ test('the maps screen closes an archived marker selection and preserves the atte
     'react-native-safe-area-context': { SafeAreaView: 'safe-area' },
     '@/components/ui/AppButton': { AppButton: 'button' },
     '@/components/ui/InfoBanner': { InfoBanner: 'banner' },
-    '@/constants/theme': { Colors: {}, FontSize: {}, Radius: {}, Spacing: {} },
+    '@/constants/theme': loadMapsSource('constants/theme'),
     '@/services/maps/laboratories': laboratories,
     './LabActivitySheet': { LabActivitySheet: 'activity' },
     './LabManagementModal': { LabManagementModal: 'management' },
