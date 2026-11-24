@@ -191,6 +191,39 @@ test('membership requires a registered student and active class, with no self-en
   assert.equal(docs.get(ref).active, false);
 });
 
+test('scoped multi-praktikum enrollment allows different praktikumId but blocks parallel classes in same praktikumId', async () => {
+  const { docs, service } = setup({
+    'classes/kelas-ppk-a': { archived: false, praktikumId: 'praktikum-ppk' },
+    'classes/kelas-ppk-b': { archived: false, praktikumId: 'praktikum-ppk' },
+    'classes/kelas-so-a': { archived: false, praktikumId: 'praktikum-so' },
+    'users/auth-praktikan': { uid: praktikan.id, role: 'praktikan' },
+  });
+
+  await service.saveClassMemberToFirestore(asisten, {
+    id: praktikan.id,
+    nama: praktikan.nama,
+    kelasId: 'kelas-ppk-a',
+  });
+  await service.saveClassMemberToFirestore(asisten, {
+    id: praktikan.id,
+    nama: praktikan.nama,
+    kelasId: 'kelas-so-a',
+  });
+
+  assert.equal(docs.get('classMembers/kelas-ppk-a_auth-praktikan').active, true);
+  assert.equal(docs.get('classMembers/kelas-so-a_auth-praktikan').active, true);
+
+  await assert.rejects(
+    () =>
+      service.saveClassMemberToFirestore(asisten, {
+        id: praktikan.id,
+        nama: praktikan.nama,
+        kelasId: 'kelas-ppk-b',
+      }),
+    /Hanya boleh mengambil 1 kelas paralel per praktikum/,
+  );
+});
+
 test('membership listener opens class subscriptions only for canonical active records and revokes them', () => {
   const ref = 'classMembers/kelas-a_auth-praktikan';
   const { docs, service, listeners, emit } = setup({
@@ -357,6 +390,21 @@ test('cleanup-firestore script plans dummy archival and single-class deduplicati
   assert.deepEqual(plan.dummyActions.map((d) => d.id), ['kelas-a_praktikan-1', 'legacy-wrong-id']);
   assert.deepEqual(plan.kept.map((k) => k.id), ['kelas-a_uid-rey']);
   assert.deepEqual(plan.duplicateActions.map((d) => d.id), ['kelas-c_uid-rey']);
+
+  const scopedPlan = planClassMembersCleanup(
+    [
+      { id: 'kelas-a_uid-rey', data: { uid: 'uid-rey', classId: 'kelas-a', active: true } },
+      { id: 'kelas-b_uid-rey', data: { uid: 'uid-rey', classId: 'kelas-b', active: true } },
+      { id: 'kelas-so_uid-rey', data: { uid: 'uid-rey', classId: 'kelas-so', active: true } },
+    ],
+    {
+      'kelas-a': { praktikumId: 'praktikum-ppk' },
+      'kelas-b': { praktikumId: 'praktikum-ppk' },
+      'kelas-so': { praktikumId: 'praktikum-so' },
+    },
+  );
+  assert.deepEqual(scopedPlan.kept.map((k) => k.id).sort(), ['kelas-a_uid-rey', 'kelas-so_uid-rey']);
+  assert.deepEqual(scopedPlan.duplicateActions.map((d) => d.id), ['kelas-b_uid-rey']);
 });
 
 test('firestore.rules allows lab fields in both editSesiValid branches', () => {
