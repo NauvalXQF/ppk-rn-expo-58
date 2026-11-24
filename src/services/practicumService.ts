@@ -309,6 +309,7 @@ export async function saveScheduleToFirestore(
     jamMulai: string;
     jamSelesai: string;
     ruang: string;
+    labId?: string;
     topik: string;
     praktikumId?: string;
   },
@@ -319,6 +320,7 @@ export async function saveScheduleToFirestore(
   const jamMulai = input.jamMulai.trim();
   const jamSelesai = input.jamSelesai.trim();
   const ruang = input.ruang.trim();
+  const labId = input.labId?.trim() || undefined;
   const topik = input.topik.trim();
 
   if (!kelasId) throw new Error('Kelas wajib dipilih.');
@@ -343,6 +345,7 @@ export async function saveScheduleToFirestore(
     jamMulai,
     jamSelesai,
     ruang,
+    ...(labId ? { labId } : {}),
     topik,
   };
 
@@ -359,6 +362,7 @@ export async function saveScheduleToFirestore(
         startAt: jamMulai,
         endAt: jamSelesai,
         ruang,
+        ...(labId ? { labId } : {}),
         topik,
         archived: false,
         createdBy: actor.id,
@@ -390,12 +394,52 @@ export async function deleteScheduleFromFirestore(
 // 4. CRUD SESI PRAKTIKUM & MANAJEMEN STATUS
 // ==========================================
 
+function extractLabMetadata(input: {
+  labId?: string;
+  labNama?: string;
+  labCoordinates?: { latitude: number; longitude: number };
+  radiusMeters?: number;
+}) {
+  const labId = input.labId?.trim() || undefined;
+  const labNama = input.labNama?.trim() || undefined;
+  const coords = input.labCoordinates;
+  const labCoordinates =
+    coords &&
+    typeof coords.latitude === 'number' &&
+    typeof coords.longitude === 'number' &&
+    Number.isFinite(coords.latitude) &&
+    Number.isFinite(coords.longitude) &&
+    coords.latitude >= -90 &&
+    coords.latitude <= 90 &&
+    coords.longitude >= -180 &&
+    coords.longitude <= 180
+      ? { latitude: coords.latitude, longitude: coords.longitude }
+      : undefined;
+  const radiusMeters =
+    typeof input.radiusMeters === 'number' &&
+    Number.isFinite(input.radiusMeters) &&
+    input.radiusMeters > 0
+      ? input.radiusMeters
+      : undefined;
+
+  return {
+    ...(labId ? { labId } : {}),
+    ...(labNama ? { labNama } : {}),
+    ...(labCoordinates ? { labCoordinates } : {}),
+    ...(radiusMeters !== undefined ? { radiusMeters } : {}),
+  };
+}
+
 export async function saveSessionToFirestore(
   actor: Pengguna | null,
   input: {
     id?: string;
     kelasId: string;
     scheduleId?: string;
+    labId?: string;
+    labNama?: string;
+    labCoordinates?: { latitude: number; longitude: number };
+    radiusMeters?: number;
     topik: string;
     ruang: string;
     tanggal: string;
@@ -428,6 +472,7 @@ export async function saveSessionToFirestore(
   const id = existingId || `sesi-${db ? doc(collection(db, 'sessions')).id : Date.now().toString(36)}`;
   let scheduleId = input.scheduleId?.trim();
   const praktikumId = input.praktikumId?.trim() || 'praktikum-ppk';
+  const labMeta = extractLabMetadata(input);
   const waktu = {
     tanggal,
     jamMulai,
@@ -442,6 +487,7 @@ export async function saveSessionToFirestore(
     kelasId,
     asistenId: actor.id,
     scheduleId,
+    ...labMeta,
     topik,
     ruang,
     tanggal,
@@ -469,10 +515,11 @@ export async function saveSessionToFirestore(
       tx.update(ref, {
         topik,
         ruang,
+        ...labMeta,
         ...(waktuBerubah ? waktu : {}),
         updatedAt: serverTimestamp(),
       });
-      return { ...sesi, topik, ruang, tanggal, jamMulai, jamSelesai };
+      return { ...sesi, ...labMeta, topik, ruang, tanggal, jamMulai, jamSelesai };
     });
   }
 
@@ -490,6 +537,7 @@ export async function saveSessionToFirestore(
     asistenNama: actor.nama,
     topik,
     ruang,
+    ...labMeta,
     ...waktu,
     status: 'closed',
     openedAt: null,
@@ -717,6 +765,9 @@ function mapScheduleDoc(id: string, data: Record<string, unknown>): Jadwal {
     jamMulai: String(data.jamMulai ?? data.startAt ?? '10:00'),
     jamSelesai: String(data.jamSelesai ?? data.endAt ?? '12:00'),
     ruang: String(data.ruang ?? 'Lab'),
+    ...(typeof data.labId === 'string' && data.labId.trim()
+      ? { labId: data.labId.trim() }
+      : {}),
     topik: String(data.topik ?? 'Praktikum'),
   };
 }
@@ -788,6 +839,16 @@ function mapActiveMembers(docs: QueryDocumentSnapshot[]): Praktikan[] {
     });
   }
   return members;
+}
+
+/**
+ * Menjaga aturan 1 user 1 kelas di sisi klien apabila masih ada residu
+ * keanggotaan ganda di Firestore. Pemilihan diurutkan deterministik per kelasId.
+ */
+function selectCanonicalActiveMembers(members: Praktikan[]): Praktikan[] {
+  if (members.length <= 1) return members;
+  const sorted = [...members].sort((a, b) => a.kelasId.localeCompare(b.kelasId));
+  return [sorted[0]];
 }
 
 export interface PracticumSnapshotCallbacks {
@@ -910,13 +971,11 @@ export function subscribePracticumRealtime(
     const unsubMembers = onSnapshot(
       membersQuery,
       (snap) => {
-        const activeMembers = mapActiveMembers(snap.docs);
+        const activeMembers = selectCanonicalActiveMembers(mapActiveMembers(snap.docs));
 
         callbacks.onMembers(activeMembers);
 
-        const nextClassIds = Array.from(
-          new Set(activeMembers.map((m) => m.kelasId).filter(Boolean)),
-        );
+        const nextClassIds = activeMembers.length > 0 ? [activeMembers[0].kelasId] : [];
         const nextSet = new Set(nextClassIds);
 
         let removed = false;
@@ -1093,8 +1152,8 @@ export function subscribeAuthUserRealtime(
       memberQueryUnsub = onSnapshot(
         query(collection(db, 'classMembers'), where('uid', '==', uid)),
         (snap) => {
-          const members = mapActiveMembers(snap.docs);
-          memberKelasIds = Array.from(new Set(members.map((m) => m.kelasId)));
+          const members = selectCanonicalActiveMembers(mapActiveMembers(snap.docs));
+          memberKelasIds = members.length > 0 ? [members[0].kelasId] : [];
           const m = members[0];
           if (m) {
             if (!userData.nama && m.nama) userData = { ...userData, nama: m.nama };

@@ -18,6 +18,8 @@ import { FormField } from '@/components/ui/FormField';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { Colors, FontFamily, FontSize, Radius, Shadow, Spacing } from '@/constants/theme';
+import { activeLaboratories } from '@/services/maps/laboratories';
+import { subscribeLaboratories } from '@/services/maps/laboratoryService';
 import {
   subscribeRegisteredPraktikanUsers,
   type RegisteredPraktikanAccount,
@@ -28,6 +30,7 @@ import {
   selectPesertaPraktikum,
   selectTotalPraktikan,
 } from '@/store/selectors';
+import type { Laboratory } from '@/types/laboratory';
 import type { Jadwal, Kelas, Praktikan, Sesi } from '@/types/models';
 
 type CrudTab = 'sesi' | 'jadwal' | 'kelas' | 'peserta';
@@ -74,6 +77,7 @@ export function PracticumCrudSection() {
   const [hariJadwal, setHariJadwal] = useState('Rabu');
   const [mulaiJadwal, setMulaiJadwal] = useState('10:00');
   const [selesaiJadwal, setSelesaiJadwal] = useState('12:00');
+  const [labIdJadwal, setLabIdJadwal] = useState<string | undefined>();
   const [ruangJadwal, setRuangJadwal] = useState('Lab 3');
   const [topikJadwal, setTopikJadwal] = useState('');
 
@@ -81,6 +85,7 @@ export function PracticumCrudSection() {
   const [editSesiId, setEditSesiId] = useState<string | undefined>();
   const [kelasSesi, setKelasSesi] = useState(state.kelas[0]?.id ?? 'kelas-a');
   const [topikSesi, setTopikSesi] = useState('');
+  const [labIdSesi, setLabIdSesi] = useState<string | undefined>();
   const [ruangSesi, setRuangSesi] = useState('Lab 3');
   const [tanggalSesi, setTanggalSesi] = useState(
     new Date().toISOString().slice(0, 10),
@@ -90,6 +95,8 @@ export function PracticumCrudSection() {
   const [registeredAccounts, setRegisteredAccounts] = useState<
     RegisteredPraktikanAccount[]
   >([]);
+  const [laboratories, setLaboratories] = useState<Laboratory[]>([]);
+  const [labsLoaded, setLabsLoaded] = useState(false);
 
   const isAsistenUser = state.currentUser?.peran === 'asisten';
   const defaultKelasId = state.kelas[0]?.id ?? '';
@@ -111,6 +118,39 @@ export function PracticumCrudSection() {
       setRegisteredAccounts(accounts);
     });
   }, [activeTab, expanded, isAsistenUser, isRemote]);
+
+  useEffect(() => {
+    if (!isRemote || !isAsistenUser || !expanded) {
+      return;
+    }
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = subscribeLaboratories(
+        (snapshot) => {
+          if (!active) return;
+          setLaboratories(activeLaboratories(snapshot.laboratories));
+          setLabsLoaded(true);
+        },
+        () => {
+          if (active) setLabsLoaded(true);
+        },
+      );
+    } catch {
+      queueMicrotask(() => {
+        if (active) setLabsLoaded(true);
+      });
+    }
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [expanded, isAsistenUser, isRemote]);
+
+  const effectiveLabIdJadwal =
+    labIdJadwal ?? (!editJadwalId ? laboratories[0]?.id : undefined);
+  const effectiveLabIdSesi =
+    labIdSesi ?? (!editSesiId ? laboratories[0]?.id : undefined);
 
   if (!isAsistenUser) return null;
 
@@ -137,11 +177,23 @@ export function PracticumCrudSection() {
   const resetJadwalForm = () => {
     setEditJadwalId(undefined);
     setTopikJadwal('');
+    if (laboratories.length > 0) {
+      setLabIdJadwal(laboratories[0].id);
+      setRuangJadwal(laboratories[0].nama);
+    } else {
+      setLabIdJadwal(undefined);
+    }
   };
 
   const resetSesiForm = () => {
     setEditSesiId(undefined);
     setTopikSesi('');
+    if (laboratories.length > 0) {
+      setLabIdSesi(laboratories[0].id);
+      setRuangSesi(laboratories[0].nama);
+    } else {
+      setLabIdSesi(undefined);
+    }
   };
 
   const handleSaveKelas = async () => {
@@ -177,13 +229,15 @@ export function PracticumCrudSection() {
 
   const handleSaveJadwal = async () => {
     try {
+      const selectedLab = laboratories.find((l) => l.id === effectiveLabIdJadwal);
       await simpanJadwal({
         id: editJadwalId,
         kelasId: activeKelasJadwal,
         hari: hariJadwal,
         jamMulai: mulaiJadwal,
         jamSelesai: selesaiJadwal,
-        ruang: ruangJadwal,
+        ruang: selectedLab ? selectedLab.nama : ruangJadwal,
+        labId: selectedLab?.id ?? effectiveLabIdJadwal,
         topik: topikJadwal,
       });
       showSuccess(
@@ -198,11 +252,24 @@ export function PracticumCrudSection() {
   const handleSaveSesi = async () => {
     try {
       const existing = state.sesi.find((s) => s.id === editSesiId);
+      const selectedLab = laboratories.find((l) => l.id === effectiveLabIdSesi);
       await simpanSesi({
         id: editSesiId,
         kelasId: activeKelasSesi,
         topik: topikSesi,
-        ruang: ruangSesi,
+        ruang: selectedLab ? selectedLab.nama : ruangSesi,
+        labId: selectedLab?.id ?? effectiveLabIdSesi,
+        labNama:
+          selectedLab?.nama ??
+          (effectiveLabIdSesi === existing?.labId ? existing?.labNama : undefined),
+        labCoordinates: selectedLab
+          ? { latitude: selectedLab.latitude, longitude: selectedLab.longitude }
+          : effectiveLabIdSesi === existing?.labId
+            ? existing?.labCoordinates
+            : undefined,
+        radiusMeters:
+          selectedLab?.radiusMeters ??
+          (effectiveLabIdSesi === existing?.labId ? existing?.radiusMeters : undefined),
         tanggal: tanggalSesi,
         jamMulai: mulaiSesi,
         jamSelesai: selesaiSesi,
@@ -236,6 +303,59 @@ export function PracticumCrudSection() {
       })}
     </View>
   );
+
+  const renderLabSelector = (
+    selectedLabId: string | undefined,
+    ruangValue: string,
+    onSelectLab: (lab: Laboratory) => void,
+    onChangeRuangFallback: (text: string) => void,
+  ) => {
+    if (laboratories.length === 0) {
+      return (
+        <View style={styles.labSelectorWrap}>
+          <FormField
+            label="Ruang"
+            placeholder="Lab 3"
+            value={ruangValue}
+            onChangeText={onChangeRuangFallback}
+          />
+          <Text style={styles.labHint}>
+            {isRemote && !labsLoaded
+              ? 'Memuat daftar laboratorium dari Firestore...'
+              : 'Data lab belum tersedia; gunakan input ruang manual.'}
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.labSelectorWrap}>
+        <Text style={styles.fieldLabel}>Laboratorium / Ruang</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.labChipRow}
+        >
+          {laboratories.map((lab) => {
+            const label = lab.gedung ? `${lab.nama} · ${lab.gedung}` : lab.nama;
+            return (
+              <FilterChip
+                key={lab.id}
+                label={label}
+                active={selectedLabId === lab.id}
+                onPress={() => onSelectLab(lab)}
+              />
+            );
+          })}
+        </ScrollView>
+        {!selectedLabId && ruangValue ? (
+          <Text style={styles.labHint}>
+            Ruang saat ini: {ruangValue} (pilih lab di atas untuk menautkan ke peta & geofence)
+          </Text>
+        ) : null}
+      </View>
+    );
+  };
 
   return (
     <>
@@ -331,24 +451,24 @@ export function PracticumCrudSection() {
                 value={topikSesi}
                 onChangeText={setTopikSesi}
               />
-              <View style={styles.row}>
-                <View style={styles.col}>
-                  <FormField
-                    label="Tanggal (YYYY-MM-DD)"
-                    placeholder="2026-11-11"
-                    value={tanggalSesi}
-                    onChangeText={setTanggalSesi}
-                  />
-                </View>
-                <View style={styles.col}>
-                  <FormField
-                    label="Ruang"
-                    placeholder="Lab 3"
-                    value={ruangSesi}
-                    onChangeText={setRuangSesi}
-                  />
-                </View>
-              </View>
+              <FormField
+                label="Tanggal (YYYY-MM-DD)"
+                placeholder="2026-11-11"
+                value={tanggalSesi}
+                onChangeText={setTanggalSesi}
+              />
+              {renderLabSelector(
+                effectiveLabIdSesi,
+                ruangSesi,
+                (lab) => {
+                  setLabIdSesi(lab.id);
+                  setRuangSesi(lab.nama);
+                },
+                (text) => {
+                  setLabIdSesi(undefined);
+                  setRuangSesi(text);
+                },
+              )}
               <View style={styles.row}>
                 <View style={styles.col}>
                   <FormField
@@ -405,6 +525,7 @@ export function PracticumCrudSection() {
                           setEditSesiId(s.id);
                           setKelasSesi(s.kelasId);
                           setTopikSesi(s.topik);
+                          setLabIdSesi(s.labId);
                           setRuangSesi(s.ruang);
                           setTanggalSesi(s.tanggal);
                           setMulaiSesi(s.jamMulai);
@@ -443,24 +564,24 @@ export function PracticumCrudSection() {
                 value={topikJadwal}
                 onChangeText={setTopikJadwal}
               />
-              <View style={styles.row}>
-                <View style={styles.col}>
-                  <FormField
-                    label="Hari"
-                    placeholder="Rabu"
-                    value={hariJadwal}
-                    onChangeText={setHariJadwal}
-                  />
-                </View>
-                <View style={styles.col}>
-                  <FormField
-                    label="Ruang"
-                    placeholder="Lab 3"
-                    value={ruangJadwal}
-                    onChangeText={setRuangJadwal}
-                  />
-                </View>
-              </View>
+              <FormField
+                label="Hari"
+                placeholder="Rabu"
+                value={hariJadwal}
+                onChangeText={setHariJadwal}
+              />
+              {renderLabSelector(
+                effectiveLabIdJadwal,
+                ruangJadwal,
+                (lab) => {
+                  setLabIdJadwal(lab.id);
+                  setRuangJadwal(lab.nama);
+                },
+                (text) => {
+                  setLabIdJadwal(undefined);
+                  setRuangJadwal(text);
+                },
+              )}
               <View style={styles.row}>
                 <View style={styles.col}>
                   <FormField
@@ -518,6 +639,7 @@ export function PracticumCrudSection() {
                           setHariJadwal(j.hari);
                           setMulaiJadwal(j.jamMulai);
                           setSelesaiJadwal(j.jamSelesai);
+                          setLabIdJadwal(j.labId);
                           setRuangJadwal(j.ruang);
                           setTopikJadwal(j.topik);
                         }}
@@ -842,6 +964,18 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: Spacing.sm,
+  },
+  labSelectorWrap: {
+    gap: Spacing.xs,
+  },
+  labChipRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    paddingVertical: 2,
+  },
+  labHint: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
   },
   fieldLabel: {
     fontSize: FontSize.sm,

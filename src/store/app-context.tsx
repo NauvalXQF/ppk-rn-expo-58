@@ -330,6 +330,7 @@ export interface AppContextValue {
     jamMulai: string;
     jamSelesai: string;
     ruang: string;
+    labId?: string;
     topik: string;
   }) => Promise<Jadwal>;
   hapusJadwal: (jadwalId: string) => Promise<void>;
@@ -337,6 +338,10 @@ export interface AppContextValue {
     id?: string;
     kelasId: string;
     scheduleId?: string;
+    labId?: string;
+    labNama?: string;
+    labCoordinates?: { latitude: number; longitude: number };
+    radiusMeters?: number;
     topik: string;
     ruang: string;
     tanggal: string;
@@ -628,6 +633,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       jamMulai: string;
       jamSelesai: string;
       ruang: string;
+      labId?: string;
       topik: string;
     }) =>
       runAsync(async () => {
@@ -671,6 +677,10 @@ export function AppProvider({ children }: PropsWithChildren) {
       id?: string;
       kelasId: string;
       scheduleId?: string;
+      labId?: string;
+      labNama?: string;
+      labCoordinates?: { latitude: number; longitude: number };
+      radiusMeters?: number;
       topik: string;
       ruang: string;
       tanggal: string;

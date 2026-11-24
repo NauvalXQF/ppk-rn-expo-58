@@ -205,11 +205,14 @@ service cloud.firestore {
         return data.topik is string && data.topik.size() > 0
           && data.ruang is string && data.ruang.size() > 0
           && (
-            hanyaFieldBerubah(['topik', 'ruang', 'updatedAt'])
+            hanyaFieldBerubah([
+              'topik', 'ruang', 'labId', 'labNama', 'labCoordinates', 'radiusMeters', 'updatedAt'
+            ])
             || (
               belumPernahDibuka()
               && hanyaFieldBerubah([
-                'topik', 'ruang', 'tanggal', 'jamMulai', 'jamSelesai', 'startAt', 'endAt', 'updatedAt'
+                'topik', 'ruang', 'labId', 'labNama', 'labCoordinates', 'radiusMeters',
+                'tanggal', 'jamMulai', 'jamSelesai', 'startAt', 'endAt', 'updatedAt'
               ])
               && data.tanggal.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
               && data.jamMulai.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
