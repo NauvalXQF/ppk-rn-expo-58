@@ -9,8 +9,8 @@ import {
   Text,
   View,
 } from 'react-native';
-import { AppIcon } from '@/components/ui/AppIcon';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppIcon } from '@/components/ui/AppIcon';
 import {
   Colors,
   FontFamily,
@@ -24,9 +24,11 @@ export function MapSheet({
   title,
   onClose,
   children,
+  fullScreen = false,
 }: PropsWithChildren<{
   title: string;
   onClose: () => void;
+  fullScreen?: boolean;
 }>) {
   return (
     <Modal transparent animationType="slide" onRequestClose={onClose}>
@@ -34,41 +36,53 @@ export function MapSheet({
         style={styles.overlay}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          accessibilityLabel="Tutup panel"
-          accessibilityRole="button"
-          onPress={onClose}
-        />
+        {!fullScreen ? (
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            accessibilityLabel="Tutup panel"
+            accessibilityRole="button"
+            onPress={onClose}
+          />
+        ) : null}
         <SafeAreaView
-          edges={['bottom', 'left', 'right']}
-          style={styles.panel}
+          edges={
+            fullScreen
+              ? ['top', 'bottom', 'left', 'right']
+              : ['bottom', 'left', 'right']
+          }
+          style={fullScreen ? styles.fullScreen : styles.panel}
           accessibilityViewIsModal
         >
-          <View style={styles.handle} />
-          <View style={styles.header}>
+          {!fullScreen ? <View style={styles.handle} /> : null}
+          <View style={[styles.header, fullScreen && styles.fullScreenHeader]}>
             <Text accessibilityRole="header" style={styles.title}>
               {title}
             </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Tutup panel"
-              onPress={onClose}
-              style={({ pressed }) => [
-                styles.closeCircle,
-                pressed && styles.pressed,
-              ]}
-            >
-              <AppIcon name="x" size={18} color={Colors.text} />
-            </Pressable>
+            {!fullScreen ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Tutup panel"
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.closeCircle,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <AppIcon name="x" size={18} color={Colors.text} />
+              </Pressable>
+            ) : null}
           </View>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.content}
-            showsVerticalScrollIndicator={false}
-          >
-            {children}
-          </ScrollView>
+          {fullScreen ? (
+            children
+          ) : (
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.content}
+              showsVerticalScrollIndicator={false}
+            >
+              {children}
+            </ScrollView>
+          )}
         </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
@@ -92,6 +106,10 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     ...Shadow.floating,
   },
+  fullScreen: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+  },
   handle: {
     width: 40,
     height: 4,
@@ -109,6 +127,10 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
     borderBottomColor: Colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  fullScreenHeader: {
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.sm,
   },
   title: {
     flex: 1,

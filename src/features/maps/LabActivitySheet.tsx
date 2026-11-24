@@ -61,7 +61,7 @@ export function LabActivitySheet({
               <InfoBanner tone="warning" message={error} />
               <AppButton label="Muat ulang aktivitas" variant="secondary" onPress={onRetry} />
             </View>
-          ) : cached ? <InfoBanner tone="neutral" message="Menampilkan data tersimpan sambil menunggu server." /> : null}
+          ) : cached ? <InfoBanner tone="neutral" message="Menunggu konfirmasi Firestore. Data aktivitas mungkin belum tersedia atau belum terbaru." /> : null}
           <Text style={styles.section}>Praktikum berlangsung</Text>
           {ongoing ? (
             <View style={[styles.details, styles.ongoing]}>

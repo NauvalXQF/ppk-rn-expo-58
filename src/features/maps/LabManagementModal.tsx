@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Keyboard, StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { FormField } from '@/components/ui/FormField';
 import { InfoBanner } from '@/components/ui/InfoBanner';
@@ -8,7 +8,7 @@ import type { ProfilPengguna } from '@/services/authService';
 import { archiveLaboratory, saveLaboratory } from '@/services/maps/laboratoryService';
 import { DEFAULT_LAB_RADIUS, validCoordinates, validRadius } from '@/services/maps/laboratories';
 import type { Laboratory, LaboratoryCoordinates } from '@/types/laboratory';
-import { LabPreview } from './LaboratoryMap';
+import { LabPickerMap, LabPreview } from './LaboratoryMap';
 import { MapSheet } from './MapSheet';
 
 const fields = [
@@ -26,6 +26,7 @@ const blank: Draft = {
   nama: '', kode: '', gedung: '', latitude: '', longitude: '',
   radiusMeters: String(DEFAULT_LAB_RADIUS), kapasitas: '',
 };
+const COORDINATE_DECIMALS = 7;
 
 function decimal(value: string): number {
   const normalized = value.trim().replace(',', '.');
@@ -47,6 +48,7 @@ export function LabManagementModal({
   const [success, setSuccess] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [picker, setPicker] = useState<{ center: LaboratoryCoordinates | null; point: LaboratoryCoordinates | null }>();
   const inFlight = useRef(false);
   const mounted = useRef(true);
 
@@ -112,6 +114,60 @@ export function LabManagementModal({
   const longitude = decimal(draft?.longitude ?? '');
   const radiusMeters = decimal(draft?.radiusMeters ?? '');
 
+  function openPicker() {
+    if (!draft || busy) return;
+    Keyboard.dismiss();
+    const center = validCoordinates(latitude, longitude) ? { latitude, longitude }
+      : location && validCoordinates(location.latitude, location.longitude)
+        ? { latitude: location.latitude, longitude: location.longitude } : null;
+    setPicker({ center, point: null });
+  }
+
+  function pickLocation(point: LaboratoryCoordinates) {
+    if (!validCoordinates(point.latitude, point.longitude)) return;
+    const coordinates = {
+      latitude: Number(point.latitude.toFixed(COORDINATE_DECIMALS)),
+      longitude: Number(point.longitude.toFixed(COORDINATE_DECIMALS)),
+    };
+    setPicker((current) => current ? { ...current, point: coordinates } : current);
+  }
+
+  function confirmLocation() {
+    const point = picker?.point;
+    if (!point || !validCoordinates(point.latitude, point.longitude)) return;
+    setEditor((current) => current ? {
+      ...current,
+      draft: {
+        ...current.draft,
+        latitude: point.latitude.toFixed(COORDINATE_DECIMALS),
+        longitude: point.longitude.toFixed(COORDINATE_DECIMALS),
+      },
+    } : current);
+    setPicker(undefined);
+  }
+
+  if (picker) {
+    const { center, point } = picker;
+    const cancel = () => setPicker(undefined);
+    return (
+      <MapSheet title="Pilih Lokasi di Peta" onClose={cancel} fullScreen>
+        <Text style={styles.pickerHint}>Ketuk peta untuk memilih lokasi laboratorium.</Text>
+        <LabPickerMap center={center} point={point} radius={validRadius(radiusMeters) ? radiusMeters : null}
+          onLocationPicked={pickLocation} />
+        <View style={styles.pickerFooter}>
+          <View style={styles.pickerCoordinates} accessibilityLiveRegion="polite">
+            <Text style={styles.text}>Latitude {point?.latitude.toFixed(COORDINATE_DECIMALS) ?? '–'}</Text>
+            <Text style={styles.text}>Longitude {point?.longitude.toFixed(COORDINATE_DECIMALS) ?? '–'}</Text>
+          </View>
+          <View style={styles.pickerActions}>
+            <AppButton label="Batal" variant="secondary" onPress={cancel} style={styles.pickerButton} />
+            <AppButton label="Gunakan Lokasi Ini" disabled={!point} onPress={confirmLocation} style={styles.pickerButton} />
+          </View>
+        </View>
+      </MapSheet>
+    );
+  }
+
   return (
     <MapSheet title="Kelola laboratorium" onClose={onClose}>
       {!writable ? <InfoBanner tone="warning" message="Tunggu koneksi Firestore untuk menyimpan perubahan." /> : null}
@@ -147,6 +203,7 @@ export function LabManagementModal({
               onChangeText={(value) => change(key, value)}
             />
           ))}
+          <AppButton label="Pilih Lokasi di Peta" variant="secondary" disabled={busy} onPress={openPicker} />
           <AppButton label="Gunakan lokasi saat ini" variant="secondary" disabled={!location || busy}
             onPress={() => {
               if (!location) return;
@@ -195,4 +252,9 @@ const styles = StyleSheet.create({
   },
   rowDetails: { flex: 1, gap: Spacing.xs },
   confirmation: { gap: Spacing.sm, backgroundColor: Colors.dangerSoft, padding: Spacing.md },
+  pickerHint: { color: Colors.textMuted, fontSize: FontSize.sm, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
+  pickerFooter: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, gap: Spacing.sm },
+  pickerCoordinates: { flexDirection: 'row', flexWrap: 'wrap', columnGap: Spacing.md },
+  pickerActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: Spacing.sm, flexWrap: 'wrap' },
+  pickerButton: { minHeight: 48 },
 });

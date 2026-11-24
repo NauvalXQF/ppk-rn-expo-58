@@ -9,13 +9,16 @@ import type { ProfilPengguna } from '@/services/authService';
 import { activeLaboratories, selectLaboratories } from '@/services/maps/laboratories';
 import { LabActivitySheet } from './LabActivitySheet';
 import { LabManagementModal } from './LabManagementModal';
-import LaboratoryMap, { type LaboratoryMapHandle } from './LaboratoryMap';
+import LaboratoryMap from './LaboratoryMap';
+import { MapAttribution } from './MapFrame';
+import type { LaboratoryMapHandle } from './mapTypes';
 import { simulatedLaboratories } from './simulatedLaboratories';
 import { useLaboratoryData, useMapsActivity } from './useMapsData';
 import { useUserLocation } from './useUserLocation';
 
 const ATTENDANCE_PATH = '/presensi/[sesiId]';
 const EMPTY_LABORATORIES: readonly never[] = [];
+const EMPTY_LAB_IDS: ReadonlySet<string> = new Set();
 
 function hasAttendanceRoute(route: SitemapType | null): boolean {
   return Boolean(route && (route.href === ATTENDANCE_PATH || route.children.some(hasAttendanceRoute)));
@@ -48,6 +51,7 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
     [...activity.activities].filter(([, item]) => item.ongoing).map(([id]) => id),
   ), [activity.activities]);
   const selectedLab = active.find((lab) => lab.id === selectedId);
+  if (selectedId !== undefined && !selectedLab) setSelectedId(undefined);
   const selectedActivity = selectedLab && !simulated ? activity.activities.get(selectedLab.id) : undefined;
   const ongoing = selectedActivity?.ongoing;
   // The activity listener for a praktikan only receives their active classes.
@@ -55,7 +59,9 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
     ongoing?.status === 'dibuka' && hasAttendanceRoute(sitemap)
     ? ongoing : undefined;
 
-  const selectLab = useCallback((id: string) => setSelectedId(id), []);
+  const selectLab = useCallback((id: string) => {
+    if (focused && !managementVisible && active.some((lab) => lab.id === id)) setSelectedId(id);
+  }, [active, focused, managementVisible]);
 
   function openSettings() {
     setSettingsError(false);
@@ -65,17 +71,8 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
       <View style={styles.canvas}>
-        <LaboratoryMap
-          key={simulated ? 'simulated' : 'official'}
-          ref={map}
-          laboratories={active}
-          activeLabIds={simulated ? new Set() : activeSessionLabIds}
-          userLocation={point}
-          isAssistant={isAssistant}
-          allowSimulation={simulated}
-          onSelect={selectLab}
-        />
-        <View pointerEvents="box-none" style={styles.top}>
+        <MapAttribution />
+        <View style={styles.controls}>
           <View style={styles.heading}>
             <Text accessibilityRole="header" style={styles.title}>Peta laboratorium</Text>
             <Text style={styles.detail}>
@@ -98,12 +95,23 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
             <InfoBanner tone="neutral" message="Menunggu Firestore. Data lokal mungkin belum terbaru." />
           ) : null}
         </View>
-        <View pointerEvents="box-none" style={styles.bottom}>
-          {Platform.OS !== 'web' ? (
+        <LaboratoryMap
+          ref={map}
+          laboratories={active}
+          activeLabIds={simulated ? EMPTY_LAB_IDS : activeSessionLabIds}
+          selectedLabId={selectedLab?.id}
+          userLocation={point}
+          isAssistant={isAssistant}
+          focused={focused}
+          onSelect={selectLab}
+        />
+        <View style={[styles.controls, styles.bottomControls]}>
             <View style={styles.notice}>
               {location.status === 'denied' ? (
                 <>
-                  <InfoBanner tone="warning" message="Izin lokasi ditolak. Izinkan akses untuk menampilkan posisi kamu." />
+                  <InfoBanner tone="warning" message={Platform.OS === 'web'
+                    ? 'Izin lokasi ditolak. Izinkan lokasi di pengaturan situs browser, lalu coba lagi.'
+                    : 'Izin lokasi ditolak. Izinkan akses untuk menampilkan posisi kamu.'} />
                   <AppButton label={location.canAskAgain ? 'Izinkan lokasi' : 'Buka pengaturan aplikasi'}
                     variant="secondary" onPress={location.canAskAgain ? retryLocation : openSettings} />
                   {settingsError ? <InfoBanner tone="warning" message="Buka pengaturan ponsel dan izinkan lokasi untuk aplikasi ini." /> : null}
@@ -118,6 +126,8 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
                   <InfoBanner tone="warning" message="Lokasi belum tersedia. Coba dari area dengan sinyal lebih baik." />
                   <AppButton label="Segarkan lokasi" variant="secondary" onPress={retryLocation} />
                 </>
+              ) : location.status === 'unsupported' ? (
+                <InfoBanner tone="neutral" message="Lokasi browser hanya tersedia pada situs aman dengan dukungan geolokasi." />
               ) : location.status === 'searching' ? (
                 <View style={[styles.heading, styles.locationNotice]}>
                   <ActivityIndicator size="small" color={Colors.warning} />
@@ -133,7 +143,6 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
                 </>
               ) : null}
             </View>
-          ) : null}
           <View style={styles.actions}>
             {isAssistant ? (
               <AppButton label="Kelola lab" variant="secondary"
@@ -178,8 +187,8 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Colors.background },
   canvas: { flex: 1 },
-  top: { position: 'absolute', left: 0, right: 0, top: 0, gap: Spacing.sm, padding: Spacing.md },
-  bottom: { position: 'absolute', left: 0, right: 0, bottom: 92, gap: Spacing.sm, padding: Spacing.md },
+  controls: { gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm },
+  bottomControls: { paddingBottom: 92 },
   heading: {
     alignSelf: 'flex-start', maxWidth: '100%', backgroundColor: Colors.glassStrong,
     borderRadius: Radius.lg, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2,
