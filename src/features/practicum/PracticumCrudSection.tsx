@@ -1,12 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import {
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { AppIcon } from '@/components/ui/AppIcon';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
+import { FilterChip } from '@/components/ui/FilterChip';
 import { FormField } from '@/components/ui/FormField';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius, Shadow, Spacing } from '@/constants/theme';
 import {
   subscribeRegisteredPraktikanUsers,
   type RegisteredPraktikanAccount,
@@ -25,6 +36,7 @@ export function PracticumCrudSection() {
   const {
     state,
     loading,
+    error,
     isRemote,
     simpanKelas,
     hapusKelas,
@@ -80,6 +92,17 @@ export function PracticumCrudSection() {
   >([]);
 
   const isAsistenUser = state.currentUser?.peran === 'asisten';
+  const defaultKelasId = state.kelas[0]?.id ?? '';
+  const activeKelasPeserta = state.kelas.some((k) => k.id === kelasPeserta)
+    ? kelasPeserta
+    : defaultKelasId;
+  const activeKelasJadwal = state.kelas.some((k) => k.id === kelasJadwal)
+    ? kelasJadwal
+    : defaultKelasId;
+  const activeKelasSesi = state.kelas.some((k) => k.id === kelasSesi)
+    ? kelasSesi
+    : defaultKelasId;
+
   useEffect(() => {
     if (!isRemote || !isAsistenUser || !expanded || activeTab !== 'peserta') {
       return;
@@ -139,7 +162,7 @@ export function PracticumCrudSection() {
         id: editPesertaId ?? (uidPeserta.trim() || undefined),
         nama: namaPeserta,
         nim: nimPeserta,
-        kelasId: kelasPeserta,
+        kelasId: activeKelasPeserta,
       });
       showSuccess(
         editPesertaId
@@ -156,7 +179,7 @@ export function PracticumCrudSection() {
     try {
       await simpanJadwal({
         id: editJadwalId,
-        kelasId: kelasJadwal,
+        kelasId: activeKelasJadwal,
         hari: hariJadwal,
         jamMulai: mulaiJadwal,
         jamSelesai: selesaiJadwal,
@@ -177,7 +200,7 @@ export function PracticumCrudSection() {
       const existing = state.sesi.find((s) => s.id === editSesiId);
       await simpanSesi({
         id: editSesiId,
-        kelasId: kelasSesi,
+        kelasId: activeKelasSesi,
         topik: topikSesi,
         ruang: ruangSesi,
         tanggal: tanggalSesi,
@@ -215,53 +238,84 @@ export function PracticumCrudSection() {
   );
 
   return (
-    <AppCard style={styles.card}>
-      <View style={styles.topHeader}>
-        <View style={styles.titleWrap}>
-          <Text style={styles.title}>Kelola Data Praktikum</Text>
-          <Text style={styles.subtitle}>
-            {isRemote
-              ? 'Terhubung ke Cloud Firestore (Real-time)'
-              : 'Mode Lokal (isi EXPO_PUBLIC_FIREBASE_* untuk sinkronisasi cloud)'}
-          </Text>
-        </View>
-        <AppButton
-          label={expanded ? 'Tutup' : 'Kelola CRUD'}
-          variant={expanded ? 'secondary' : 'primary'}
-          onPress={() => setExpanded((prev) => !prev)}
-        />
-      </View>
-
-      {feedback ? <InfoBanner tone="success" message={feedback} /> : null}
-
-      {expanded && (
-        <View style={styles.body}>
-          {/* Tab Pemilih Entitas CRUD */}
-          <View style={styles.tabRow}>
-            {(
-              [
-                ['sesi', 'Sesi'],
-                ['jadwal', 'Jadwal'],
-                ['kelas', 'Kelas'],
-                ['peserta', 'Peserta'],
-              ] as const
-            ).map(([key, label]) => {
-              const active = activeTab === key;
-              return (
-                <Pressable
-                  key={key}
-                  onPress={() => setActiveTab(key)}
-                  style={[styles.tabBtn, active && styles.tabBtnActive]}
-                >
-                  <Text
-                    style={[styles.tabText, active && styles.tabTextActive]}
-                  >
-                    {label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+    <>
+      <AppCard variant="solid" style={styles.card}>
+        <View style={styles.topHeader}>
+          <View style={styles.titleWrap}>
+            <Text style={styles.title}>Kelola Praktikum & Sesi</Text>
+            <Text style={styles.subtitle}>
+              {`${state.praktikum.length} praktikum · ${state.kelas.length} kelas · ${state.sesi.length} sesi`}
+            </Text>
           </View>
+          <AppButton
+            label="Kelola CRUD"
+            size="sm"
+            variant="primary"
+            onPress={() => setExpanded(true)}
+          />
+        </View>
+      </AppCard>
+
+      <Modal
+        visible={expanded}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setExpanded(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setExpanded(false)}
+          />
+          <View style={styles.modalSheet}>
+            <SafeAreaView edges={['bottom']}>
+              <View style={styles.handle} />
+              <View style={styles.sheetHeader}>
+                <View style={styles.titleWrap}>
+                  <Text style={styles.sheetTitle}>Kelola Praktikum</Text>
+                  <Text style={styles.subtitle}>
+                    {isRemote
+                      ? 'Sesi, jadwal reguler, kelas & peserta · Firestore'
+                      : 'Sesi, jadwal reguler, kelas & peserta · Lokal'}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Tutup kelola praktikum"
+                  onPress={() => setExpanded(false)}
+                  style={styles.closeCircle}
+                >
+                  <AppIcon name="x" size={18} color={Colors.text} />
+                </Pressable>
+              </View>
+
+              <View style={styles.tabRow}>
+                {(
+                  [
+                    ['sesi', 'Sesi'],
+                    ['jadwal', 'Jadwal'],
+                    ['kelas', 'Kelas'],
+                    ['peserta', 'Peserta'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <FilterChip
+                    key={key}
+                    label={label}
+                    active={activeTab === key}
+                    onPress={() => setActiveTab(key)}
+                  />
+                ))}
+              </View>
+
+              {error ? <InfoBanner tone="danger" message={error} /> : null}
+              {feedback ? <InfoBanner tone="success" message={feedback} /> : null}
+
+              <ScrollView
+                style={styles.sheetScroll}
+                contentContainerStyle={styles.body}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
 
           {/* 1. TAB SESI */}
           {activeTab === 'sesi' && (
@@ -270,7 +324,7 @@ export function PracticumCrudSection() {
                 title={editSesiId ? 'Ubah Sesi' : 'Tambah Sesi Praktikum'}
               />
               <Text style={styles.fieldLabel}>Pilih Kelas</Text>
-              {renderKelasSelector(kelasSesi, setKelasSesi)}
+              {renderKelasSelector(activeKelasSesi, setKelasSesi)}
               <FormField
                 label="Topik Sesi"
                 placeholder="Mis. Integrasi Firebase & Firestore"
@@ -382,7 +436,7 @@ export function PracticumCrudSection() {
                 title={editJadwalId ? 'Ubah Jadwal' : 'Tambah Jadwal Praktikum'}
               />
               <Text style={styles.fieldLabel}>Pilih Kelas</Text>
-              {renderKelasSelector(kelasJadwal, setKelasJadwal)}
+              {renderKelasSelector(activeKelasJadwal, setKelasJadwal)}
               <FormField
                 label="Informasi / Topik Jadwal"
                 placeholder="Mis. Praktikum Reguler PPK"
@@ -565,6 +619,14 @@ export function PracticumCrudSection() {
                   <View style={styles.chipRow}>
                     {registeredAccounts.map((acc) => {
                       const active = uidPeserta === acc.uid;
+                      const existingMembership = pesertaList.find(
+                        (p) => p.id === acc.uid,
+                      );
+                      const existingClassName = existingMembership
+                        ? (state.kelas.find(
+                            (k) => k.id === existingMembership.kelasId,
+                          )?.nama ?? existingMembership.kelasId)
+                        : null;
                       return (
                         <Pressable
                           key={acc.uid}
@@ -572,6 +634,9 @@ export function PracticumCrudSection() {
                             setUidPeserta(acc.uid);
                             setNamaPeserta(acc.nama);
                             if (acc.nim) setNimPeserta(acc.nim);
+                            if (existingMembership) {
+                              setKelasPeserta(existingMembership.kelasId);
+                            }
                           }}
                           style={[styles.chip, active && styles.chipActive]}
                         >
@@ -582,6 +647,7 @@ export function PracticumCrudSection() {
                             ]}
                           >
                             {acc.nama} · {acc.email}
+                            {existingClassName ? ` (${existingClassName})` : ''}
                           </Text>
                         </Pressable>
                       );
@@ -609,7 +675,7 @@ export function PracticumCrudSection() {
                 onChangeText={setNimPeserta}
               />
               <Text style={styles.fieldLabel}>Pilih Kelas</Text>
-              {renderKelasSelector(kelasPeserta, setKelasPeserta)}
+              {renderKelasSelector(activeKelasPeserta, setKelasPeserta)}
 
               <View style={styles.actionRow}>
                 {editPesertaId ? (
@@ -684,15 +750,19 @@ export function PracticumCrudSection() {
               />
             </View>
           ) : null}
+              </ScrollView>
+            </SafeAreaView>
+          </View>
         </View>
-      )}
-    </AppCard>
+      </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    gap: Spacing.md,
+    borderRadius: Radius.md,
+    paddingVertical: 12,
   },
   topHeader: {
     flexDirection: 'row',
@@ -705,44 +775,70 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   title: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   subtitle: {
     fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: Colors.backdrop,
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    maxHeight: Platform.OS === 'web' ? '88%' : '86%',
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    paddingHorizontal: Spacing.md + 4,
+    paddingTop: 12,
+    paddingBottom: Spacing.md,
+    ...Shadow.floating,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.handle,
+    alignSelf: 'center',
+    marginBottom: Spacing.md,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  sheetTitle: {
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.medium,
+    color: Colors.text,
+  },
+  closeCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.neutralSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetScroll: {
+    maxHeight: 520,
+    marginTop: Spacing.sm,
   },
   body: {
     gap: Spacing.md,
-    paddingTop: Spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    paddingBottom: Spacing.md,
   },
   tabRow: {
     flexDirection: 'row',
-    gap: Spacing.xs,
-    backgroundColor: Colors.neutralSoft,
-    padding: 4,
-    borderRadius: Radius.md,
-  },
-  tabBtn: {
-    flex: 1,
-    paddingVertical: Spacing.sm,
-    alignItems: 'center',
-    borderRadius: Radius.sm,
-  },
-  tabBtnActive: {
-    backgroundColor: Colors.surface,
-  },
-  tabText: {
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    color: Colors.textMuted,
-  },
-  tabTextActive: {
-    color: Colors.primary,
-    fontWeight: '700',
+    gap: 8,
+    paddingVertical: 4,
   },
   section: {
     gap: Spacing.sm,

@@ -15,6 +15,7 @@ import {
 } from '@/services/location/geofenceService';
 import { getDb, toStatusSesi } from '@/services/practicumService';
 import { isPraktikanInClass } from '@/store/selectors';
+import { evaluateSessionScheduleWindow } from '@/utils/date';
 import type {
   GeoAttendancePayload,
   GeoPoint,
@@ -102,6 +103,9 @@ export async function submitAttendanceToFirestore(
     throw new Error('Koordinat GPS presensi tidak valid.');
   }
 
+  const waktuPresensi = input.waktuPresensi ?? new Date().toISOString();
+  const presensiDate = new Date(waktuPresensi);
+
   // Validasi lokal cepat sebelum transaksi Firestore
   if (input.localSesi) {
     if (input.localSesi.status !== 'dibuka') {
@@ -109,6 +113,12 @@ export async function submitAttendanceToFirestore(
     }
     if (!isPraktikanInClass(actor, input.localSesi.kelasId)) {
       throw new Error('Presensi ditolak: Sesi ini bukan untuk kelas Anda.');
+    }
+    const scheduleCheck = evaluateSessionScheduleWindow(input.localSesi, presensiDate);
+    if (!scheduleCheck.isWithinSchedule) {
+      throw new Error(
+        scheduleCheck.message ?? 'Presensi ditolak: Di luar jadwal sesi yang ditentukan.',
+      );
     }
   }
   if (input.alreadyAttendedLocally) {
@@ -128,7 +138,6 @@ export async function submitAttendanceToFirestore(
     throw new Error(localVerification.message);
   }
 
-  const waktuPresensi = input.waktuPresensi ?? new Date().toISOString();
   const normalizedAccuracy =
     typeof input.geo.accuracy === 'number' && Number.isFinite(input.geo.accuracy)
       ? input.geo.accuracy
@@ -167,6 +176,20 @@ export async function submitAttendanceToFirestore(
       );
       if (!isPraktikanInClass(actor, sessionClassId)) {
         throw new Error('Presensi ditolak: Anda tidak terdaftar di kelas sesi ini.');
+      }
+
+      const serverScheduleCheck = evaluateSessionScheduleWindow(
+        {
+          tanggal: typeof sessionData.tanggal === 'string' ? sessionData.tanggal : undefined,
+          jamMulai: typeof sessionData.jamMulai === 'string' ? sessionData.jamMulai : undefined,
+          jamSelesai: typeof sessionData.jamSelesai === 'string' ? sessionData.jamSelesai : undefined,
+        },
+        presensiDate,
+      );
+      if (!serverScheduleCheck.isWithinSchedule) {
+        throw new Error(
+          serverScheduleCheck.message ?? 'Presensi ditolak: Di luar jadwal sesi yang ditentukan.',
+        );
       }
 
       if (attSnap.exists()) {

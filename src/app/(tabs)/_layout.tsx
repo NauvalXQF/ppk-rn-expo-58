@@ -1,12 +1,117 @@
 import React from 'react';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Redirect, Tabs } from 'expo-router';
+import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppIcon, type AppIconName } from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
-import { Colors } from '@/constants/theme';
+import { Colors, Radius, Shadow } from '@/constants/theme';
+
+const TAB_ICONS: Record<string, AppIconName> = {
+  jadwal: 'calendar',
+  peta: 'map-pin',
+  kehadiran: 'grid',
+  rekap: 'grid',
+  izin: 'file-text',
+  profil: 'user',
+};
+
+interface TabBarProps {
+  state: {
+    index: number;
+    routes: { key: string; name: string }[];
+  };
+  descriptors: Record<string, { options?: { title?: string; href?: string | null } }>;
+  emitter: {
+    emit: (event: {
+      type: 'tabPress';
+      target: string;
+      canPreventDefault: true;
+    }) => { defaultPrevented: boolean };
+  };
+  navigateToTab: (routeKey: string) => void;
+}
+
+function FloatingPillTabBar({
+  state,
+  descriptors,
+  emitter,
+  navigateToTab,
+}: TabBarProps) {
+  const insets = useSafeAreaInsets();
+
+  const visibleRoutes = state.routes.filter((route) => {
+    const opts = descriptors[route.key]?.options;
+    if (opts && opts.href === null) return false;
+    return route.name in TAB_ICONS;
+  });
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={[
+        styles.wrapper,
+        { bottom: Math.max(insets.bottom, 16) },
+      ]}
+    >
+      <View style={styles.pill}>
+        {Platform.OS !== 'web' ? (
+          <BlurView
+            intensity={45}
+            tint="light"
+            style={StyleSheet.absoluteFill}
+          />
+        ) : null}
+        {visibleRoutes.map((route) => {
+          const routeIndex = state.routes.findIndex((r) => r.key === route.key);
+          const isFocused = state.index === routeIndex;
+          const options = descriptors[route.key]?.options;
+          const iconName = TAB_ICONS[route.name] ?? 'grid';
+
+          const onPress = () => {
+            if (Platform.OS !== 'web') {
+              Haptics.selectionAsync().catch(() => {});
+            }
+            const event = emitter.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            });
+            if (!isFocused && !event.defaultPrevented) {
+              navigateToTab(route.key);
+            }
+          };
+
+          return (
+            <Pressable
+              key={route.key}
+              accessibilityRole="button"
+              accessibilityState={isFocused ? { selected: true } : {}}
+              accessibilityLabel={options?.title ?? route.name}
+              onPress={onPress}
+              style={({ pressed }) => [
+                styles.tabItem,
+                isFocused && styles.tabItemActive,
+                pressed && styles.tabItemPressed,
+              ]}
+            >
+              <AppIcon
+                name={iconName}
+                size={21}
+                color={isFocused ? Colors.textOnDark : Colors.text}
+              />
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
 
 export default function TabsLayout() {
   const { status, pengguna } = useAuth();
 
-  // Tunggu pemulihan sesi sebelum memutuskan redirect.
   if (status === 'memuat') {
     return null;
   }
@@ -19,14 +124,9 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      tabBar={(props) => <FloatingPillTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.textMuted,
-        tabBarStyle: {
-          backgroundColor: Colors.surface,
-          borderTopColor: Colors.border,
-        },
       }}
     >
       <Tabs.Screen name="jadwal" options={{ title: 'Jadwal' }} />
@@ -50,3 +150,41 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  wrapper: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    maxWidth: 328,
+    height: 64,
+    paddingHorizontal: 8,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.glassStrong,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    overflow: 'hidden',
+    ...Shadow.floating,
+  },
+  tabItem: {
+    width: 48,
+    height: 48,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabItemActive: {
+    backgroundColor: Colors.primary,
+  },
+  tabItemPressed: {
+    opacity: 0.85,
+  },
+});

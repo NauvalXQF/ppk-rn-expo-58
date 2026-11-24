@@ -1,13 +1,31 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Redirect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { FormField } from '@/components/ui/FormField';
 import { InfoBanner } from '@/components/ui/InfoBanner';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import {
+  Colors,
+  FontFamily,
+  FontSize,
+  Gradients,
+  Radius,
+  Shadow,
+  Spacing,
+} from '@/constants/theme';
 import { isFirebaseConfigured } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { pesanErrorAuth } from '@/services/authService';
@@ -26,10 +44,10 @@ export default function IndexRoute() {
 
   if (status === 'memuat') {
     return (
-      <View style={styles.loading}>
+      <LinearGradient colors={Gradients.screen} style={styles.loading}>
         <ActivityIndicator color={Colors.primary} size="large" />
         <Text style={styles.loadingText}>Memeriksa sesi login...</Text>
-      </View>
+      </LinearGradient>
     );
   }
 
@@ -75,162 +93,246 @@ export default function IndexRoute() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.logo}>
-            <Text style={styles.logoText}>PPK</Text>
-          </View>
-          <Text style={styles.title}>Presensi Praktikum</Text>
-          <Text style={styles.subtitle}>
-            Masuk untuk mengelola jadwal, presensi, dan rekap kehadiran praktikum.
-          </Text>
-        </View>
-
-        {!isFirebaseConfigured ? (
-          <InfoBanner
-            message="Firebase belum dikonfigurasi"
-            description="Salin .env.example menjadi .env lalu jalankan ulang aplikasi."
-            tone="warning"
-          />
-        ) : null}
-
-        <AppCard style={styles.card}>
-          <View style={styles.modeRow}>
-            <View style={styles.modeItem}>
-              <AppButton
-                label="Masuk"
-                variant={mode === 'masuk' ? 'primary' : 'secondary'}
-                onPress={() => gantiMode('masuk')}
-              />
-            </View>
-            <View style={styles.modeItem}>
-              <AppButton
-                label="Daftar"
-                variant={mode === 'daftar' ? 'primary' : 'secondary'}
-                onPress={() => gantiMode('daftar')}
-              />
-            </View>
-          </View>
-
-          {mode === 'daftar' ? (
-            <FormField
-              label="Nama Lengkap"
-              value={nama}
-              onChangeText={setNama}
-              placeholder="Contoh: Budi Santoso"
-              autoCapitalize="words"
-            />
-          ) : null}
-
-          <FormField
-            label="Email"
-            value={email}
-            onChangeText={setEmail}
-            placeholder="nama@email.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-
-          <FormField
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Minimal 6 karakter"
-            secureTextEntry
-            autoCapitalize="none"
-          />
-
-          {error ? <InfoBanner message={error} tone="danger" /> : null}
-
-          <AppButton
-            label={mode === 'daftar' ? 'Buat Akun Praktikan' : 'Masuk'}
-            onPress={handleSubmit}
-            loading={loading}
-            disabled={!isFirebaseConfigured}
-          />
-        </AppCard>
-
-        <Text style={styles.helper}>
-          Registrasi mandiri membuat akun praktikan. Akun asisten diberikan oleh pengampu
-          melalui mekanisme provisioning.
-        </Text>
+    <LinearGradient
+      colors={Gradients.screen}
+      start={{ x: 0.1, y: 0 }}
+      end={{ x: 0.9, y: 1 }}
+      style={styles.flex}
+    >
+      {/* Dekorasi latar lembut sesuai Screen/Login di FigCraft */}
+      <View pointerEvents="none" style={styles.decoTopRight}>
+        <View style={[styles.decoPetal, { transform: [{ rotate: '0deg' }] }]} />
+        <View style={[styles.decoPetal, { transform: [{ rotate: '60deg' }] }]} />
+        <View style={[styles.decoPetal, { transform: [{ rotate: '120deg' }] }]} />
       </View>
-    </SafeAreaView>
+
+      <SafeAreaView style={styles.flex} edges={['top', 'left', 'right']}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.flex}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.container}>
+              <View style={styles.header}>
+                <View style={styles.logo}>
+                  <Text style={styles.logoText}>PPK</Text>
+                </View>
+                <Text style={styles.title}>Presensi Praktikum</Text>
+                <Text style={styles.subtitle}>
+                  Masuk untuk mengelola jadwal, presensi GPS, dan rekap
+                  kehadiran praktikum.
+                </Text>
+              </View>
+
+              {!isFirebaseConfigured ? (
+                <InfoBanner
+                  message="Firebase belum dikonfigurasi"
+                  description="Salin .env.example menjadi .env lalu jalankan ulang aplikasi."
+                  tone="warning"
+                />
+              ) : null}
+
+              <AppCard style={styles.card}>
+                <View style={styles.segmentWrap}>
+                  <Pressable
+                    onPress={() => gantiMode('masuk')}
+                    style={[
+                      styles.segmentItem,
+                      mode === 'masuk' && styles.segmentActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.segmentText,
+                        mode === 'masuk' && styles.segmentTextActive,
+                      ]}
+                    >
+                      Masuk
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => gantiMode('daftar')}
+                    style={[
+                      styles.segmentItem,
+                      mode === 'daftar' && styles.segmentActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.segmentText,
+                        mode === 'daftar' && styles.segmentTextActive,
+                      ]}
+                    >
+                      Daftar
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {mode === 'daftar' ? (
+                  <FormField
+                    label="Nama Lengkap"
+                    value={nama}
+                    onChangeText={setNama}
+                    placeholder="Contoh: Budi Santoso"
+                    autoCapitalize="words"
+                  />
+                ) : null}
+
+                <FormField
+                  label="Email"
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="nama@kampus.ac.id"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+
+                <FormField
+                  label="Password"
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="Minimal 6 karakter"
+                  secureTextEntry
+                  autoCapitalize="none"
+                />
+
+                {error ? <InfoBanner message={error} tone="danger" /> : null}
+
+                <AppButton
+                  label={mode === 'daftar' ? 'Buat Akun Praktikan' : 'Masuk'}
+                  onPress={handleSubmit}
+                  loading={loading}
+                  disabled={!isFirebaseConfigured}
+                />
+              </AppCard>
+
+              <Text style={styles.helper}>
+                Registrasi mandiri membuat akun praktikan. Akun asisten
+                disiapkan pengampu.
+              </Text>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  flex: {
     flex: 1,
-    backgroundColor: Colors.background,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.md + 4,
+    paddingVertical: Spacing.lg,
   },
   container: {
-    flex: 1,
     width: '100%',
-    maxWidth: 480,
+    maxWidth: 440,
     alignSelf: 'center',
-    justifyContent: 'center',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.lg,
+    gap: Spacing.md + 4,
   },
   loading: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.sm,
-    backgroundColor: Colors.background,
   },
   loadingText: {
     fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
+  },
+  decoTopRight: {
+    position: 'absolute',
+    top: 72,
+    right: -28,
+    width: 136,
+    height: 136,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.35,
+  },
+  decoPetal: {
+    position: 'absolute',
+    width: 48,
+    height: 130,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.surface,
   },
   header: {
     alignItems: 'center',
-    gap: Spacing.xs,
-    marginBottom: Spacing.xs,
+    gap: Spacing.xs + 2,
   },
   logo: {
     width: 64,
     height: 64,
-    borderRadius: Radius.lg,
+    borderRadius: Radius.lg - 6,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Colors.primary,
     marginBottom: Spacing.xs,
+    ...Shadow.card,
   },
   logoText: {
     fontSize: FontSize.lg,
-    fontWeight: '800',
-    color: Colors.surface,
+    fontFamily: FontFamily.semibold,
+    color: Colors.textOnDark,
   },
   title: {
     fontSize: FontSize.xl,
-    fontWeight: '800',
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   subtitle: {
     fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
     lineHeight: 20,
     textAlign: 'center',
     color: Colors.textMuted,
+    maxWidth: 320,
   },
   card: {
     gap: Spacing.md,
     padding: Spacing.lg,
   },
-  modeRow: {
+  segmentWrap: {
     flexDirection: 'row',
-    gap: Spacing.sm,
+    backgroundColor: Colors.glassStrong,
+    borderRadius: Radius.pill,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
   },
-  modeItem: {
+  segmentItem: {
     flex: 1,
+    height: 40,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentActive: {
+    backgroundColor: Colors.primary,
+  },
+  segmentText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.medium,
+    color: Colors.textMuted,
+  },
+  segmentTextActive: {
+    color: Colors.textOnDark,
   },
   helper: {
     fontSize: FontSize.xs,
-    lineHeight: 18,
+    fontFamily: FontFamily.regular,
+    lineHeight: 17,
     textAlign: 'center',
     color: Colors.textMuted,
   },

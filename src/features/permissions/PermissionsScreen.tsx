@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Colors, FontSize, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
 import {
@@ -28,7 +28,7 @@ export function PermissionsScreen({
 }: PermissionsScreenProps) {
   if (!actor) {
     return (
-      <ScreenContainer>
+      <ScreenContainer variant="gradient">
         <EmptyState
           title="Sesi login belum tersedia"
           description="Masuk terlebih dahulu untuk mengakses pengajuan dan pemeriksaan izin praktikum."
@@ -43,15 +43,15 @@ export function PermissionsScreen({
   };
 
   return (
-    <ScreenContainer>
+    <ScreenContainer variant="gradient">
       <View style={styles.header}>
         <Text style={styles.title}>
           {actor.role === 'asisten' ? 'Pemeriksaan Izin' : 'Pengajuan Izin'}
         </Text>
         <Text style={styles.subtitle}>
           {actor.role === 'asisten'
-            ? 'Tinjau pengajuan izin praktikan beserta informasi klasifikasi AI'
-            : 'Ajukan izin ketidakhadiran dan pantau keputusan asisten'}
+            ? 'Tinjau pengajuan izin praktikan & klasifikasi AI'
+            : 'Ajukan izin ketidakhadiran & pantau keputusan asisten'}
         </Text>
       </View>
 
@@ -87,16 +87,16 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: FontSize.xl,
-    fontWeight: '800',
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   subtitle: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
-    lineHeight: 20,
+    lineHeight: 18,
   },
   content: {
-    gap: Spacing.lg,
+    gap: Spacing.md,
   },
 });
-

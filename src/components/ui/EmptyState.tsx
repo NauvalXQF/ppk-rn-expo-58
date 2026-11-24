@@ -6,7 +6,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { Colors, FontSize, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
 import { AppButton } from './AppButton';
 
 interface EmptyStateProps {
@@ -47,12 +47,13 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: FontSize.md,
-    fontWeight: '700',
+    fontFamily: FontFamily.medium,
     color: Colors.text,
     textAlign: 'center',
   },
   description: {
     fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
     textAlign: 'center',
     maxWidth: 320,

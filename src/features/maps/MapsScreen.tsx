@@ -4,7 +4,7 @@ import { ActivityIndicator, Linking, Platform, StyleSheet, Text, View } from 're
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton } from '@/components/ui/AppButton';
 import { InfoBanner } from '@/components/ui/InfoBanner';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius, Shadow, Spacing } from '@/constants/theme';
 import type { ProfilPengguna } from '@/services/authService';
 import { activeLaboratories, selectLaboratories } from '@/services/maps/laboratories';
 import { LabActivitySheet } from './LabActivitySheet';
@@ -105,7 +105,7 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
           focused={focused}
           onSelect={selectLab}
         />
-        <View style={styles.controls}>
+        <View style={[styles.controls, styles.bottomControls]}>
             <View style={styles.notice}>
               {location.status === 'denied' ? (
                 <>
@@ -188,13 +188,14 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Colors.background },
   canvas: { flex: 1 },
   controls: { gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm },
+  bottomControls: { paddingBottom: 92 },
   heading: {
-    alignSelf: 'flex-start', maxWidth: '100%', backgroundColor: Colors.surface,
-    borderRadius: Radius.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
-    borderColor: Colors.border, borderWidth: StyleSheet.hairlineWidth,
+    alignSelf: 'flex-start', maxWidth: '100%', backgroundColor: Colors.glassStrong,
+    borderRadius: Radius.lg, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm + 2,
+    borderColor: Colors.glassBorder, borderWidth: 1, ...Shadow.card,
   },
-  title: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.text },
-  detail: { fontSize: FontSize.sm, color: Colors.textMuted, flexShrink: 1 },
+  title: { fontSize: FontSize.lg, fontFamily: FontFamily.medium, color: Colors.text },
+  detail: { fontSize: FontSize.xs, fontFamily: FontFamily.regular, color: Colors.textMuted, flexShrink: 1 },
   notice: { gap: Spacing.xs },
   locationNotice: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   actions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: Spacing.sm },

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { StatusSesi } from '@/types/models';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { AppButton } from '@/components/ui/AppButton';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 
@@ -36,7 +36,8 @@ export function SessionControlCard({
       {status === 'dibuka' && (
         <View style={styles.actionBlock}>
           <Text style={styles.description}>
-            Praktikan sedang dapat melakukan presensi. Tutup sesi apabila waktu kehadiran telah selesai.
+            Praktikan dapat melakukan presensi GPS. Tutup sesi apabila waktu
+            kehadiran telah selesai.
           </Text>
           <AppButton
             label="Tutup Sesi"
@@ -59,25 +60,23 @@ export function SessionControlCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: Colors.surface,
-    borderColor: Colors.border,
-    borderWidth: 1,
+    backgroundColor: Colors.neutralSoft,
     borderRadius: Radius.md,
     padding: Spacing.md,
     gap: Spacing.sm,
   },
   title: {
     fontSize: FontSize.md,
-    fontWeight: '700',
+    fontFamily: FontFamily.medium,
     color: Colors.text,
   },
   actionBlock: {
     gap: Spacing.sm,
   },
   description: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
-    lineHeight: 20,
+    lineHeight: 18,
   },
 });
-

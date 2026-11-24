@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import type { RekapSesi } from '@/types/models';
-import { Spacing } from '@/constants/theme';
+import { Colors, Radius, Spacing } from '@/constants/theme';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { AttendanceRow } from '@/components/domain/AttendanceRow';
@@ -53,11 +53,8 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xs,
   },
   emptyState: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E4E7EC',
+    backgroundColor: Colors.neutralSoft,
+    borderRadius: Radius.md,
     paddingVertical: Spacing.lg,
   },
 });
-

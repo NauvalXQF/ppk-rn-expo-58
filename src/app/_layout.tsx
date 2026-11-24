@@ -1,10 +1,19 @@
 import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import {
+  useFonts,
+  Outfit_400Regular,
+  Outfit_500Medium,
+  Outfit_600SemiBold,
+} from '@expo-google-fonts/outfit';
 import { AppProvider, useApp } from '@/store/app-context';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { NotificationProvider } from '@/hooks/useNotifications';
 import { kePenggunaAplikasi } from '@/services/authService';
 import { Colors } from '@/constants/theme';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 /**
  * Menjembatani profil Firebase (AuthContext) ke state aplikasi Sprint 1,
@@ -27,6 +36,22 @@ function SinkronisasiProfil() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({
+    Outfit_400Regular,
+    Outfit_500Medium,
+    Outfit_600SemiBold,
+  });
+
+  useEffect(() => {
+    if (fontsLoaded || fontError) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsLoaded, fontError]);
+
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
+
   return (
     <AppProvider>
       <AuthProvider>
@@ -36,28 +61,13 @@ export default function RootLayout() {
             screenOptions={{
               headerShown: false,
               contentStyle: { backgroundColor: Colors.background },
+              animation: 'fade',
             }}
           >
             <Stack.Screen name="index" />
             <Stack.Screen name="(tabs)" />
-            <Stack.Screen
-              name="sesi/[sesiId]"
-              options={{
-                headerShown: true,
-                title: 'Detail Sesi',
-                headerTintColor: Colors.primary,
-                headerStyle: { backgroundColor: Colors.surface },
-              }}
-            />
-            <Stack.Screen
-              name="presensi/[sesiId]"
-              options={{
-                headerShown: true,
-                title: 'Presensi Kehadiran',
-                headerTintColor: Colors.primary,
-                headerStyle: { backgroundColor: Colors.surface },
-              }}
-            />
+            <Stack.Screen name="sesi/[sesiId]" />
+            <Stack.Screen name="presensi/[sesiId]" />
           </Stack>
         </NotificationProvider>
       </AuthProvider>

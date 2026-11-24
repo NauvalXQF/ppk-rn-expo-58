@@ -1,11 +1,13 @@
 import React from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+import { AppIcon } from '@/components/ui/AppIcon';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
+import { ProgressBar } from '@/components/domain/ProgressBar';
+import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { classifyGpsAccuracy } from '@/services/location/geofenceService';
 import type {
   LabGeofenceTarget,
@@ -39,20 +41,20 @@ export function LocationStatusCard({
   if (permissionState === 'denied') {
     return (
       <AppCard style={styles.card}>
-        <SectionHeader title="Verifikasi Lokasi Lab" />
+        <SectionHeader title="Verifikasi Geofence" />
         <InfoBanner
           tone="danger"
           message="Izin lokasi ditolak. Aplikasi membutuhkan akses lokasi untuk memvalidasi presensi di lab."
           description={
             Platform.OS === 'web'
-              ? 'Klik ikon pengaturan di sebelah kiri address bar browser lalu izinkan akses Location dan tekan Coba Lagi.'
+              ? 'Klik ikon pengaturan di address bar browser lalu izinkan akses Location dan tekan Coba Lagi.'
               : 'Berikan izin lokasi melalui pengaturan aplikasi lalu segarkan kembali.'
           }
         />
         <View style={styles.actionRow}>
           {Platform.OS !== 'web' ? (
             <AppButton
-              label="Buka Pengaturan Aplikasi"
+              label="Buka Pengaturan"
               onPress={onOpenSettings}
               style={styles.flexButton}
             />
@@ -72,7 +74,7 @@ export function LocationStatusCard({
   if (!gpsEnabled) {
     return (
       <AppCard style={styles.card}>
-        <SectionHeader title="Verifikasi Lokasi Lab" />
+        <SectionHeader title="Verifikasi Geofence" />
         <InfoBanner
           tone="warning"
           message="Layanan lokasi (GPS) perangkat Anda nonaktif."
@@ -100,11 +102,11 @@ export function LocationStatusCard({
   if (loading && !verification) {
     return (
       <AppCard style={styles.card}>
-        <SectionHeader title="Verifikasi Lokasi Lab" />
+        <SectionHeader title="Verifikasi Geofence" />
         <View style={styles.loadingBox}>
           <ActivityIndicator size="small" color={Colors.primary} />
           <Text style={styles.loadingText}>
-            Mengambil koordinat GPS terkini dan menghitung jarak ke {labTarget.labNama}...
+            Mengambil koordinat GPS terkini ke {labTarget.labNama}...
           </Text>
         </View>
       </AppCard>
@@ -114,7 +116,7 @@ export function LocationStatusCard({
   if (!verification) {
     return (
       <AppCard style={styles.card}>
-        <SectionHeader title="Verifikasi Lokasi Lab" />
+        <SectionHeader title="Verifikasi Geofence" />
         <InfoBanner
           tone="warning"
           message={errorMessage ?? 'Koordinat lokasi belum tersedia.'}
@@ -134,76 +136,70 @@ export function LocationStatusCard({
   const accuracyInfo = classifyGpsAccuracy(verification.accuracyMeters);
   const accuracyValueText =
     verification.accuracyMeters !== null
-      ? `${Math.round(verification.accuracyMeters)} meter — ${accuracyInfo.label}`
+      ? `±${Math.round(verification.accuracyMeters)} m (${accuracyInfo.label})`
       : 'Tidak diketahui';
+  const distRounded = Math.round(verification.distanceMeters);
+  const maxRounded = Math.round(verification.radiusMeters);
+  const proximityRatio =
+    maxRounded > 0 ? Math.max(0.1, 1 - Math.min(1, distRounded / maxRounded)) : 0;
 
   return (
     <AppCard style={styles.card}>
-      <SectionHeader
-        title="Verifikasi Lokasi Lab"
-        rightText={`Batas ${Math.round(verification.radiusMeters)}m`}
-      />
-
-      <View
-        style={[
-          styles.statusBox,
-          isInside ? styles.statusBoxValid : styles.statusBoxInvalid,
-        ]}
-      >
+      <View style={styles.topHeader}>
+        <View style={styles.headerLeft}>
+          <AppIcon name="map-pin" size={16} color={Colors.text} />
+          <Text style={styles.titleText}>Verifikasi Geofence</Text>
+        </View>
         <View
           style={[
-            styles.radarCircle,
-            isInside ? styles.radarCircleValid : styles.radarCircleInvalid,
+            styles.radiusBadge,
+            {
+              backgroundColor: isInside
+                ? Colors.successSoft
+                : Colors.dangerSoft,
+            },
           ]}
         >
-          <Text style={styles.radarIcon}>{isInside ? '✓' : '✕'}</Text>
-        </View>
-
-        <View style={styles.statusTextWrap}>
           <Text
             style={[
-              styles.statusTitle,
-              isInside ? styles.statusTitleValid : styles.statusTitleInvalid,
+              styles.radiusBadgeText,
+              { color: isInside ? Colors.success : Colors.danger },
             ]}
           >
-            {isInside
-              ? 'Status Lokasi: Di Dalam Radius'
-              : 'Status Lokasi: Di Luar Radius'}
-          </Text>
-          <Text style={styles.distanceText}>
-            Jarak Anda ke {labTarget.labNama}:{' '}
-            <Text style={styles.boldText}>
-              {Math.round(verification.distanceMeters)} meter
-            </Text>{' '}
-            (Maksimal: {Math.round(verification.radiusMeters)} meter)
+            {isInside ? 'Dalam Radius' : 'Di Luar Radius'}
           </Text>
         </View>
       </View>
 
-      <View style={styles.metricRow}>
-        <Text style={styles.metricLabel}>Akurasi GPS</Text>
-        <Text style={styles.metricValue}>{accuracyValueText}</Text>
+      <View style={styles.statRow}>
+        <Text style={styles.statNumber}>{distRounded} m</Text>
+        <Text style={styles.statSub}>
+          dari pusat {labTarget.labNama} (maks. {maxRounded} m)
+        </Text>
       </View>
+
+      <ProgressBar
+        progress={isInside ? Math.max(0.25, proximityRatio) : 0.12}
+        fillColor={isInside ? Colors.accentBlue : Colors.danger}
+      />
+
+      <Text style={styles.accuracyText}>
+        Akurasi GPS {accuracyValueText} ·{' '}
+        {isInside ? 'Lokasi terverifikasi aman' : 'Dekati area laboratorium'}
+      </Text>
 
       {verification.isWeakAccuracy && verification.accuracyMeters !== null ? (
         <InfoBanner
           tone="warning"
-          message={`Mencari sinyal GPS akurat (Akurasi saat ini: >50m, terukur ${Math.round(verification.accuracyMeters)}m)...`}
-          description="Jika sinyal lemah di dalam gedung, bergeraklah mendekati jendela/pintu lab lalu segarkan lokasi."
-        />
-      ) : null}
-
-      {!isInside ? (
-        <InfoBanner
-          tone="danger"
-          message={verification.message}
-          description="Dekati ruangan laboratorium hingga jarak berada di dalam batas toleransi."
+          message={`Sinyal GPS lemah (akurasi >50m, terukur ${Math.round(verification.accuracyMeters)}m)`}
+          description="Jika sinyal lemah di dalam gedung, bergeraklah mendekati jendela/pintu lab lalu segarkan."
         />
       ) : null}
 
       <AppButton
         label="Segarkan Lokasi"
         variant="secondary"
+        size="sm"
         onPress={onRefresh}
         loading={refreshing}
       />
@@ -213,12 +209,58 @@ export function LocationStatusCard({
 
 const styles = StyleSheet.create({
   card: {
-    gap: Spacing.md,
+    gap: 10,
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  titleText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.medium,
+    color: Colors.text,
+  },
+  radiusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.pill,
+  },
+  radiusBadgeText: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
+  },
+  statRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  statNumber: {
+    fontSize: FontSize.stat,
+    lineHeight: 32,
+    fontFamily: FontFamily.medium,
+    color: Colors.text,
+  },
+  statSub: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
+    color: Colors.textMuted,
+  },
+  accuracyText: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
+    color: Colors.textMuted,
   },
   actionRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
-    flexWrap: 'wrap',
   },
   flexButton: {
     flex: 1,
@@ -227,83 +269,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    paddingVertical: Spacing.sm,
   },
   loadingText: {
     flex: 1,
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
-    lineHeight: 20,
-  },
-  statusBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-  },
-  statusBoxValid: {
-    backgroundColor: Colors.successSoft,
-    borderColor: '#B4EDCD',
-  },
-  statusBoxInvalid: {
-    backgroundColor: Colors.dangerSoft,
-    borderColor: '#FDA29B',
-  },
-  radarCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radarCircleValid: {
-    backgroundColor: Colors.success,
-  },
-  radarCircleInvalid: {
-    backgroundColor: Colors.danger,
-  },
-  radarIcon: {
-    color: '#FFFFFF',
-    fontSize: FontSize.md,
-    fontWeight: '800',
-  },
-  statusTextWrap: {
-    flex: 1,
-    gap: 2,
-  },
-  statusTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-  },
-  statusTitleValid: {
-    color: Colors.success,
-  },
-  statusTitleInvalid: {
-    color: Colors.danger,
-  },
-  distanceText: {
-    fontSize: FontSize.xs,
-    color: Colors.text,
-    lineHeight: 18,
-  },
-  boldText: {
-    fontWeight: '700',
-  },
-  metricRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xs,
-  },
-  metricLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-  },
-  metricValue: {
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    color: Colors.text,
   },
 });
