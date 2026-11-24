@@ -13,6 +13,7 @@ interface FormFieldProps extends TextInputProps {
   helperText?: string;
   error?: string;
   counter?: string;
+  rightAccessory?: React.ReactNode;
 }
 
 export function FormField({
@@ -20,6 +21,7 @@ export function FormField({
   helperText,
   error,
   counter,
+  rightAccessory,
   style,
   ...inputProps
 }: FormFieldProps) {
@@ -30,16 +32,36 @@ export function FormField({
         {counter ? <Text style={styles.counter}>{counter}</Text> : null}
       </View>
 
-      <TextInput
-        style={[
-          styles.input,
-          error ? styles.inputError : undefined,
-          inputProps.multiline ? styles.inputMultiline : undefined,
-          style,
-        ]}
-        placeholderTextColor={Colors.textMuted}
-        {...inputProps}
-      />
+      {rightAccessory ? (
+        <View
+          style={[
+            styles.inputWrapper,
+            error ? styles.inputError : undefined,
+          ]}
+        >
+          <TextInput
+            style={[
+              styles.inputInner,
+              inputProps.multiline ? styles.inputMultiline : undefined,
+              style,
+            ]}
+            placeholderTextColor={Colors.textMuted}
+            {...inputProps}
+          />
+          <View style={styles.accessoryWrap}>{rightAccessory}</View>
+        </View>
+      ) : (
+        <TextInput
+          style={[
+            styles.input,
+            error ? styles.inputError : undefined,
+            inputProps.multiline ? styles.inputMultiline : undefined,
+            style,
+          ]}
+          placeholderTextColor={Colors.textMuted}
+          {...inputProps}
+        />
+      )}
 
       {error ? (
         <Text style={styles.errorText}>{error}</Text>
@@ -80,6 +102,30 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.regular,
     color: Colors.text,
     backgroundColor: Colors.surface,
+  },
+  inputWrapper: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    paddingLeft: Spacing.md,
+    paddingRight: Spacing.sm,
+    backgroundColor: Colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  inputInner: {
+    flex: 1,
+    minHeight: 46,
+    paddingVertical: 10,
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.regular,
+    color: Colors.text,
+  },
+  accessoryWrap: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   inputMultiline: {
     minHeight: 88,

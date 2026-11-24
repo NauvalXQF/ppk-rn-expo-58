@@ -260,7 +260,12 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
           </AppCard>
 
           <AppButton
-            label="Kirim Presensi Kehadiran"
+            label={
+              geofence.verification &&
+              geofence.verification.status !== 'DALAM_RADIUS'
+                ? `Di Luar Radius Lab (${Math.round(geofence.verification.distanceMeters)} m)`
+                : 'Kirim Presensi Kehadiran'
+            }
             onPress={handleOpenConfirm}
             disabled={!canSubmit}
             loading={loading}

@@ -34,23 +34,19 @@ export function NotificationPrompt() {
   }
 
   if (permissionStatus === 'granted') {
-    const tokenShort = deviceToken
-      ? `${deviceToken.slice(0, 26)}${deviceToken.length > 26 ? '…' : ''}`
-      : null;
-
     return (
       <AppCard style={styles.card}>
         <View style={styles.activeHeader}>
           <View style={styles.activeBadge}>
             <Text style={styles.activeBadgeText}>Aktif</Text>
           </View>
-          <Text style={styles.activeTitle}>Push Notification Praktikum</Text>
+          <Text style={styles.activeTitle}>Notifikasi Praktikum</Text>
         </View>
         <Text style={styles.activeDesc}>
-          {tokenShort
-            ? `Perangkat terdaftar untuk info sesi dibuka, perubahan jadwal, dan keputusan izin (${tokenShort}).`
+          {deviceToken
+            ? 'Aktif di perangkat ini untuk info sesi dibuka, perubahan jadwal, dan keputusan izin.'
             : statusMessage ||
-              'Izin notifikasi aktif. Aplikasi siap menerima pemberitahuan kegiatan praktikum.'}
+              'Notifikasi aktif. Aplikasi siap menerima kabar kegiatan praktikum.'}
         </Text>
       </AppCard>
     );
@@ -62,7 +58,7 @@ export function NotificationPrompt() {
     <AppCard style={styles.card}>
       <InfoBanner
         tone="warning"
-        message="Pemberitahuan push nonaktif. Anda mungkin melewatkan info sesi dibuka."
+        message="Notifikasi nonaktif. Anda mungkin melewatkan info sesi dibuka."
         description={
           isPermanentlyDenied
             ? 'Izin notifikasi telah ditolak di sistem operasi. Buka pengaturan aplikasi untuk mengaktifkannya kembali.'
@@ -80,7 +76,7 @@ export function NotificationPrompt() {
           />
         ) : (
           <AppButton
-            label="Izinkan Pemberitahuan"
+            label="Aktifkan Notifikasi"
             variant="primary"
             loading={isBusy}
             onPress={() => {

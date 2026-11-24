@@ -3,7 +3,7 @@ import { Keyboard, StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { FormField } from '@/components/ui/FormField';
 import { InfoBanner } from '@/components/ui/InfoBanner';
-import { Colors, FontSize, Spacing } from '@/constants/theme';
+import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 import type { ProfilPengguna } from '@/services/authService';
 import { archiveLaboratory, saveLaboratory } from '@/services/maps/laboratoryService';
 import { DEFAULT_LAB_RADIUS, validCoordinates, validRadius } from '@/services/maps/laboratories';
@@ -181,10 +181,16 @@ export function LabManagementModal({
           {laboratories.map((lab) => (
             <View key={lab.id} style={styles.row}>
               <View style={styles.rowDetails}>
-                <Text style={styles.label}>{lab.nama}</Text>
-                <Text style={styles.text}>{lab.kode} · {lab.aktif ? 'Aktif' : 'Diarsipkan'}</Text>
+                <Text style={styles.label}>
+                  {lab.nama} ({lab.kode})
+                </Text>
+                <Text style={styles.text}>
+                  {lab.gedung ? `${lab.gedung} · ` : ''}
+                  Kapasitas {lab.kapasitas} · Radius {lab.radiusMeters} m
+                  {!lab.aktif ? ' · Diarsipkan' : ''}
+                </Text>
               </View>
-              <AppButton label="Edit" onPress={() => edit(lab)} variant="secondary" disabled={busy} />
+              <AppButton label="Edit" onPress={() => edit(lab)} variant="secondary" size="sm" disabled={busy} />
             </View>
           ))}
         </>
@@ -203,13 +209,19 @@ export function LabManagementModal({
               onChangeText={(value) => change(key, value)}
             />
           ))}
-          <AppButton label="Pilih Lokasi di Peta" variant="secondary" disabled={busy} onPress={openPicker} />
-          <AppButton label="Gunakan lokasi saat ini" variant="secondary" disabled={!location || busy}
-            onPress={() => {
-              if (!location) return;
-              change('latitude', String(location.latitude));
-              change('longitude', String(location.longitude));
-            }} />
+          <View style={styles.quickLocRow}>
+            <View style={styles.quickLocCol}>
+              <AppButton label="Pilih Lokasi di Peta" variant="secondary" size="sm" disabled={busy} onPress={openPicker} />
+            </View>
+            <View style={styles.quickLocCol}>
+              <AppButton label="Gunakan lokasi saat ini" variant="secondary" size="sm" disabled={!location || busy}
+                onPress={() => {
+                  if (!location) return;
+                  change('latitude', String(location.latitude));
+                  change('longitude', String(location.longitude));
+                }} />
+            </View>
+          </View>
           {validCoordinates(latitude, longitude) && validRadius(radiusMeters) ? (
             <LabPreview point={{ latitude, longitude }} radius={radiusMeters} />
           ) : null}
@@ -244,14 +256,17 @@ export function LabManagementModal({
 }
 
 const styles = StyleSheet.create({
-  label: { color: Colors.text, fontSize: FontSize.md, fontWeight: '700' },
-  text: { color: Colors.textMuted, fontSize: FontSize.sm },
+  label: { color: Colors.text, fontSize: FontSize.sm, fontWeight: '600' },
+  text: { color: Colors.textMuted, fontSize: FontSize.xs },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.border, paddingTop: Spacing.sm,
+    backgroundColor: Colors.neutralSoft ?? '#F1F2F5', borderRadius: Radius?.md ?? 20,
+    paddingHorizontal: 14, paddingVertical: 12,
   },
-  rowDetails: { flex: 1, gap: Spacing.xs },
-  confirmation: { gap: Spacing.sm, backgroundColor: Colors.dangerSoft, padding: Spacing.md },
+  rowDetails: { flex: 1, gap: 2 },
+  quickLocRow: { flexDirection: 'row', gap: Spacing.sm },
+  quickLocCol: { flex: 1 },
+  confirmation: { gap: Spacing.sm, backgroundColor: Colors.dangerSoft, borderRadius: Radius?.md ?? 20, padding: Spacing.md },
   pickerHint: { color: Colors.textMuted, fontSize: FontSize.sm, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
   pickerFooter: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, gap: Spacing.sm },
   pickerCoordinates: { flexDirection: 'row', flexWrap: 'wrap', columnGap: Spacing.md },

@@ -38,6 +38,25 @@ export function DotHeatmap({ filledCount }: DotHeatmapProps) {
           </View>
         ))}
       </View>
+      <View style={styles.legendRow}>
+        <AppText variant="caption" color={Colors.textMuted}>
+          5 minggu terakhir
+        </AppText>
+        <View style={styles.legendKeys}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, styles.dotEmpty]} />
+            <AppText variant="caption" color={Colors.textMuted}>
+              0 sesi
+            </AppText>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, styles.dotFilled]} />
+            <AppText variant="caption" color={Colors.textMuted}>
+              Hadir
+            </AppText>
+          </View>
+        </View>
+      </View>
     </View>
   );
 }
@@ -69,5 +88,29 @@ const styles = StyleSheet.create({
   },
   dayLabel: {
     marginTop: 2,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  legendKeys: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: Radius.pill,
   },
 });

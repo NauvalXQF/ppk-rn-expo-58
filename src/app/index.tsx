@@ -39,6 +39,8 @@ export default function IndexRoute() {
   const [nama, setNama] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [forgotNotice, setForgotNotice] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -197,9 +199,42 @@ export default function IndexRoute() {
                   value={password}
                   onChangeText={setPassword}
                   placeholder="Minimal 6 karakter"
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
                   autoCapitalize="none"
+                  rightAccessory={
+                    <Pressable
+                      onPress={() => setShowPassword((prev) => !prev)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        showPassword ? 'Sembunyikan password' : 'Tampilkan password'
+                      }
+                      style={styles.togglePassBtn}
+                    >
+                      <Text style={styles.togglePassText}>
+                        {showPassword ? 'Sembunyikan' : 'Tampilkan'}
+                      </Text>
+                    </Pressable>
+                  }
                 />
+
+                {mode === 'masuk' ? (
+                  <View style={styles.forgotRow}>
+                    <Pressable
+                      onPress={() => setForgotNotice((prev) => !prev)}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.forgotText}>Lupa password?</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                {forgotNotice && mode === 'masuk' ? (
+                  <InfoBanner
+                    tone="info"
+                    message="Hubungi asisten atau pengampu praktikum untuk reset akun Anda."
+                  />
+                ) : null}
 
                 {error ? <InfoBanner message={error} tone="danger" /> : null}
 
@@ -249,6 +284,25 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontFamily: FontFamily.regular,
     color: Colors.textMuted,
+  },
+  togglePassBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  togglePassText: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
+    color: Colors.textMuted,
+  },
+  forgotRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: -6,
+  },
+  forgotText: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
+    color: '#2563EB',
   },
   decoTopRight: {
     position: 'absolute',
