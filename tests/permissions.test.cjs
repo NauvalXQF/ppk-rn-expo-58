@@ -694,3 +694,114 @@ test('local EDOM sentiment model integrates as default offline AI classifier', a
   assert.ok(['positif', 'netral', 'negatif'].includes(submitted.request.aiClassification.category));
   assert.equal(submitted.request.aiClassification.experimental, true);
 });
+
+const { classifyLeaveReasonCategory } = loadSource('features/permissions/leaveReasonClassifier');
+const { formatLeaveReasonCategory, getLeaveAiResultLabel } = loadSource('features/permissions/formatters');
+
+const leaveReasonCases = [
+  ['sick', 'Saya sedang demam dan harus beristirahat.'],
+  ['family', 'Saya harus menghadiri acara keluarga.'],
+  ['academic', 'Saya mengikuti kegiatan akademik yang berbenturan dengan jadwal praktikum.'],
+  ['personal', 'Saya ada keperluan pribadi.'],
+  ['other', 'Saya tidak dapat hadir.'],
+  ['other', 'Saya izin tidak mengikuti praktikum.'],
+];
+
+for (const [expected, reason] of leaveReasonCases) {
+  test(`leave reason category is ${expected} for "${reason}"`, () => {
+    assert.equal(classifyLeaveReasonCategory(reason), expected);
+  });
+}
+
+test('leave reason rules handle capitalization, punctuation, and normalized characters', () => {
+  assert.equal(classifyLeaveReasonCategory('  Izin: ＤＥＭＡＭ!!!  '), 'sick');
+  assert.equal(classifyLeaveReasonCategory('Ada ACARA—KELUARGA.'), 'family');
+  assert.equal(classifyLeaveReasonCategory(' \t\n '), 'other');
+});
+
+test('leave reason rules match complete words and phrases', () => {
+  assert.equal(classifyLeaveReasonCategory('Kefasihan, fluktuasi, pujian, putusan, kesakitan.'), 'other');
+  assert.equal(classifyLeaveReasonCategory('Keperluan kepribadian dan acara kekeluargaan.'), 'other');
+  assert.equal(classifyLeaveReasonCategory('Kata buatan ésakit dan demam2.'), 'other');
+});
+
+test('leave reason rules ignore simple negation without dropping a separate cause', () => {
+  assert.equal(classifyLeaveReasonCategory('Saya tidak sakit, tetapi harus menghadiri acara keluarga.'), 'family');
+  assert.equal(classifyLeaveReasonCategory('Saya bukan sedang sakit.'), 'other');
+  assert.equal(classifyLeaveReasonCategory('Saya tidak akan menghadiri acara keluarga.'), 'other');
+  assert.equal(classifyLeaveReasonCategory('Saya tidak sedang dalam kondisi sakit.'), 'other');
+  assert.equal(classifyLeaveReasonCategory('Bukan karena sakit atau demam.'), 'other');
+  assert.equal(classifyLeaveReasonCategory('Bukan karena sakit maupun acara keluarga.'), 'other');
+  assert.equal(classifyLeaveReasonCategory('Saya tidak sakit dan ada acara keluarga.'), 'family');
+  assert.equal(classifyLeaveReasonCategory('Bukan karena kegiatan akademik. Saya sedang demam.'), 'sick');
+  assert.equal(classifyLeaveReasonCategory('Saya tidak enak badan.'), 'sick');
+  assert.equal(classifyLeaveReasonCategory('Saya tidak bisa hadir karena demam.'), 'sick');
+});
+
+test('leave reason rules return other for unresolved conflicts regardless of order', () => {
+  assert.equal(classifyLeaveReasonCategory('Saya demam dan ada acara keluarga.'), 'other');
+  assert.equal(classifyLeaveReasonCategory('Ada acara keluarga. Saya juga demam.'), 'other');
+  assert.equal(classifyLeaveReasonCategory('Saya sakit dan demam.'), 'sick');
+});
+
+test('old and current leave documents derive the same display category from the reason', () => {
+  const reason = 'Saya menghadiri acara keluarga.';
+  const oldDoc = fromFirestoreLeaveRequestDoc('old', { reason, status: 'approved' });
+  const currentDoc = fromFirestoreLeaveRequestDoc('current', {
+    alasan: reason,
+    ai: { status: 'completed', category: 'negatif' },
+    status: 'pending',
+  });
+
+  assert.equal(formatLeaveReasonCategory(reason), 'Kategori alasan: Keperluan Keluarga');
+  assert.equal(formatLeaveReasonCategory(oldDoc.reason), formatLeaveReasonCategory(currentDoc.reason));
+  assert.equal(oldDoc.status, 'approved');
+  assert.equal(getLeaveAiResultLabel(currentDoc.aiClassification.category), 'Sentimen AI');
+  assert.equal(getLeaveAiResultLabel('Sakit'), 'Klasifikasi AI');
+});
+
+test('leave reason classifier failures fall back without blocking an EDOM submission', async (t) => {
+  const normalize = String.prototype.normalize;
+  const reason = 'Saya sakit demam tinggi dan tidak bisa hadir praktikum';
+  t.mock.method(String.prototype, 'normalize', function (form) {
+    if (form === 'NFKC' && String(this) === reason) throw new Error('Normalization failed');
+    return normalize.call(this, form);
+  });
+
+  assert.equal(formatLeaveReasonCategory(reason), 'Kategori alasan: Lainnya / Perlu Ditinjau');
+  const result = await submitLeaveRequest(
+    { actor: praktikanActor, session: sampleSession, reason },
+    { repository: createInMemoryPermissionRepository() },
+  );
+  assert.equal(result.request.status, 'pending');
+  assert.equal(result.request.aiClassification.status, 'completed');
+  assert.equal(formatLeaveReasonCategory(result.request.reason), 'Kategori alasan: Lainnya / Perlu Ditinjau');
+});
+
+test('reason categorization and EDOM run offline and leave the decision to the assistant', async (t) => {
+  const fetch = t.mock.method(globalThis, 'fetch', () => {
+    throw new Error('Unexpected HTTP request');
+  });
+  const repository = createInMemoryPermissionRepository();
+  const reason = 'Saya sakit demam tinggi dan tidak bisa hadir praktikum';
+  const preview = formatLeaveReasonCategory(reason);
+  const { request } = await submitLeaveRequest(
+    { actor: praktikanActor, session: sampleSession, reason },
+    { repository },
+  );
+  assert.equal(preview, 'Kategori alasan: Sakit');
+  assert.equal(formatLeaveReasonCategory(request.reason), preview);
+  assert.equal(request.aiClassification.status, 'completed');
+  assert.match(request.aiClassification.category, /^(negatif|netral|positif)$/);
+  assert.equal(request.status, 'pending');
+  assert.equal(request.decidedBy, null);
+
+  const decided = await decideLeaveRequest(
+    { actor: asistenActor, requestId: request.id, decision: 'rejected' },
+    { repository },
+  );
+  assert.equal(decided.status, 'rejected');
+  assert.equal(decided.decidedBy, asistenActor.uid);
+  assert.equal(formatLeaveReasonCategory(decided.reason), preview);
+  assert.equal(fetch.mock.callCount(), 0);
+});

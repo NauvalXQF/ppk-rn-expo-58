@@ -20,7 +20,7 @@ import {
   type PermissionServiceOptions,
 } from '@/services/permissionService';
 import { notifyLeaveDecided } from '@/services/notifications/notificationDispatcher';
-import { safeFormatDate, safeFormatTime } from './formatters';
+import { formatLeaveReasonCategory, safeFormatDate, safeFormatTime } from './formatters';
 import {
   AiClassificationBadge,
   LeaveDecisionBadge,
@@ -132,7 +132,7 @@ export function AsistenLeaveReviewList({
 
       <InfoBanner
         tone="info"
-        message="Klasifikasi AI hanya bersifat informasi pendukung."
+        message="Kategori alasan dan sentimen AI adalah informasi pendukung."
         description="Keputusan menerima atau menolak pengajuan izin sepenuhnya berada pada asisten."
       />
 
@@ -195,6 +195,7 @@ export function AsistenLeaveReviewList({
                 <View style={styles.reasonBox}>
                   <Text style={styles.reasonLabel}>Alasan Izin</Text>
                   <Text style={styles.reasonText}>{item.reason}</Text>
+                  <Text style={styles.metaText}>{formatLeaveReasonCategory(item.reason)}</Text>
                 </View>
 
                 <View style={styles.aiSection}>
