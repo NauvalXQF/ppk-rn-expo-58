@@ -1,12 +1,12 @@
 import React from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Redirect, Tabs } from 'expo-router';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppIcon, type AppIconName } from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
-import { Colors, Radius, Shadow } from '@/constants/theme';
+import { Colors, FontFamily, Radius, Shadow } from '@/constants/theme';
 
 const TAB_ICONS: Record<string, AppIconName> = {
   jadwal: 'calendar',
@@ -15,6 +15,15 @@ const TAB_ICONS: Record<string, AppIconName> = {
   rekap: 'grid',
   izin: 'file-text',
   profil: 'user',
+};
+
+const TAB_LABELS: Record<string, string> = {
+  jadwal: 'Jadwal',
+  peta: 'Peta',
+  kehadiran: 'Rekap',
+  rekap: 'Rekap',
+  izin: 'Izin',
+  profil: 'Profil',
 };
 
 interface TabBarProps {
@@ -98,9 +107,18 @@ function FloatingPillTabBar({
             >
               <AppIcon
                 name={iconName}
-                size={21}
+                size={19}
                 color={isFocused ? Colors.textOnDark : Colors.text}
               />
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.tabLabel,
+                  isFocused && styles.tabLabelActive,
+                ]}
+              >
+                {TAB_LABELS[route.name] ?? options?.title ?? route.name}
+              </Text>
             </Pressable>
           );
         })}
@@ -157,15 +175,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     width: '100%',
-    maxWidth: 328,
-    height: 64,
+    maxWidth: 356,
+    height: 66,
     paddingHorizontal: 8,
     borderRadius: Radius.pill,
     backgroundColor: Colors.glassStrong,
@@ -175,16 +193,26 @@ const styles = StyleSheet.create({
     ...Shadow.floating,
   },
   tabItem: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.pill,
+    width: 62,
+    height: 50,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 2,
   },
   tabItemActive: {
     backgroundColor: Colors.primary,
   },
   tabItemPressed: {
     opacity: 0.85,
+  },
+  tabLabel: {
+    fontSize: 10,
+    lineHeight: 12,
+    fontFamily: FontFamily.medium,
+    color: Colors.textMuted,
+  },
+  tabLabelActive: {
+    color: Colors.textOnDark,
   },
 });

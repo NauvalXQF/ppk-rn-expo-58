@@ -14,7 +14,7 @@ export const Colors = {
 
   // Text
   text: '#23262D',
-  textMuted: '#6B7280',
+  textMuted: '#596270',
   textOnDark: '#FFFFFF',
 
   // Aksi utama (charcoal)
@@ -67,7 +67,7 @@ export const Radius = {
 } as const;
 
 export const FontSize = {
-  xs: 11,
+  xs: 12,
   sm: 13,
   md: 15,
   lg: 18,

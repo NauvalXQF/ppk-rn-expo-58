@@ -182,7 +182,14 @@ export function PraktikanLeaveForm({
       />
 
       {reason.trim() ? (
-        <Text style={styles.previewText}>{formatLeaveReasonCategory(reason)}</Text>
+        <View style={styles.previewBox}>
+          <Text style={styles.previewTitle}>
+            {formatLeaveReasonCategory(reason)}
+          </Text>
+          <Text style={styles.previewHint}>
+            Info pendukung AI · Keputusan akhir tetap oleh asisten
+          </Text>
+        </View>
       ) : null}
 
       {submitError ? <InfoBanner tone="danger" message={submitError} /> : null}
@@ -217,8 +224,22 @@ const styles = StyleSheet.create({
   sessionList: {
     gap: Spacing.sm,
   },
-  previewText: {
+  previewBox: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 2,
+  },
+  previewTitle: {
     fontSize: FontSize.sm,
+    fontFamily: FontFamily.medium,
+    color: '#1D4ED8',
+  },
+  previewHint: {
+    fontSize: FontSize.xs,
     fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },

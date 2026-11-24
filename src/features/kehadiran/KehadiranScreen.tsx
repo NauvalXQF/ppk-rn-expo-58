@@ -1,6 +1,6 @@
 import React from 'react';
-import { View, StyleSheet, Text } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Pressable, View, StyleSheet, Text } from 'react-native';
+import { useRouter, type Href } from 'expo-router';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { useApp } from '@/store/app-context';
 import { getPraktikanClassIds, selectRiwayatPraktikan } from '@/store/selectors';
@@ -15,6 +15,7 @@ import { SectionHeader } from '@/components/ui/SectionHeader';
 import { DotHeatmap } from '@/components/domain/DotHeatmap';
 import { ProgressBar } from '@/components/domain/ProgressBar';
 import { StatTile } from '@/components/domain/StatTile';
+import { NotificationBell } from '@/features/notifications/NotificationBell';
 
 export function KehadiranScreen() {
   const router = useRouter();
@@ -88,16 +89,55 @@ export function KehadiranScreen() {
             </AppText>
           </View>
         </View>
-        <View style={styles.ratePill}>
-          <AppText variant="caption" weight="medium" color={Colors.text}>
-            {rate}% Hadir
-          </AppText>
+        <View style={styles.headerRight}>
+          <View style={styles.ratePill}>
+            <AppText variant="caption" weight="medium" color={Colors.text}>
+              {rate}% Hadir
+            </AppText>
+          </View>
+          <NotificationBell />
         </View>
       </View>
 
       <AppText variant="title" style={styles.pageTitle}>
         Kehadiran saya
       </AppText>
+
+      {/* Prioritaskan CTA Presensi Sesi Aktif di atas saat sesi sedang dibuka */}
+      {activeSession ? (
+        <AppCard
+          onPress={() => router.push(`/presensi/${activeSession.sesi.id}` as Href)}
+          style={[styles.continueCard, styles.activeBannerCard]}
+        >
+          <View style={styles.continueTop}>
+            <View style={styles.continueLabelRow}>
+              <AppIcon name="check-circle" size={16} color={Colors.success} />
+              <AppText variant="label" color={Colors.text}>
+                Presensi sesi aktif
+              </AppText>
+            </View>
+            <Pressable
+              onPress={() =>
+                router.push(`/presensi/${activeSession.sesi.id}` as Href)
+              }
+              style={styles.activeCtaPill}
+              accessibilityRole="button"
+              accessibilityLabel="Presensi sekarang"
+            >
+              <Text style={styles.activeCtaText}>Presensi →</Text>
+            </Pressable>
+          </View>
+          <ProgressBar progress={totalSesi > 0 ? hadirCount / totalSesi : 0} />
+          <View style={styles.continueFooter}>
+            <AppText variant="caption" color={Colors.textMuted} numberOfLines={1}>
+              {activeSession.sesi.topik} · {activeSession.sesi.ruang}
+            </AppText>
+            <AppText variant="caption" color={Colors.textMuted}>
+              {hadirCount}/{totalSesi} pertemuan
+            </AppText>
+          </View>
+        </AppCard>
+      ) : null}
 
       {/* Main Glass Stat + DotHeatmap */}
       <AppCard style={styles.heatmapCard}>
@@ -123,8 +163,8 @@ export function KehadiranScreen() {
         subInfo={`${hadirCount} dari ${totalSesi} hadir (${rate}%)`}
       />
 
-      {/* Lanjutkan / Presensi sesi aktif */}
-      {highlightSession ? (
+      {/* Sesi terbaru (hanya jika tidak ada sesi aktif di atas) */}
+      {!activeSession && highlightSession ? (
         <AppCard
           onPress={() => router.push(`/sesi/${highlightSession.sesi.id}`)}
           style={styles.continueCard}
@@ -133,7 +173,7 @@ export function KehadiranScreen() {
             <View style={styles.continueLabelRow}>
               <AppIcon name="clock" size={16} color={Colors.textMuted} />
               <AppText variant="label" color={Colors.text}>
-                {activeSession ? 'Presensi sesi aktif' : 'Sesi terbaru'}
+                Sesi terbaru
               </AppText>
             </View>
             <IconButton
@@ -235,6 +275,11 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 1,
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
   ratePill: {
     backgroundColor: Colors.glassStrong,
     borderWidth: 1,
@@ -242,6 +287,21 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
     paddingHorizontal: 12,
     paddingVertical: 6,
+  },
+  activeBannerCard: {
+    borderColor: '#86EFAC',
+    borderWidth: 1.5,
+  },
+  activeCtaPill: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  activeCtaText: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
+    color: Colors.textOnDark,
   },
   pageTitle: {
     marginTop: 2,

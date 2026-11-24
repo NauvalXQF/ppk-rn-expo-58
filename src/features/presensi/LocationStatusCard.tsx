@@ -172,20 +172,35 @@ export function LocationStatusCard({
       </View>
 
       <View style={styles.statRow}>
-        <Text style={styles.statNumber}>{distRounded} m</Text>
+        <Text
+          style={[
+            styles.statNumber,
+            !isInside && { color: Colors.danger },
+          ]}
+        >
+          {distRounded} m
+        </Text>
         <Text style={styles.statSub}>
-          dari pusat {labTarget.labNama} (maks. {maxRounded} m)
+          {isInside
+            ? `dari pusat ${labTarget.labNama} (maks. ${maxRounded} m)`
+            : `dari ${labTarget.labNama} (butuh ≤ ${maxRounded} m)`}
         </Text>
       </View>
 
       <ProgressBar
-        progress={isInside ? Math.max(0.25, proximityRatio) : 0.12}
+        progress={isInside ? Math.max(0.25, proximityRatio) : 1}
         fillColor={isInside ? Colors.accentBlue : Colors.danger}
       />
 
-      <Text style={styles.accuracyText}>
-        Akurasi GPS {accuracyValueText} ·{' '}
-        {isInside ? 'Lokasi terverifikasi aman' : 'Dekati area laboratorium'}
+      <Text
+        style={[
+          styles.accuracyText,
+          !isInside && { color: Colors.danger },
+        ]}
+      >
+        {isInside
+          ? `Akurasi GPS ${accuracyValueText} · Lokasi terverifikasi aman`
+          : `${Math.max(1, distRounded - maxRounded)} m di luar area lab · Akurasi ${accuracyValueText}`}
       </Text>
 
       {verification.isWeakAccuracy && verification.accuracyMeters !== null ? (

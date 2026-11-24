@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { ProgressBar } from '@/components/domain/ProgressBar';
 import { StatTile } from '@/components/domain/StatTile';
+import { NotificationBell } from '@/features/notifications/NotificationBell';
 
 export function RekapScreen() {
   const { state } = useApp();
@@ -48,10 +49,13 @@ export function RekapScreen() {
               </AppText>
             </View>
           </View>
-          <View style={styles.rolePill}>
-            <AppText variant="caption" weight="medium" color={Colors.text}>
-              Asisten
-            </AppText>
+          <View style={styles.headerRight}>
+            <View style={styles.rolePill}>
+              <AppText variant="caption" weight="medium" color={Colors.text}>
+                Asisten
+              </AppText>
+            </View>
+            <NotificationBell />
           </View>
         </View>
       ) : null}
@@ -95,15 +99,15 @@ export function RekapScreen() {
 
             const badgeBg =
               item.status === 'dibuka'
-                ? Colors.warningSoft
+                ? Colors.successSoft
                 : item.status === 'dijadwalkan'
-                  ? Colors.primarySoft
+                  ? Colors.warningSoft
                   : Colors.neutralSoft;
             const badgeColor =
               item.status === 'dibuka'
-                ? Colors.warning
+                ? Colors.success
                 : item.status === 'dijadwalkan'
-                  ? Colors.primary
+                  ? Colors.warning
                   : Colors.textMuted;
 
             return (
@@ -177,12 +181,17 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 1,
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
   rolePill: {
     backgroundColor: Colors.glassStrong,
     borderWidth: 1,
     borderColor: Colors.glassBorder,
     borderRadius: Radius.pill,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
   },
   tilesRow: {

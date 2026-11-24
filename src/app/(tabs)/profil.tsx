@@ -16,7 +16,6 @@ import { ScreenContainer } from '@/components/ui/ScreenContainer';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
-import { NotificationBell } from '@/features/notifications/NotificationBell';
 import { NotificationPrompt } from '@/features/notifications/NotificationPrompt';
 
 function InfoRow({
@@ -76,10 +75,6 @@ export default function ProfilRoute() {
 
   return (
     <ScreenContainer variant="gradient">
-      <View style={styles.topBar}>
-        <NotificationBell />
-      </View>
-
       <View style={styles.hero}>
         <View style={[styles.avatar, isAsisten && styles.avatarDark]}>
           <Text style={[styles.avatarText, isAsisten && styles.avatarTextDark]}>
@@ -138,14 +133,10 @@ export default function ProfilRoute() {
 }
 
 const styles = StyleSheet.create({
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
   hero: {
     alignItems: 'center',
     gap: 8,
-    marginTop: -12,
+    marginTop: Spacing.xs,
     marginBottom: Spacing.xs,
   },
   avatar: {
