@@ -39,8 +39,8 @@ export function subscribeLaboratories(
 }
 
 function requireAssistant(actor: ProfilPengguna | null): asserts actor is ProfilPengguna {
-  if (!actor?.uid || actor.role !== 'asisten') {
-    throw new Error('Hanya asisten yang dapat mengelola laboratorium.');
+  if (!actor?.uid || (actor.role !== 'asisten' && actor.role !== 'aslab' && actor.role !== 'asprak')) {
+    throw new Error('Hanya asisten atau aslab yang dapat mengelola laboratorium.');
   }
 }
 
@@ -54,7 +54,7 @@ export async function saveLaboratory(
   if (error) throw new Error(error);
 
   const { latitude, longitude, radiusMeters, kapasitas } = input;
-  const fields = {
+  const fields: Record<string, unknown> = {
     nama: input.nama.trim(),
     kode: input.kode.trim(),
     gedung: input.gedung.trim(),
@@ -64,6 +64,12 @@ export async function saveLaboratory(
     kapasitas,
     updatedAt: serverTimestamp(),
   };
+  if (input.gracePeriodMinutes !== undefined) fields.gracePeriodMinutes = input.gracePeriodMinutes;
+  if (input.lateFineAmount !== undefined) fields.lateFineAmount = input.lateFineAmount;
+  if (input.courseId) fields.courseId = input.courseId;
+  if (input.courseNama) fields.courseNama = input.courseNama;
+  if (actor.role === 'aslab') fields.updatedBy = actor.uid;
+
   const labs = collection(getFirebaseDb(), 'laboratories');
   if (laboratoryId) {
     await updateDoc(doc(labs, laboratoryId), fields);
@@ -81,8 +87,10 @@ export async function saveLaboratory(
 
 export async function archiveLaboratory(actor: ProfilPengguna | null, laboratoryId: string) {
   requireAssistant(actor);
-  await updateDoc(doc(getFirebaseDb(), 'laboratories', laboratoryId), {
+  const fields: Record<string, unknown> = {
     aktif: false,
     updatedAt: serverTimestamp(),
-  });
+  };
+  if (actor.role === 'aslab') fields.updatedBy = actor.uid;
+  await updateDoc(doc(getFirebaseDb(), 'laboratories', laboratoryId), fields);
 }

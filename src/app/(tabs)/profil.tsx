@@ -51,7 +51,7 @@ export default function ProfilRoute() {
     return null;
   }
 
-  const isAsisten = isStaffUser(user);
+  const isStaff = isStaffUser(user);
   const roleDisplayLabel =
     user.peran === 'aslab'
       ? 'Asisten Laboratorium'
@@ -84,26 +84,26 @@ export default function ProfilRoute() {
   return (
     <ScreenContainer variant="gradient">
       <View style={styles.hero}>
-        <View style={[styles.avatar, isAsisten && styles.avatarDark]}>
-          <Text style={[styles.avatarText, isAsisten && styles.avatarTextDark]}>
+        <View style={[styles.avatar, isStaff && styles.avatarDark]}>
+          <Text style={[styles.avatarText, isStaff && styles.avatarTextDark]}>
             {user.nama.charAt(0).toUpperCase()}
           </Text>
         </View>
         <Text style={styles.userName}>{user.nama}</Text>
         <View style={styles.rolePill}>
           <Text style={styles.rolePillText}>
-            {isAsisten ? `${roleDisplayLabel} · PPK` : `Praktikan · ${kelasLabel}`}
+            {isStaff ? `${roleDisplayLabel} · PPK` : `Praktikan · ${kelasLabel}`}
           </Text>
         </View>
       </View>
 
       <AppCard style={styles.infoCard}>
         <InfoRow
-          label={isAsisten ? 'NIP' : 'NIM'}
-          value={isAsisten ? user.nip : user.nim}
+          label={isStaff ? 'NIP' : 'NIM'}
+          value={(isStaff ? ('nip' in user ? user.nip : '-') : ('nim' in user ? user.nim : '-')) ?? '-'}
         />
         <InfoRow label="Email" value={pengguna?.email ?? '-'} />
-        {!isAsisten ? (
+        {!isStaff ? (
           <InfoRow label="Kelas Aktif" value={kelasLabel ?? '-'} />
         ) : null}
         <InfoRow
