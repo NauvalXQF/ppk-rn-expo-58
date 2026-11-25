@@ -1,4 +1,3 @@
-import React, { useEffect, useState } from 'react';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
 import { useAuth } from '@/contexts/AuthContext';
 import { AslabDashboardView } from '@/features/aslab/AslabDashboardView';
@@ -11,6 +10,9 @@ import {
 } from '@/services/aslab/dashboardService';
 import { useApp } from '@/store/app-context';
 import type { Laboratory } from '@/types/laboratory';
+import type { Praktikan } from '@/types/models';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 
 export default function AslabDashboardScreen() {
   const { pengguna } = useAuth();
@@ -21,17 +23,31 @@ export default function AslabDashboardScreen() {
   const [period, setPeriod] = useState<PeriodFilter>('hari');
   const [fines, setFines] = useState<FineRecord[]>([]);
 
-  useEffect(() => {
-    fetchDashboardFines()
-      .then(setFines)
-      .catch(() => setFines([]));
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      fetchDashboardFines()
+        .then((list) => {
+          if (active) setFines(list);
+        })
+        .catch(() => {
+          if (active) setFines([]);
+        });
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
+
+  const classMembers = (state.pengguna ?? [])
+    .filter((u): u is Praktikan => u.peran === 'praktikan')
+    .map((p) => ({ classId: p.kelasId, active: true }));
 
   const metrics = calculateDashboardMetrics({
     laboratories,
     sessions: state.sesi ?? [],
     schedules: state.jadwal ?? [],
-    classMembers: [],
+    classMembers,
     fines,
     filter: period,
   });

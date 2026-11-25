@@ -1,10 +1,3 @@
-import React, { useState } from 'react';
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { FilterChip } from '@/components/ui/FilterChip';
@@ -16,15 +9,21 @@ import {
   Radius,
   Spacing,
 } from '@/constants/theme';
-import type { ProfilPengguna } from '@/services/authService';
 import {
   getDateRange,
   type DashboardMetrics,
   type PeriodFilter,
 } from '@/services/aslab/dashboardService';
+import type { ProfilPengguna } from '@/services/authService';
+import { useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 export interface AslabDashboardViewProps {
-  actor: ProfilPengguna;
+  actor?: ProfilPengguna;
   metrics: DashboardMetrics;
   period: PeriodFilter;
   onChangePeriod: (period: PeriodFilter) => void;
@@ -32,7 +31,6 @@ export interface AslabDashboardViewProps {
 }
 
 export function AslabDashboardView({
-  actor,
   metrics,
   period,
   onChangePeriod,
@@ -44,25 +42,12 @@ export function AslabDashboardView({
   const percentCollected = Math.round(metrics.paymentRatio * 100);
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* 1. Header Profile & Period Filter */}
+    <View style={styles.content}>
+      {/* 1. Header Title & Period Filter */}
       <View style={styles.header}>
-        <View style={styles.profileRow}>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>
-              {actor.nama ? actor.nama.charAt(0).toUpperCase() : 'A'}
-            </Text>
-          </View>
-          <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{actor.nama}</Text>
-            <View style={styles.roleBadge}>
-              <Text style={styles.roleBadgeText}>Aslab · Dashboard Pemantauan</Text>
-            </View>
-          </View>
+        <View style={styles.titleRow}>
+          <Text style={styles.screenTitle}>Dashboard</Text>
+          <Text style={styles.rangeLabel}>{dateRange.label}</Text>
         </View>
 
         {/* Period Filter Chips */}
@@ -82,8 +67,12 @@ export function AslabDashboardView({
             active={period === 'bulan'}
             onPress={() => onChangePeriod('bulan')}
           />
+          <FilterChip
+            label="Semua"
+            active={period === 'semua'}
+            onPress={() => onChangePeriod('semua')}
+          />
         </View>
-        <Text style={styles.rangeLabel}>{dateRange.label}</Text>
       </View>
 
       {/* 2. Grid StatTiles (2 Kolom) */}
@@ -154,7 +143,7 @@ export function AslabDashboardView({
           </View>
           <View style={styles.amountCol}>
             <Text style={styles.amountLabel}>Tertunggak / Belum Lunas</Text>
-            <Text style={[styles.amountValue, { color: Colors.warning }]}>
+            <Text style={[styles.amountValue, { color: Colors.danger }]}>
               Rp{metrics.fineTotalUnpaid.toLocaleString('id-ID')}
             </Text>
           </View>
@@ -182,7 +171,9 @@ export function AslabDashboardView({
                 <View style={styles.labStatusHeader}>
                   <View style={styles.labNameCol}>
                     <Text style={styles.labStatusName}>{lab.nama}</Text>
-                    <Text style={styles.labStatusGedung}>{lab.gedung} · {lab.kode}</Text>
+                    <Text style={styles.labStatusGedung}>
+                      {lab.gedung || 'Lokasi belum diatur'}
+                    </Text>
                   </View>
                   <View
                     style={[
@@ -206,12 +197,34 @@ export function AslabDashboardView({
                 </View>
 
                 <View style={styles.labStatusDetails}>
-                  <Text style={styles.labDetailText}>
-                    👥 {totalPraktikan} praktikan · 🧑‍🏫 {totalAsprak} asprak · Radius {lab.radiusMeters}m
-                  </Text>
-                  <Text style={styles.labDetailText}>
-                    ⏱️ Toleransi {lab.gracePeriodMinutes ?? 15} mnt · Denda Rp{(lab.lateFineAmount ?? 10000).toLocaleString('id-ID')}
-                  </Text>
+                  <View style={styles.labMetaRow}>
+                    <View style={styles.labMetaItem}>
+                      <AppIcon name="users" size={12} color={Colors.textMuted} />
+                      <Text style={styles.labDetailText}>{totalPraktikan} Praktikan</Text>
+                    </View>
+                    <View style={styles.labMetaItem}>
+                      <AppIcon name="user" size={12} color={Colors.textMuted} />
+                      <Text style={styles.labDetailText}>{totalAsprak} Asprak</Text>
+                    </View>
+                  </View>
+                  <View style={styles.labMetaRow}>
+                    <View style={styles.labMetaItem}>
+                      <AppIcon name="map-pin" size={12} color={Colors.textMuted} />
+                      <Text style={styles.labDetailText}>Radius {lab.radiusMeters}m</Text>
+                    </View>
+                    <View style={styles.labMetaItem}>
+                      <AppIcon name="clock" size={12} color={Colors.textMuted} />
+                      <Text style={styles.labDetailText}>
+                        Toleransi {lab.gracePeriodMinutes ?? 15} mnt
+                      </Text>
+                    </View>
+                    <View style={styles.labMetaItem}>
+                      <AppIcon name="credit-card" size={12} color={Colors.textMuted} />
+                      <Text style={styles.labDetailText}>
+                        Denda Rp{(lab.lateFineAmount ?? 10000).toLocaleString('id-ID')}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
               </AppCard>
             );
@@ -272,7 +285,12 @@ export function AslabDashboardView({
                         </Text>
                       </View>
                       <View style={styles.fineRightCol}>
-                        <Text style={styles.fineAmount}>
+                        <Text
+                          style={[
+                            styles.fineAmount,
+                            !isPaid && !isPending && !isWaived && { color: Colors.danger },
+                          ]}
+                        >
                           Rp{fine.amount.toLocaleString('id-ID')}
                         </Text>
                         <View
@@ -314,66 +332,32 @@ export function AslabDashboardView({
           )
         )}
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
   content: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.lg,
-    paddingBottom: 110,
-    gap: Spacing.lg,
+    gap: Spacing.md,
   },
   header: {
     gap: Spacing.sm,
   },
-  profileRow: {
+  titleRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
   },
-  avatarCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    fontSize: FontSize.lg,
-    fontFamily: FontFamily.semibold,
-    color: Colors.textOnDark,
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  profileName: {
-    fontSize: FontSize.md,
+  screenTitle: {
+    fontSize: FontSize.xl,
     fontFamily: FontFamily.semibold,
     color: Colors.text,
   },
-  roleBadge: {
-    backgroundColor: Colors.primarySoft,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: Radius.pill,
-    alignSelf: 'flex-start',
-    marginTop: 2,
-  },
-  roleBadgeText: {
-    fontSize: 10,
-    fontFamily: FontFamily.semibold,
-    color: Colors.primary,
-  },
   filterRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: Spacing.xs,
-    marginTop: Spacing.xs,
   },
   rangeLabel: {
     fontSize: FontSize.xs,
@@ -386,7 +370,8 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   statTile: {
-    width: '48%',
+    flexBasis: '47%',
+    flexGrow: 1,
     padding: Spacing.md,
     gap: 4,
     borderRadius: Radius.md,
@@ -456,12 +441,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   amountLabel: {
-    fontSize: 10,
+    fontSize: FontSize.xs,
     fontFamily: FontFamily.medium,
     color: Colors.textMuted,
   },
   amountValue: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.lg,
     fontFamily: FontFamily.semibold,
   },
   section: {
@@ -526,14 +511,25 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
   labStatusDetails: {
-    gap: 2,
+    gap: 6,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
-    paddingTop: Spacing.xs,
+    paddingTop: Spacing.sm,
+  },
+  labMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  labMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   labDetailText: {
-    fontSize: 10,
-    fontFamily: FontFamily.regular,
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
     color: Colors.textMuted,
   },
   subTabRow: {
