@@ -41,6 +41,7 @@ import {
 } from '@/store/selectors';
 import type { Laboratory } from '@/types/laboratory';
 import type { Jadwal, Kelas, Praktikan, Sesi } from '@/types/models';
+import { LabPickerModal } from './LabPickerModal';
 
 type CrudTab = 'sesi' | 'jadwal' | 'kelas' | 'peserta';
 type ModalView = 'list' | 'form' | 'pick-account';
@@ -116,6 +117,9 @@ export function PracticumCrudSection() {
   >([]);
   const [laboratories, setLaboratories] = useState<Laboratory[]>([]);
   const [labsLoaded, setLabsLoaded] = useState(false);
+  const [labPickerTarget, setLabPickerTarget] = useState<'sesi' | 'jadwal' | null>(null);
+  const [manualLabJadwal, setManualLabJadwal] = useState(false);
+  const [manualLabSesi, setManualLabSesi] = useState(false);
 
   const isAsistenUser = state.currentUser?.peran === 'asisten';
   const defaultKelasId = state.kelas[0]?.id ?? '';
@@ -166,10 +170,12 @@ export function PracticumCrudSection() {
     };
   }, [expanded, isAsistenUser, isRemote]);
 
-  const effectiveLabIdJadwal =
-    labIdJadwal ?? (!editJadwalId ? laboratories[0]?.id : undefined);
-  const effectiveLabIdSesi =
-    labIdSesi ?? (!editSesiId ? laboratories[0]?.id : undefined);
+  const effectiveLabIdJadwal = manualLabJadwal
+    ? undefined
+    : (labIdJadwal ?? (!editJadwalId ? laboratories[0]?.id : undefined));
+  const effectiveLabIdSesi = manualLabSesi
+    ? undefined
+    : (labIdSesi ?? (!editSesiId ? laboratories[0]?.id : undefined));
 
   const pesertaList = selectPesertaPraktikum(state);
   const jadwalList = selectJadwalUntukPengguna(state);
@@ -219,6 +225,7 @@ export function PracticumCrudSection() {
   const closeModal = () => {
     setExpanded(false);
     setViewMode('list');
+    setLabPickerTarget(null);
   };
 
   const resetKelasForm = () => {
@@ -236,6 +243,7 @@ export function PracticumCrudSection() {
   const resetJadwalForm = () => {
     setEditJadwalId(undefined);
     setTopikJadwal('');
+    setManualLabJadwal(false);
     if (laboratories.length > 0) {
       setLabIdJadwal(laboratories[0].id);
       setRuangJadwal(laboratories[0].nama);
@@ -247,6 +255,7 @@ export function PracticumCrudSection() {
   const resetSesiForm = () => {
     setEditSesiId(undefined);
     setTopikSesi('');
+    setManualLabSesi(false);
     if (laboratories.length > 0) {
       setLabIdSesi(laboratories[0].id);
       setRuangSesi(laboratories[0].nama);
@@ -309,6 +318,15 @@ export function PracticumCrudSection() {
         jamSelesai: selesaiJadwal,
         ruang: selectedLab ? selectedLab.nama : ruangJadwal,
         labId: selectedLab?.id ?? effectiveLabIdJadwal,
+        ...(selectedLab
+          ? {
+              labCoordinates: {
+                latitude: selectedLab.latitude,
+                longitude: selectedLab.longitude,
+              },
+              radiusMeters: selectedLab.radiusMeters,
+            }
+          : {}),
         topik: topikJadwal,
       });
       showSuccess(
@@ -330,6 +348,15 @@ export function PracticumCrudSection() {
         topik: topikSesi,
         ruang: selectedLab ? selectedLab.nama : ruangSesi,
         labId: selectedLab?.id ?? effectiveLabIdSesi,
+        ...(selectedLab
+          ? {
+              labCoordinates: {
+                latitude: selectedLab.latitude,
+                longitude: selectedLab.longitude,
+              },
+              radiusMeters: selectedLab.radiusMeters,
+            }
+          : {}),
         tanggal: tanggalSesi,
         jamMulai: mulaiSesi,
         jamSelesai: selesaiSesi,
@@ -365,12 +392,13 @@ export function PracticumCrudSection() {
   );
 
   const renderLabSelector = (
+    target: 'sesi' | 'jadwal',
     selectedLabId: string | undefined,
     ruangValue: string,
-    onSelectLab: (lab: Laboratory) => void,
+    manualMode: boolean,
     onChangeRuangFallback: (text: string) => void,
   ) => {
-    if (laboratories.length === 0) {
+    if (laboratories.length === 0 || manualMode) {
       return (
         <View style={styles.labSelectorWrap}>
           <FormField
@@ -379,11 +407,23 @@ export function PracticumCrudSection() {
             value={ruangValue}
             onChangeText={onChangeRuangFallback}
           />
-          <Text style={styles.labHint}>
-            {isRemote && !labsLoaded
-              ? 'Memuat daftar laboratorium...'
-              : 'Data lab belum tersedia; gunakan input ruang manual.'}
-          </Text>
+          {laboratories.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setLabPickerTarget(target)}
+              style={styles.labSwitchLink}
+            >
+              <Text style={styles.labSwitchLinkText}>
+                Pilih Laboratorium / Ruang Praktikum ▾
+              </Text>
+            </Pressable>
+          ) : (
+            <Text style={styles.labHint}>
+              {isRemote && !labsLoaded
+                ? 'Memuat daftar laboratorium...'
+                : 'Data lab belum tersedia; gunakan input ruang manual.'}
+            </Text>
+          )}
         </View>
       );
     }
@@ -393,23 +433,30 @@ export function PracticumCrudSection() {
     return (
       <View style={styles.labSelectorWrap}>
         <Text style={styles.fieldLabel}>Laboratorium (Geofence)</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.labChipRow}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setLabPickerTarget(target)}
+          style={styles.labPickerCard}
         >
-          {laboratories.map((lab) => {
-            const label = lab.gedung ? `${lab.nama} · ${lab.gedung}` : lab.nama;
-            return (
-              <FilterChip
-                key={lab.id}
-                label={label}
-                active={selectedLabId === lab.id}
-                onPress={() => onSelectLab(lab)}
-              />
-            );
-          })}
-        </ScrollView>
+          {boundLab ? (
+            <>
+              <View style={styles.labPickerInfo}>
+                <Text style={styles.labPickerName}>{boundLab.nama}</Text>
+                <Text style={styles.labPickerMeta}>
+                  {boundLab.gedung ? `${boundLab.gedung} · ` : ''}
+                  Radius {boundLab.radiusMeters} m
+                </Text>
+              </View>
+              <View style={styles.labChangePill}>
+                <Text style={styles.labChangePillText}>Ganti Lab</Text>
+              </View>
+            </>
+          ) : (
+            <Text style={styles.labPickerPlaceholder}>
+              Pilih Laboratorium / Ruang Praktikum ▾
+            </Text>
+          )}
+        </Pressable>
         {boundLab ? (
           <Text style={styles.labBoundHint}>
             ✓ Tertaut ke Peta & Geofence {boundLab.nama}
@@ -418,8 +465,8 @@ export function PracticumCrudSection() {
           </Text>
         ) : ruangValue ? (
           <Text style={styles.labHint}>
-            Ruang saat ini: {ruangValue} (pilih lab di atas untuk menautkan ke
-            peta & geofence)
+            Ruang saat ini: {ruangValue} (ketuk di atas untuk menautkan ke peta
+            & geofence)
           </Text>
         ) : null}
       </View>
@@ -864,12 +911,10 @@ export function PracticumCrudSection() {
                       onChangeText={setTanggalSesi}
                     />
                     {renderLabSelector(
+                      'sesi',
                       effectiveLabIdSesi,
                       ruangSesi,
-                      (lab) => {
-                        setLabIdSesi(lab.id);
-                        setRuangSesi(lab.nama);
-                      },
+                      manualLabSesi,
                       (text) => {
                         setLabIdSesi(undefined);
                         setRuangSesi(text);
@@ -932,12 +977,10 @@ export function PracticumCrudSection() {
                       onChangeText={setHariJadwal}
                     />
                     {renderLabSelector(
+                      'jadwal',
                       effectiveLabIdJadwal,
                       ruangJadwal,
-                      (lab) => {
-                        setLabIdJadwal(lab.id);
-                        setRuangJadwal(lab.nama);
-                      },
+                      manualLabJadwal,
                       (text) => {
                         setLabIdJadwal(undefined);
                         setRuangJadwal(text);
@@ -1218,6 +1261,36 @@ export function PracticumCrudSection() {
           </View>
         </View>
       </Modal>
+      <LabPickerModal
+        visible={labPickerTarget !== null}
+        laboratories={laboratories}
+        selectedLabId={
+          labPickerTarget === 'sesi'
+            ? effectiveLabIdSesi
+            : effectiveLabIdJadwal
+        }
+        onSelectLab={(lab) => {
+          if (labPickerTarget === 'sesi') {
+            setManualLabSesi(false);
+            setLabIdSesi(lab.id);
+            setRuangSesi(lab.nama);
+          } else if (labPickerTarget === 'jadwal') {
+            setManualLabJadwal(false);
+            setLabIdJadwal(lab.id);
+            setRuangJadwal(lab.nama);
+          }
+        }}
+        onSelectManual={() => {
+          if (labPickerTarget === 'sesi') {
+            setManualLabSesi(true);
+            setLabIdSesi(undefined);
+          } else if (labPickerTarget === 'jadwal') {
+            setManualLabJadwal(true);
+            setLabIdJadwal(undefined);
+          }
+        }}
+        onClose={() => setLabPickerTarget(null)}
+      />
     </>
   );
 }
@@ -1381,10 +1454,59 @@ const styles = StyleSheet.create({
   labSelectorWrap: {
     gap: Spacing.xs,
   },
-  labChipRow: {
+  labPickerCard: {
     flexDirection: 'row',
-    gap: Spacing.xs,
-    paddingVertical: 2,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    backgroundColor: Colors.neutralSoft,
+    borderRadius: Radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    minHeight: 50,
+  },
+  labPickerInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  labPickerName: {
+    fontSize: FontSize.sm + 1,
+    fontFamily: FontFamily.medium,
+    color: Colors.text,
+  },
+  labPickerMeta: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
+    color: Colors.textMuted,
+  },
+  labChangePill: {
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  labChangePillText: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
+    color: Colors.primary,
+  },
+  labPickerPlaceholder: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.medium,
+    color: Colors.textMuted,
+  },
+  labSwitchLink: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+  labSwitchLinkText: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
+    color: Colors.primary,
   },
   labHint: {
     fontSize: FontSize.xs,

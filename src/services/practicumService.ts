@@ -3,6 +3,7 @@ import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   getDocsFromServer,
   getFirestore,
@@ -193,6 +194,11 @@ export async function deleteClassFromFirestore(
 // 2. CRUD PESERTA & KEANGGOTAAN KELAS
 // =======================================
 
+function resolvePraktikumId(data?: Record<string, unknown>): string {
+  const raw = data?.praktikumId;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : 'praktikum-ppk';
+}
+
 export async function saveClassMemberToFirestore(
   actor: Pengguna | null,
   input: { id?: string; nama: string; nim?: string; kelasId: string },
@@ -220,6 +226,12 @@ export async function saveClassMemberToFirestore(
   const db = getDb();
   if (!db) throw new Error('Firebase belum dikonfigurasi untuk mengelola peserta.');
 
+  const targetClassSnap = await getDoc(doc(db, 'classes', kelasId));
+  if (!targetClassSnap.exists() || targetClassSnap.data().archived === true) {
+    throw new Error('Pilih kelas yang tersedia dan aktif.');
+  }
+  const targetPraktikumId = resolvePraktikumId(targetClassSnap.data());
+
   const activeMembershipsSnap = await getDocs(
     query(
       collection(db, 'classMembers'),
@@ -227,15 +239,27 @@ export async function saveClassMemberToFirestore(
       where('active', '==', true),
     ),
   );
-  const conflictMember = activeMembershipsSnap.docs.find((d) => {
-    const data = d.data();
-    return data.active === true && data.classId !== kelasId;
-  });
-  if (conflictMember) {
-    const existingClassId = String(conflictMember.data().classId ?? '');
-    throw new Error(
-      `Praktikan sudah terdaftar di kelas ${existingClassId || 'lain'}. Satu user hanya boleh memiliki satu kelas.`,
+  const otherClassIds = Array.from(
+    new Set(
+      activeMembershipsSnap.docs
+        .map((d) => d.data())
+        .filter((data) => data.active === true && typeof data.classId === 'string' && data.classId !== kelasId)
+        .map((data) => String(data.classId)),
+    ),
+  );
+
+  if (otherClassIds.length > 0) {
+    const otherClassSnaps = await Promise.all(
+      otherClassIds.map((otherId) => getDoc(doc(db, 'classes', otherId))),
     );
+    const hasSamePraktikumConflict = otherClassSnaps.some(
+      (snap) => snap.exists() && resolvePraktikumId(snap.data()) === targetPraktikumId,
+    );
+    if (hasSamePraktikumConflict) {
+      throw new Error(
+        'Praktikan sudah terdaftar di kelas lain pada mata kuliah praktikum ini. Hanya boleh mengambil 1 kelas paralel per praktikum.',
+      );
+    }
   }
 
   await runTransaction(db, async (tx) => {

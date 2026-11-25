@@ -37,13 +37,25 @@ function isDummyMemberDoc(docId, data = {}) {
   return { isDummy: false, reason: null };
 }
 
+function resolvePraktikumIdForClass(classId, classesById) {
+  if (!classesById) return 'praktikum-ppk';
+  const entry =
+    classesById instanceof Map
+      ? classesById.get(classId)
+      : classesById[classId];
+  const raw = typeof entry === 'string' ? entry : entry?.praktikumId;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : 'praktikum-ppk';
+}
+
 /**
  * Merencanakan operasi pembersihan `classMembers` secara deterministik.
+ * Deduplikasi hanya mengarsipkan keanggotaan ganda pada `praktikumId` yang sama.
  * @param {Array<{ id: string, data: Record<string, any> }>} docs
+ * @param {Map<string, Record<string, any>> | Record<string, Record<string, any> | string>} [classesById]
  */
-function planClassMembersCleanup(docs) {
+function planClassMembersCleanup(docs, classesById) {
   const dummyActions = [];
-  const activeByUid = new Map();
+  const activeByUidAndPraktikum = new Map();
 
   for (const entry of docs) {
     const data = entry.data || {};
@@ -65,28 +77,36 @@ function planClassMembersCleanup(docs) {
     }
 
     if (data.active === true) {
-      const list = activeByUid.get(data.uid) || [];
-      list.push(entry);
-      activeByUid.set(data.uid, list);
+      const praktikumId = resolvePraktikumIdForClass(data.classId, classesById);
+      const groupKey = `${data.uid}::${praktikumId}`;
+      const list = activeByUidAndPraktikum.get(groupKey) || [];
+      list.push({ ...entry, praktikumId });
+      activeByUidAndPraktikum.set(groupKey, list);
     }
   }
 
   const kept = [];
   const duplicateActions = [];
 
-  for (const [uid, entries] of activeByUid.entries()) {
+  for (const entries of activeByUidAndPraktikum.values()) {
     const sorted = [...entries].sort((a, b) => {
       const classCmp = String(a.data.classId).localeCompare(String(b.data.classId));
       return classCmp !== 0 ? classCmp : a.id.localeCompare(b.id);
     });
     const primary = sorted[0];
-    kept.push({ id: primary.id, uid, classId: primary.data.classId });
+    kept.push({
+      id: primary.id,
+      uid: primary.data.uid,
+      classId: primary.data.classId,
+      praktikumId: primary.praktikumId,
+    });
 
     for (const dup of sorted.slice(1)) {
       duplicateActions.push({
         id: dup.id,
-        uid,
+        uid: dup.data.uid,
         classId: dup.data.classId,
+        praktikumId: dup.praktikumId,
         keptClassId: primary.data.classId,
         keptDocId: primary.id,
         reason: 'duplicate_active_membership',
@@ -166,6 +186,10 @@ async function createFirestoreClient(args) {
         const snap = await db.collection('classMembers').get();
         return snap.docs.map((d) => ({ id: d.id, data: d.data() }));
       },
+      async fetchClasses() {
+        const snap = await db.collection('classes').get();
+        return new Map(snap.docs.map((d) => [d.id, d.data()]));
+      },
       async deactivateDoc(id) {
         await db.collection('classMembers').doc(id).update({
           active: false,
@@ -224,6 +248,10 @@ async function createFirestoreClient(args) {
       const snap = await getDocs(collection(db, 'classMembers'));
       return snap.docs.map((d) => ({ id: d.id, data: d.data() }));
     },
+    async fetchClasses() {
+      const snap = await getDocs(collection(db, 'classes'));
+      return new Map(snap.docs.map((d) => [d.id, d.data()]));
+    },
     async deactivateDoc(id) {
       await updateDoc(doc(db, 'classMembers', id), {
         active: false,
@@ -244,8 +272,11 @@ async function run() {
   const client = await createFirestoreClient(args);
 
   console.log(`[cleanup-firestore] Mode SDK: ${client.mode} | Apply: ${args.apply} | HardDelete: ${args.hardDelete}`);
-  const docs = await client.fetchClassMembers();
-  const plan = planClassMembersCleanup(docs);
+  const [docs, classesById] = await Promise.all([
+    client.fetchClassMembers(),
+    client.fetchClasses(),
+  ]);
+  const plan = planClassMembersCleanup(docs, classesById);
 
   console.log(`[cleanup-firestore] Total dokumen classMembers: ${plan.totalDocs}`);
   console.log(`[cleanup-firestore] Dokumen dummy ditemukan (aktif): ${plan.dummyActions.length}`);
