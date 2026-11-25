@@ -92,7 +92,7 @@ export function JadwalScreen() {
   }, [filterKey, searchQuery, sesiList, state.kelas]);
 
   return (
-    <ScreenContainer variant="list">
+    <ScreenContainer variant="gradient">
       <View style={styles.headerRow}>
         <Text style={styles.screenTitle}>
           {isAsisten ? 'Jadwal Asisten' : 'Jadwal'}

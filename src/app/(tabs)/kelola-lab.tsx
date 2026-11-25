@@ -1,14 +1,6 @@
-import React, { useState } from 'react';
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
-import { AppIcon } from '@/components/ui/AppIcon';
+import { AppIcon, type AppIconName } from '@/components/ui/AppIcon';
 import { FilterChip } from '@/components/ui/FilterChip';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
@@ -17,16 +9,22 @@ import {
   FontFamily,
   FontSize,
   Radius,
-  Shadow,
   Spacing,
 } from '@/constants/theme';
+import { useAuth } from '@/contexts/AuthContext';
 import { BulkInsertModal } from '@/features/aslab/BulkInsertModal';
 import { MemberTransferModal } from '@/features/aslab/MemberTransferModal';
 import { LabManagementModal } from '@/features/maps/LabManagementModal';
 import { useLaboratoryData } from '@/features/maps/useMapsData';
-import { useAuth } from '@/contexts/AuthContext';
 import type { BulkType } from '@/services/aslab/bulkCsvService';
 import type { Laboratory } from '@/types/laboratory';
+import { useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 interface CourseItem {
   id: string;
@@ -38,6 +36,45 @@ const DEFAULT_COURSES: CourseItem[] = [
   { id: 'praktikum-ppk', kode: 'IF2104', nama: 'Praktikum Pemrograman Komputer' },
   { id: 'praktikum-bd', kode: 'IF2105', nama: 'Praktikum Basis Data' },
 ];
+
+interface ToolRowProps {
+  icon: AppIconName;
+  iconBg: string;
+  iconColor: string;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  last?: boolean;
+}
+
+function ToolRow({
+  icon,
+  iconBg,
+  iconColor,
+  title,
+  subtitle,
+  onPress,
+  last = false,
+}: ToolRowProps) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.75}
+      onPress={onPress}
+      style={[styles.toolRow, !last && styles.toolRowBorder]}
+    >
+      <View style={[styles.toolIconBox, { backgroundColor: iconBg }]}>
+        <AppIcon name={icon} size={18} color={iconColor} />
+      </View>
+      <View style={styles.toolTextCol}>
+        <Text style={styles.toolTitle}>{title}</Text>
+        <Text style={styles.toolSub} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      </View>
+      <AppIcon name="arrow-up-right" size={16} color={Colors.textMuted} />
+    </TouchableOpacity>
+  );
+}
 
 export default function KelolaLabScreen() {
   const { pengguna } = useAuth();
@@ -51,9 +88,11 @@ export default function KelolaLabScreen() {
   const [singleLabModalVisible, setSingleLabModalVisible] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
 
-  const selectedCourse = DEFAULT_COURSES.find((c) => c.id === selectedCourseId) ?? DEFAULT_COURSES[0];
+  const selectedCourse =
+    DEFAULT_COURSES.find((c) => c.id === selectedCourseId) ?? DEFAULT_COURSES[0];
   const activeLabs = laboratories.filter((l: Laboratory) => l.aktif);
-  const currentLab = activeLabs.find((l: Laboratory) => l.id === selectedLabId) ?? activeLabs[0];
+  const currentLab =
+    activeLabs.find((l: Laboratory) => l.id === selectedLabId) ?? activeLabs[0];
 
   function openBulkModal(type: BulkType) {
     setFeedbackSuccess(null);
@@ -64,35 +103,41 @@ export default function KelolaLabScreen() {
     setFeedbackSuccess(msg);
   }
 
+  function handleOpenAddLab() {
+    setSingleLabModalVisible(true);
+  }
+
+  function handleOpenEditLab(labId: string) {
+    setSelectedLabId(labId);
+    setSingleLabModalVisible(true);
+  }
+
   return (
-    <ScreenContainer variant="list" hasTabBar={true}>
-      <ScrollView
-        style={styles.screenScroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+    <ScreenContainer variant="gradient" hasTabBar={true}>
+      <View style={styles.content}>
         {/* Header Section */}
-        <View style={styles.header}>
-          <View style={styles.headerTitleRow}>
-            <View style={styles.avatarCircle}>
-              <Text style={styles.avatarText}>
-                {pengguna?.nama ? pengguna.nama.charAt(0).toUpperCase() : 'A'}
-              </Text>
-            </View>
-            <View style={styles.headerInfo}>
-              <Text style={styles.title}>Manajemen Laboratorium</Text>
-              <Text style={styles.roleSub}>Peran: Aslab · Pengelola Mata Kuliah</Text>
-            </View>
+        <View style={styles.headerRow}>
+          <View style={styles.headerTextCol}>
+            <Text style={styles.title}>Kelola Lab</Text>
+            <Text style={styles.subtitle}>
+              Pengaturan laboratorium, impor CSV, dan mutasi anggota
+            </Text>
           </View>
+          <AppButton
+            label="+ Tambah"
+            variant="primary"
+            size="sm"
+            onPress={handleOpenAddLab}
+          />
         </View>
 
         {feedbackSuccess ? (
           <InfoBanner tone="success" message={feedbackSuccess} />
         ) : null}
 
-        {/* 1. Pemilih Mata Kuliah Tanggung Jawab */}
+        {/* 1. Pemilih Mata Kuliah */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Mata Kuliah Tanggung Jawab</Text>
+          <Text style={styles.sectionTitle}>Mata Kuliah</Text>
           <View style={styles.courseChipRow}>
             {DEFAULT_COURSES.map((course) => (
               <FilterChip
@@ -105,81 +150,21 @@ export default function KelolaLabScreen() {
           </View>
         </View>
 
-        {/* 2. Panel Aksi Cepat: 3 Bulk Insert Terpisah + Transfer */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Aksi Cepat & Bulk Insert</Text>
-          <View style={styles.actionsGrid}>
-            {/* Action 1: Bulk Laboratorium */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              style={styles.actionCard}
-              onPress={() => openBulkModal('laboratorium')}
-            >
-              <View style={[styles.actionIconBox, { backgroundColor: 'rgba(123, 184, 212, 0.15)' }]}>
-                <AppIcon name="layers" size={20} color={Colors.accentBlue} />
-              </View>
-              <Text style={styles.actionCardTitle}>Bulk Laboratorium</Text>
-              <Text style={styles.actionCardDesc}>
-                Input banyak lab sekaligus via template CSV untuk mata kuliah terpilih.
-              </Text>
-            </TouchableOpacity>
-
-            {/* Action 2: Bulk Praktikan */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              style={styles.actionCard}
-              onPress={() => openBulkModal('praktikan')}
-            >
-              <View style={[styles.actionIconBox, { backgroundColor: Colors.successSoft }]}>
-                <AppIcon name="users" size={20} color={Colors.success} />
-              </View>
-              <Text style={styles.actionCardTitle}>Bulk Praktikan</Text>
-              <Text style={styles.actionCardDesc}>
-                Daftarkan mahasiswa praktikan ke lab terpilih via template CSV.
-              </Text>
-            </TouchableOpacity>
-
-            {/* Action 3: Bulk Asprak */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              style={styles.actionCard}
-              onPress={() => openBulkModal('asprak')}
-            >
-              <View style={[styles.actionIconBox, { backgroundColor: Colors.warningSoft }]}>
-                <AppIcon name="user" size={20} color={Colors.warning} />
-              </View>
-              <Text style={styles.actionCardTitle}>Bulk Asprak</Text>
-              <Text style={styles.actionCardDesc}>
-                Tugaskan asisten praktikum ke lab terpilih via template CSV.
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Transfer Button */}
-          <AppButton
-            label="Pindahkan Praktikan / Asprak Antar Lab"
-            variant="secondary"
-            onPress={() => setTransferModalVisible(true)}
-            style={styles.transferButton}
-          />
-        </View>
-
-        {/* 3. Daftar Laboratorium & Pengaturan Kebijakan */}
+        {/* 2. Daftar Laboratorium Aktif */}
         <View style={styles.section}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Laboratorium Aktif ({activeLabs.length})</Text>
-            <AppButton
-              label="+ Tambah Lab Single"
-              variant="ghost"
-              size="sm"
-              onPress={() => setSingleLabModalVisible(true)}
-            />
+            <Text style={styles.sectionTitle}>
+              Laboratorium Aktif ({activeLabs.length})
+            </Text>
+            {currentLab ? (
+              <Text style={styles.selectedHint}>Target: {currentLab.nama}</Text>
+            ) : null}
           </View>
 
           {activeLabs.length === 0 ? (
             <InfoBanner
               tone="neutral"
-              message="Belum ada laboratorium terdaftar. Gunakan Bulk Laboratorium atau Tambah Lab Single untuk memulai."
+              message="Belum ada laboratorium terdaftar. Tambah manual atau impor data melalui CSV."
             />
           ) : (
             <View style={styles.labsList}>
@@ -188,39 +173,47 @@ export default function KelolaLabScreen() {
                 return (
                   <AppCard
                     key={lab.id}
-                    variant="solid"
+                    variant="glass"
                     style={[styles.labItemCard, isCurrent && styles.labItemCardSelected]}
                   >
                     <TouchableOpacity
-                      activeOpacity={0.7}
+                      activeOpacity={0.75}
                       onPress={() => setSelectedLabId(lab.id)}
                     >
                       <View style={styles.labCardHeader}>
-                        <View style={styles.labTitleGroup}>
+                        <View style={styles.labTitleRow}>
                           <Text style={styles.labName}>{lab.nama}</Text>
-                          <View style={styles.labBadge}>
-                            <Text style={styles.labBadgeText}>{lab.kode}</Text>
+                          <View style={styles.labHeaderRight}>
+                            <View style={styles.labBadge}>
+                              <Text style={styles.labBadgeText}>{lab.kode}</Text>
+                            </View>
+                            <TouchableOpacity
+                              hitSlop={8}
+                              onPress={() => handleOpenEditLab(lab.id)}
+                              style={styles.editIconBtn}
+                            >
+                              <AppIcon name="sliders" size={14} color={Colors.primary} />
+                            </TouchableOpacity>
                           </View>
                         </View>
                         <Text style={styles.labGedung}>{lab.gedung}</Text>
                       </View>
 
-                      {/* Policy Badges */}
                       <View style={styles.policyRow}>
                         <View style={styles.policyPill}>
                           <AppIcon name="map-pin" size={12} color={Colors.textMuted} />
-                          <Text style={styles.policyPillText}>Radius: {lab.radiusMeters}m</Text>
+                          <Text style={styles.policyPillText}>Radius {lab.radiusMeters}m</Text>
                         </View>
                         <View style={styles.policyPill}>
                           <AppIcon name="clock" size={12} color={Colors.textMuted} />
                           <Text style={styles.policyPillText}>
-                            Toleransi: {lab.gracePeriodMinutes ?? 15} mnt
+                            Toleransi {lab.gracePeriodMinutes ?? 15} mnt
                           </Text>
                         </View>
                         <View style={styles.policyPill}>
                           <AppIcon name="credit-card" size={12} color={Colors.textMuted} />
                           <Text style={styles.policyPillText}>
-                            Denda: Rp{(lab.lateFineAmount ?? 10000).toLocaleString('id-ID')}
+                            Denda Rp{(lab.lateFineAmount ?? 10000).toLocaleString('id-ID')}
                           </Text>
                         </View>
                       </View>
@@ -231,7 +224,55 @@ export default function KelolaLabScreen() {
             </View>
           )}
         </View>
-      </ScrollView>
+
+        {/* 3. Impor Data CSV & Mutasi Anggota */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Impor Massal (CSV) & Mutasi</Text>
+          <AppCard variant="glass" style={styles.toolsCard}>
+            <ToolRow
+              icon="layers"
+              iconBg="rgba(123, 184, 212, 0.16)"
+              iconColor={Colors.accentBlue}
+              title="Impor Data Laboratorium"
+              subtitle={`Tambah banyak lab untuk ${selectedCourse.kode}`}
+              onPress={() => openBulkModal('laboratorium')}
+            />
+            <ToolRow
+              icon="users"
+              iconBg={Colors.successSoft}
+              iconColor={Colors.success}
+              title="Impor Daftar Praktikan"
+              subtitle={
+                currentLab
+                  ? `Masukkan praktikan ke ${currentLab.nama}`
+                  : 'Daftarkan praktikan ke lab terpilih'
+              }
+              onPress={() => openBulkModal('praktikan')}
+            />
+            <ToolRow
+              icon="user"
+              iconBg={Colors.warningSoft}
+              iconColor={Colors.warning}
+              title="Impor Penugasan Asprak"
+              subtitle={
+                currentLab
+                  ? `Tugaskan asprak ke ${currentLab.nama}`
+                  : 'Tugaskan asprak ke lab terpilih'
+              }
+              onPress={() => openBulkModal('asprak')}
+            />
+            <ToolRow
+              icon="repeat"
+              iconBg={Colors.primarySoft}
+              iconColor={Colors.primary}
+              title="Transfer Anggota Antar Lab"
+              subtitle="Pindahkan praktikan atau asprak tanpa ubah jadwal"
+              onPress={() => setTransferModalVisible(true)}
+              last={true}
+            />
+          </AppCard>
+        </View>
+      </View>
 
       {/* Bulk Insert Modal */}
       {bulkModalType && pengguna ? (
@@ -274,45 +315,25 @@ export default function KelolaLabScreen() {
 }
 
 const styles = StyleSheet.create({
-  screenScroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.lg,
-    paddingBottom: 110,
+  content: {
     gap: Spacing.lg,
   },
-  header: {
-    gap: Spacing.xs,
-  },
-  headerTitleRow: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.md,
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
   },
-  avatarCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    fontSize: FontSize.md,
-    fontFamily: FontFamily.semibold,
-    color: Colors.textOnDark,
-  },
-  headerInfo: {
+  headerTextCol: {
     flex: 1,
+    gap: 2,
   },
   title: {
-    fontSize: FontSize.lg,
+    fontSize: FontSize.xl,
     fontFamily: FontFamily.semibold,
     color: Colors.text,
   },
-  roleSub: {
+  subtitle: {
     fontSize: FontSize.xs,
     fontFamily: FontFamily.regular,
     color: Colors.textMuted,
@@ -330,46 +351,15 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.semibold,
     color: Colors.text,
   },
+  selectedHint: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
+    color: Colors.primary,
+  },
   courseChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.xs,
-  },
-  actionsGrid: {
-    gap: Spacing.sm,
-  },
-  actionCard: {
-    backgroundColor: Colors.surface,
-    padding: Spacing.md,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    gap: 4,
-    ...Shadow.card,
-  },
-  actionIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
-  actionCardTitle: {
-    fontSize: FontSize.sm,
-    fontFamily: FontFamily.semibold,
-    color: Colors.text,
-  },
-  actionCardDesc: {
-    fontSize: FontSize.xs,
-    fontFamily: FontFamily.regular,
-    color: Colors.textMuted,
-    lineHeight: 18,
-  },
-  transferButton: {
-    minHeight: 48,
-    borderRadius: Radius.pill,
-    marginTop: 4,
   },
   labsList: {
     gap: Spacing.sm,
@@ -377,23 +367,28 @@ const styles = StyleSheet.create({
   labItemCard: {
     padding: Spacing.md,
     borderRadius: Radius.md,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
   },
   labItemCardSelected: {
     borderColor: Colors.primary,
+    borderWidth: 1.5,
     backgroundColor: Colors.glassStrong,
   },
   labCardHeader: {
     gap: 2,
   },
-  labTitleGroup: {
+  labTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: Spacing.xs,
+  },
+  labHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   labName: {
+    flex: 1,
     fontSize: FontSize.sm,
     fontFamily: FontFamily.semibold,
     color: Colors.text,
@@ -408,6 +403,14 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontFamily: FontFamily.semibold,
     color: Colors.textMuted,
+  },
+  editIconBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   labGedung: {
     fontSize: FontSize.xs,
@@ -432,6 +435,43 @@ const styles = StyleSheet.create({
   policyPillText: {
     fontSize: 10,
     fontFamily: FontFamily.medium,
+    color: Colors.textMuted,
+  },
+  toolsCard: {
+    padding: 0,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+  },
+  toolRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md - 2,
+  },
+  toolRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  toolIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toolTextCol: {
+    flex: 1,
+    gap: 1,
+  },
+  toolTitle: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.semibold,
+    color: Colors.text,
+  },
+  toolSub: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },
 });
