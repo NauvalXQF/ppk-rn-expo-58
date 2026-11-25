@@ -28,6 +28,7 @@ export function KehadiranScreen() {
 
   const riwayat = selectRiwayatPraktikan(state, user.id);
   const hadirCount = riwayat.filter((r) => r.status === 'hadir').length;
+  const izinCount = riwayat.filter((r) => r.status === 'izin').length;
   const totalSesi = riwayat.length;
   const rate = totalSesi > 0 ? Math.round((hadirCount / totalSesi) * 100) : 0;
   const totalJam = hadirCount * 2;
@@ -44,10 +45,27 @@ export function KehadiranScreen() {
   const getStatusInfo = (item: (typeof riwayat)[number]) => {
     switch (item.status) {
       case 'hadir':
+        if (item.presensi?.lateStatus === 'late') {
+          return {
+            label: `Hadir (Terlambat +${item.presensi.lateMinutes ?? 1} mnt)`,
+            bg: Colors.warningSoft,
+            color: Colors.warning,
+          };
+        }
         return {
-          label: `Hadir · ${item.presensi ? formatWaktuPresensi(item.presensi.waktuPresensi) : ''}`,
+          label: `${
+            item.presensi?.lateStatus === 'on_time'
+              ? 'Hadir (Tepat Waktu)'
+              : 'Hadir'
+          } · ${item.presensi ? formatWaktuPresensi(item.presensi.waktuPresensi) : ''}`,
           bg: Colors.successSoft,
           color: Colors.success,
+        };
+      case 'izin':
+        return {
+          label: 'Izin (Excused)',
+          bg: Colors.unreadSurface,
+          color: Colors.accentBlue,
         };
       case 'belum-presensi':
         return {
@@ -160,7 +178,9 @@ export function KehadiranScreen() {
         icon="check-circle"
         label="Sesi selesai"
         value={String(riwayat.filter((r) => r.sesi.status === 'ditutup').length)}
-        subInfo={`${hadirCount} dari ${totalSesi} hadir (${rate}%)`}
+        subInfo={`${hadirCount} dari ${totalSesi} hadir (${rate}%)${
+          izinCount > 0 ? ` · ${izinCount} izin` : ''
+        }`}
       />
 
       {/* Sesi terbaru (hanya jika tidak ada sesi aktif di atas) */}
@@ -289,7 +309,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   activeBannerCard: {
-    borderColor: '#86EFAC',
+    borderColor: Colors.success,
     borderWidth: 1.5,
   },
   activeCtaPill: {

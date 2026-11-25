@@ -1,4 +1,5 @@
 import type { ProfilPengguna } from '@/services/authService';
+import { getPraktikanClassIds } from '@/store/selectors';
 import type { Kelas, Pengguna, Sesi } from '@/types/models';
 import type { LeaveSessionOption, PermissionActor } from './types';
 
@@ -8,16 +9,18 @@ import type { LeaveSessionOption, PermissionActor } from './types';
  */
 export function mapProfilToPermissionActor(
   profil: ProfilPengguna | null,
-  kelasIdOverride?: string | string[],
+  kelasOrLabIdsOverride?: string | string[],
 ): PermissionActor | null {
   if (!profil) return null;
 
-  if (profil.role === 'praktikan') {
+  const rawRole = profil.role as string;
+  if (rawRole === 'praktikan') {
     let classIds: string[] | undefined;
-    if (Array.isArray(kelasIdOverride)) {
-      classIds = kelasIdOverride.length > 0 ? kelasIdOverride : undefined;
+    if (Array.isArray(kelasOrLabIdsOverride)) {
+      classIds =
+        kelasOrLabIdsOverride.length > 0 ? kelasOrLabIdsOverride : undefined;
     } else {
-      const resolvedClassId = kelasIdOverride ?? profil.kelasId;
+      const resolvedClassId = kelasOrLabIdsOverride ?? profil.kelasId;
       classIds = resolvedClassId ? [resolvedClassId] : undefined;
     }
     return {
@@ -26,6 +29,28 @@ export function mapProfilToPermissionActor(
       displayName: profil.nama,
       nim: profil.nim,
       classIds,
+    };
+  }
+
+  if (rawRole === 'aslab') {
+    return {
+      uid: profil.uid,
+      role: 'aslab',
+      displayName: profil.nama,
+      nip: profil.nip,
+    };
+  }
+
+  if (rawRole === 'asprak') {
+    const assignedLabIds = Array.isArray(kelasOrLabIdsOverride)
+      ? kelasOrLabIdsOverride
+      : undefined;
+    return {
+      uid: profil.uid,
+      role: 'asprak',
+      displayName: profil.nama,
+      nip: profil.nip,
+      ...(assignedLabIds !== undefined ? { assignedLabIds } : {}),
     };
   }
 
@@ -52,7 +77,26 @@ export function mapPenggunaToPermissionActor(
       role: 'praktikan',
       displayName: user.nama,
       nim: user.nim,
-      classIds: [user.kelasId],
+      classIds: getPraktikanClassIds(user),
+    };
+  }
+
+  if (user.peran === 'asprak') {
+    return {
+      uid: user.id,
+      role: 'asprak',
+      displayName: user.nama,
+      nip: user.nip,
+      assignedLabIds: user.assignedLabIds ?? [],
+    };
+  }
+
+  if (user.peran === 'aslab') {
+    return {
+      uid: user.id,
+      role: 'aslab',
+      displayName: user.nama,
+      nip: user.nip,
     };
   }
 

@@ -8,6 +8,12 @@ import {
 } from 'firebase/firestore';
 
 import {
+  buildFineDocumentPayload,
+  buildFineId,
+  dispatchFineCreatedNotification,
+  evaluateAttendanceLateness,
+} from '@/services/fines/fineCalculationService';
+import {
   DEFAULT_GEOFENCE_RADIUS_METERS,
   evaluateGeofence,
   isValidCoordinate,
@@ -16,12 +22,13 @@ import {
 import { getDb, toStatusSesi } from '@/services/practicumService';
 import { isPraktikanInClass } from '@/store/selectors';
 import { evaluateSessionScheduleWindow } from '@/utils/date';
+import type { FineCreatedNotificationInput } from '@/types/fine';
 import type {
   GeoAttendancePayload,
   GeoPoint,
   LabGeofenceTarget,
 } from '@/types/geoAttendance';
-import type { Pengguna, Presensi, Sesi } from '@/types/models';
+import { isStaffUser, type Pengguna, type Presensi, type Sesi } from '@/types/models';
 
 export interface SubmitAttendanceInput {
   sesiId: string;
@@ -105,6 +112,7 @@ export async function submitAttendanceToFirestore(
 
   const waktuPresensi = input.waktuPresensi ?? new Date().toISOString();
   const presensiDate = new Date(waktuPresensi);
+  const deterministicFineId = buildFineId(sesiId, actor.id);
 
   // Validasi lokal cepat sebelum transaksi Firestore
   if (input.localSesi) {
@@ -144,17 +152,32 @@ export async function submitAttendanceToFirestore(
       : 0;
 
   let finalDistanceMeters = localVerification.distanceMeters;
+  let finalEvaluation = input.localSesi
+    ? evaluateAttendanceLateness({
+        session: input.localSesi,
+        recordedAt: presensiDate,
+      })
+    : evaluateAttendanceLateness({
+        session: {},
+        recordedAt: presensiDate,
+      });
+  let finalFineId: string | null = finalEvaluation.shouldCreateFine
+    ? deterministicFineId
+    : null;
+  let createdFineNotification: FineCreatedNotificationInput | null = null;
 
   const db = getDb();
   if (db) {
     const sessionRef = doc(db, 'sessions', sesiId);
     // Sesuai data-model.md §2C: lokasi dokumen tetap sessions/{sessionId}/attendances/{auth.uid}
     const attendanceRef = doc(db, 'sessions', sesiId, 'attendances', actor.id);
+    const fineRef = doc(db, 'fines', deterministicFineId);
 
     await runTransaction(db, async (tx) => {
-      const [sessionSnap, attSnap] = await Promise.all([
+      const [sessionSnap, attSnap, fineSnap] = await Promise.all([
         tx.get(sessionRef),
         tx.get(attendanceRef),
+        tx.get(fineRef),
       ]);
 
       if (!sessionSnap.exists()) {
@@ -215,9 +238,21 @@ export async function submitAttendanceToFirestore(
       }
 
       finalDistanceMeters = serverVerification.distanceMeters;
+      finalEvaluation = evaluateAttendanceLateness({
+        session: {
+          tanggal:
+            typeof sessionData.tanggal === 'string' ? sessionData.tanggal : undefined,
+          jamMulai:
+            typeof sessionData.jamMulai === 'string' ? sessionData.jamMulai : undefined,
+          openedAt: sessionData.openedAt,
+          gracePeriodMinutes: sessionData.gracePeriodMinutes,
+          lateFineAmount: sessionData.lateFineAmount,
+        },
+        recordedAt: presensiDate,
+      });
+      finalFineId = finalEvaluation.shouldCreateFine ? deterministicFineId : null;
 
-      // Sesuai data-model.md §2C: uid, sessionId, classId, status: 'hadir', recordedAt,
-      // latitude, longitude, accuracy, distanceMeters, geofenceStatus, catatan
+      // Sesuai data-model.md §2C & Sprint 4 §2E
       tx.set(attendanceRef, {
         uid: actor.id,
         sessionId: sesiId,
@@ -231,8 +266,69 @@ export async function submitAttendanceToFirestore(
         distanceMeters: finalDistanceMeters,
         geofenceStatus: 'in_radius',
         catatan: trimmedCatatan ?? null,
+        lateStatus: finalEvaluation.lateStatus,
+        lateMinutes: finalEvaluation.lateMinutes,
+        graceDeadlineAt: finalEvaluation.graceDeadlineAt,
+        fineId: finalFineId,
       });
+
+      if (finalEvaluation.shouldCreateFine && !fineSnap.exists()) {
+        const courseId =
+          typeof sessionData.courseId === 'string' && sessionData.courseId.trim()
+            ? sessionData.courseId.trim()
+            : typeof sessionData.praktikumId === 'string' && sessionData.praktikumId.trim()
+              ? sessionData.praktikumId.trim()
+              : 'praktikum-ppk';
+        const labId =
+          typeof sessionData.labId === 'string' && sessionData.labId.trim()
+            ? sessionData.labId.trim()
+            : sessionClassId;
+        const labNama = serverTarget.labNama;
+        const sessionTopik =
+          typeof sessionData.topik === 'string' && sessionData.topik.trim()
+            ? sessionData.topik.trim()
+            : 'Sesi Praktikum';
+        const sessionTanggal =
+          typeof sessionData.tanggal === 'string' && sessionData.tanggal.trim()
+            ? sessionData.tanggal.trim()
+            : waktuPresensi.slice(0, 10);
+
+        const finePayload = buildFineDocumentPayload({
+          sessionId: sesiId,
+          uid: actor.id,
+          praktikanNama: actor.nama,
+          praktikanNim: actor.nim,
+          courseId,
+          labId,
+          labNama,
+          sessionTopik,
+          sessionTanggal,
+          waktuPresensi,
+          lateMinutes: finalEvaluation.lateMinutes,
+          amount: finalEvaluation.fineAmount,
+        });
+
+        tx.set(fineRef, {
+          ...finePayload,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        createdFineNotification = {
+          fineId: deterministicFineId,
+          uid: actor.id,
+          sessionId: sesiId,
+          sessionTopik,
+          labNama,
+          lateMinutes: finalEvaluation.lateMinutes,
+          amount: finalEvaluation.fineAmount,
+        };
+      }
     });
+
+    if (createdFineNotification) {
+      dispatchFineCreatedNotification(createdFineNotification).catch(() => {});
+    }
   }
 
   return {
@@ -246,6 +342,10 @@ export async function submitAttendanceToFirestore(
     accuracy: normalizedAccuracy,
     distanceMeters: finalDistanceMeters,
     geofenceStatus: 'in_radius',
+    lateStatus: finalEvaluation.lateStatus,
+    lateMinutes: finalEvaluation.lateMinutes,
+    graceDeadlineAt: finalEvaluation.graceDeadlineAt,
+    fineId: finalFineId,
   };
 }
 
@@ -285,6 +385,24 @@ function mapAttendanceDoc(
       data.geofenceStatus === 'in_radius' || data.geofenceStatus === 'bypass_qr'
         ? data.geofenceStatus
         : undefined,
+    lateStatus:
+      data.lateStatus === 'on_time' || data.lateStatus === 'late'
+        ? data.lateStatus
+        : undefined,
+    lateMinutes:
+      typeof data.lateMinutes === 'number' && Number.isFinite(data.lateMinutes)
+        ? data.lateMinutes
+        : undefined,
+    graceDeadlineAt:
+      typeof data.graceDeadlineAt === 'string' && data.graceDeadlineAt.length > 0
+        ? data.graceDeadlineAt
+        : undefined,
+    fineId:
+      typeof data.fineId === 'string'
+        ? data.fineId
+        : data.fineId === null
+          ? null
+          : undefined,
   };
 }
 
@@ -309,7 +427,7 @@ export function subscribeAttendancesRealtime(
   };
 
   for (const sesiId of sessionIds) {
-    if (currentUser.peran === 'asisten') {
+    if (isStaffUser(currentUser)) {
       const colRef = collection(db, 'sessions', sesiId, 'attendances');
       unsubs.push(
         onSnapshot(

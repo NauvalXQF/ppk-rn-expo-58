@@ -21,10 +21,16 @@ export function PraktikanSessionView({
   praktikan,
 }: PraktikanSessionViewProps) {
   const router = useRouter();
-  const { error } = useApp();
+  const { state, error } = useApp();
 
   const { sesi, presensiSaya } = detail;
   const isEligibleKelas = isPraktikanInClass(praktikan, sesi.kelasId);
+  const hasApprovedLeave = Boolean(
+    !presensiSaya &&
+      state.approvedLeaves?.some(
+        (leave) => leave.sessionId === sesi.id && leave.uid === praktikan.id,
+      ),
+  );
 
   const openGeoAttendance = () => {
     router.push(`/presensi/${sesi.id}` as Href);
@@ -41,7 +47,15 @@ export function PraktikanSessionView({
         />
       ) : null}
 
-      {isEligibleKelas && sesi.status === 'dijadwalkan' && (
+      {isEligibleKelas && hasApprovedLeave ? (
+        <InfoBanner
+          tone="info"
+          message="Tidak Hadir dengan Izin (Excused Absence)"
+          description="Pengajuan izin Anda pada sesi ini telah disetujui dan bebas dari denda keterlambatan."
+        />
+      ) : null}
+
+      {isEligibleKelas && !hasApprovedLeave && sesi.status === 'dijadwalkan' && (
         <View style={styles.section}>
           <InfoBanner
             tone="info"
@@ -55,7 +69,7 @@ export function PraktikanSessionView({
         </View>
       )}
 
-      {isEligibleKelas && sesi.status === 'dibuka' && !presensiSaya && (
+      {isEligibleKelas && !hasApprovedLeave && sesi.status === 'dibuka' && !presensiSaya && (
         <View style={styles.section}>
           <SectionHeader title="Agenda & informasi sesi" />
           <InfoBanner
@@ -70,6 +84,9 @@ export function PraktikanSessionView({
         <PresensiSuccess
           waktuPresensi={presensiSaya.waktuPresensi}
           catatan={presensiSaya.catatan}
+          lateStatus={presensiSaya.lateStatus}
+          lateMinutes={presensiSaya.lateMinutes}
+          fineAmount={sesi.lateFineAmount}
         />
       )}
 
@@ -80,11 +97,14 @@ export function PraktikanSessionView({
               <PresensiSuccess
                 waktuPresensi={presensiSaya.waktuPresensi}
                 catatan={presensiSaya.catatan}
+                lateStatus={presensiSaya.lateStatus}
+                lateMinutes={presensiSaya.lateMinutes}
+                fineAmount={sesi.lateFineAmount}
                 showButton={false}
               />
               <InfoBanner tone="neutral" message="Sesi telah ditutup." />
             </>
-          ) : (
+          ) : hasApprovedLeave ? null : (
             <InfoBanner
               tone="warning"
               message="Sesi telah ditutup dan kamu tidak tercatat hadir."

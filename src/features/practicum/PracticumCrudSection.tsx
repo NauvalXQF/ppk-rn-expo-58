@@ -37,10 +37,18 @@ import { useApp } from '@/store/app-context';
 import {
   selectJadwalUntukPengguna,
   selectPesertaPraktikum,
+  selectSesiUntukPengguna,
   selectTotalPraktikan,
 } from '@/store/selectors';
 import type { Laboratory } from '@/types/laboratory';
-import type { Jadwal, Kelas, Praktikan, Sesi } from '@/types/models';
+import {
+  canManageClassesAndMembers,
+  isStaffUser,
+  type Jadwal,
+  type Kelas,
+  type Praktikan,
+  type Sesi,
+} from '@/types/models';
 import { LabPickerModal } from './LabPickerModal';
 
 type CrudTab = 'sesi' | 'jadwal' | 'kelas' | 'peserta';
@@ -121,7 +129,12 @@ export function PracticumCrudSection() {
   const [manualLabJadwal, setManualLabJadwal] = useState(false);
   const [manualLabSesi, setManualLabSesi] = useState(false);
 
-  const isAsistenUser = state.currentUser?.peran === 'asisten';
+  const isStaffUserActor = isStaffUser(state.currentUser);
+  const canManageAll = canManageClassesAndMembers(state.currentUser);
+  const effectiveTab: CrudTab =
+    !canManageAll && (activeTab === 'kelas' || activeTab === 'peserta')
+      ? 'sesi'
+      : activeTab;
   const defaultKelasId = state.kelas[0]?.id ?? '';
   const activeKelasPeserta = state.kelas.some((k) => k.id === kelasPeserta)
     ? kelasPeserta
@@ -134,16 +147,21 @@ export function PracticumCrudSection() {
     : defaultKelasId;
 
   useEffect(() => {
-    if (!isRemote || !isAsistenUser || !expanded || activeTab !== 'peserta') {
+    if (
+      !isRemote ||
+      !canManageAll ||
+      !expanded ||
+      effectiveTab !== 'peserta'
+    ) {
       return;
     }
     return subscribeRegisteredPraktikanUsers((accounts) => {
       setRegisteredAccounts(accounts);
     });
-  }, [activeTab, expanded, isAsistenUser, isRemote]);
+  }, [canManageAll, effectiveTab, expanded, isRemote]);
 
   useEffect(() => {
-    if (!isRemote || !isAsistenUser || !expanded) {
+    if (!isRemote || !isStaffUserActor || !expanded) {
       return;
     }
     let active = true;
@@ -168,7 +186,7 @@ export function PracticumCrudSection() {
       active = false;
       unsubscribe?.();
     };
-  }, [expanded, isAsistenUser, isRemote]);
+  }, [expanded, isRemote, isStaffUserActor]);
 
   const effectiveLabIdJadwal = manualLabJadwal
     ? undefined
@@ -179,6 +197,7 @@ export function PracticumCrudSection() {
 
   const pesertaList = selectPesertaPraktikum(state);
   const jadwalList = selectJadwalUntukPengguna(state);
+  const sesiList = selectSesiUntukPengguna(state);
 
   const filteredPeserta = useMemo(() => {
     const q = pesertaQuery.trim().toLowerCase();
@@ -215,7 +234,7 @@ export function PracticumCrudSection() {
     });
   }, [accountFilter, accountQuery, pesertaList, registeredAccounts]);
 
-  if (!isAsistenUser) return null;
+  if (!isStaffUserActor) return null;
 
   const showSuccess = (msg: string) => {
     setFeedback(msg);
@@ -265,10 +284,10 @@ export function PracticumCrudSection() {
   };
 
   const openNewForm = () => {
-    if (activeTab === 'sesi') resetSesiForm();
-    else if (activeTab === 'jadwal') resetJadwalForm();
-    else if (activeTab === 'kelas') resetKelasForm();
-    else if (activeTab === 'peserta') resetPesertaForm();
+    if (effectiveTab === 'sesi') resetSesiForm();
+    else if (effectiveTab === 'jadwal') resetJadwalForm();
+    else if (effectiveTab === 'kelas') resetKelasForm();
+    else if (effectiveTab === 'peserta') resetPesertaForm();
     setViewMode('form');
   };
 
@@ -342,6 +361,13 @@ export function PracticumCrudSection() {
   const handleSaveSesi = async () => {
     try {
       const selectedLab = laboratories.find((l) => l.id === effectiveLabIdSesi);
+      const labPolicy = selectedLab as
+        | (Laboratory & {
+            courseId?: string;
+            gracePeriodMinutes?: number;
+            lateFineAmount?: number;
+          })
+        | undefined;
       await simpanSesi({
         id: editSesiId,
         kelasId: activeKelasSesi,
@@ -355,6 +381,13 @@ export function PracticumCrudSection() {
                 longitude: selectedLab.longitude,
               },
               radiusMeters: selectedLab.radiusMeters,
+              ...(labPolicy?.courseId ? { courseId: labPolicy.courseId } : {}),
+              ...(typeof labPolicy?.gracePeriodMinutes === 'number'
+                ? { gracePeriodMinutes: labPolicy.gracePeriodMinutes }
+                : {}),
+              ...(typeof labPolicy?.lateFineAmount === 'number'
+                ? { lateFineAmount: labPolicy.lateFineAmount }
+                : {}),
             }
           : {}),
         tanggal: tanggalSesi,
@@ -474,15 +507,15 @@ export function PracticumCrudSection() {
   };
 
   const formTitle =
-    activeTab === 'sesi'
+    effectiveTab === 'sesi'
       ? editSesiId
         ? 'Ubah Sesi Praktikum'
         : 'Tambah Sesi Baru'
-      : activeTab === 'jadwal'
+      : effectiveTab === 'jadwal'
         ? editJadwalId
           ? 'Ubah Jadwal Reguler'
           : 'Tambah Jadwal Reguler'
-        : activeTab === 'kelas'
+        : effectiveTab === 'kelas'
           ? editKelasId
             ? 'Ubah Kelas'
             : 'Tambah Kelas Baru'
@@ -493,6 +526,17 @@ export function PracticumCrudSection() {
   const selectedAccount = registeredAccounts.find(
     (acc) => acc.uid === uidPeserta,
   );
+  const visibleTabs: readonly { key: CrudTab; label: string }[] = canManageAll
+    ? [
+        { key: 'sesi', label: `Sesi (${sesiList.length})` },
+        { key: 'jadwal', label: `Jadwal (${jadwalList.length})` },
+        { key: 'kelas', label: `Kelas (${state.kelas.length})` },
+        { key: 'peserta', label: `Peserta (${pesertaList.length})` },
+      ]
+    : [
+        { key: 'sesi', label: `Sesi (${sesiList.length})` },
+        { key: 'jadwal', label: `Jadwal (${jadwalList.length})` },
+      ];
 
   return (
     <>
@@ -505,10 +549,13 @@ export function PracticumCrudSection() {
           style={styles.topHeader}
         >
           <View style={styles.titleWrap}>
-            <Text style={styles.title}>Kelola Praktikum & Sesi</Text>
+            <Text style={styles.title}>
+              {canManageAll ? 'Kelola Praktikum & Sesi' : 'Kelola Sesi & Jadwal'}
+            </Text>
             <Text style={styles.subtitle}>
-              {state.kelas.length} kelas · {state.sesi.length} sesi ·{' '}
-              {pesertaList.length} peserta
+              {canManageAll
+                ? `${state.kelas.length} kelas · ${sesiList.length} sesi · ${pesertaList.length} peserta`
+                : `${state.kelas.length} kelas tanggung jawab · ${sesiList.length} sesi`}
             </Text>
           </View>
           <View style={styles.toggleBtn}>
@@ -592,27 +639,11 @@ export function PracticumCrudSection() {
                   style={styles.tabScroll}
                   contentContainerStyle={styles.tabRow}
                 >
-                  {(
-                    [
-                      { key: 'sesi', label: `Sesi (${state.sesi.length})` },
-                      {
-                        key: 'jadwal',
-                        label: `Jadwal (${jadwalList.length})`,
-                      },
-                      {
-                        key: 'kelas',
-                        label: `Kelas (${state.kelas.length})`,
-                      },
-                      {
-                        key: 'peserta',
-                        label: `Peserta (${pesertaList.length})`,
-                      },
-                    ] as const
-                  ).map((t) => (
+                  {visibleTabs.map((t) => (
                     <FilterChip
                       key={t.key}
                       label={t.label}
-                      active={activeTab === t.key}
+                      active={effectiveTab === t.key}
                       onPress={() => setActiveTab(t.key)}
                     />
                   ))}
@@ -631,19 +662,19 @@ export function PracticumCrudSection() {
                 {error ? <InfoBanner tone="danger" message={error} /> : null}
 
                 {/* ============ LIST VIEWS (A8, A10, A11, A12) ============ */}
-                {viewMode === 'list' && activeTab === 'sesi' ? (
+                {viewMode === 'list' && effectiveTab === 'sesi' ? (
                   <View style={styles.section}>
                     <AppButton
                       label="+ Tambah Sesi Baru"
                       onPress={openNewForm}
                     />
-                    {state.sesi.length === 0 ? (
+                    {sesiList.length === 0 ? (
                       <EmptyState
                         title="Belum ada sesi"
                         description="Tambahkan sesi praktikum baru untuk membuka presensi GPS."
                       />
                     ) : (
-                      state.sesi.map((s: Sesi) => {
+                      sesiList.map((s: Sesi) => {
                         const k = state.kelas.find(
                           (item) => item.id === s.kelasId,
                         );
@@ -692,7 +723,7 @@ export function PracticumCrudSection() {
                   </View>
                 ) : null}
 
-                {viewMode === 'list' && activeTab === 'jadwal' ? (
+                {viewMode === 'list' && effectiveTab === 'jadwal' ? (
                   <View style={styles.section}>
                     <AppButton
                       label="+ Tambah Jadwal Reguler"
@@ -757,7 +788,7 @@ export function PracticumCrudSection() {
                   </View>
                 ) : null}
 
-                {viewMode === 'list' && activeTab === 'kelas' ? (
+                {canManageAll && viewMode === 'list' && effectiveTab === 'kelas' ? (
                   <View style={styles.section}>
                     <AppButton
                       label="+ Tambah Kelas Baru"
@@ -821,7 +852,7 @@ export function PracticumCrudSection() {
                   </View>
                 ) : null}
 
-                {viewMode === 'list' && activeTab === 'peserta' ? (
+                {canManageAll && viewMode === 'list' && effectiveTab === 'peserta' ? (
                   <View style={styles.section}>
                     <AppButton
                       label="+ Tambah Peserta ke Kelas"
@@ -894,7 +925,7 @@ export function PracticumCrudSection() {
                 ) : null}
 
                 {/* ============ FOCUSED FORM VIEWS (A9, A13, dll.) ============ */}
-                {viewMode === 'form' && activeTab === 'sesi' ? (
+                {viewMode === 'form' && effectiveTab === 'sesi' ? (
                   <View style={styles.section}>
                     <Text style={styles.fieldLabel}>Kelas Praktikum</Text>
                     {renderKelasSelector(activeKelasSesi, setKelasSesi)}
@@ -960,7 +991,7 @@ export function PracticumCrudSection() {
                   </View>
                 ) : null}
 
-                {viewMode === 'form' && activeTab === 'jadwal' ? (
+                {viewMode === 'form' && effectiveTab === 'jadwal' ? (
                   <View style={styles.section}>
                     <Text style={styles.fieldLabel}>Kelas Praktikum</Text>
                     {renderKelasSelector(activeKelasJadwal, setKelasJadwal)}
@@ -1026,7 +1057,7 @@ export function PracticumCrudSection() {
                   </View>
                 ) : null}
 
-                {viewMode === 'form' && activeTab === 'kelas' ? (
+                {canManageAll && viewMode === 'form' && effectiveTab === 'kelas' ? (
                   <View style={styles.section}>
                     <FormField
                       label="Nama Kelas"
@@ -1056,7 +1087,7 @@ export function PracticumCrudSection() {
                   </View>
                 ) : null}
 
-                {viewMode === 'form' && activeTab === 'peserta' ? (
+                {canManageAll && viewMode === 'form' && effectiveTab === 'peserta' ? (
                   <View style={styles.section}>
                     {!editPesertaId && registeredAccounts.length > 0 ? (
                       <View style={styles.pickerGroup}>
@@ -1169,7 +1200,7 @@ export function PracticumCrudSection() {
                 ) : null}
 
                 {/* ============ ACCOUNT PICKER SUB-VIEW (A14) ============ */}
-                {viewMode === 'pick-account' ? (
+                {canManageAll && viewMode === 'pick-account' ? (
                   <View style={styles.section}>
                     <View style={styles.searchBox}>
                       <AppIcon

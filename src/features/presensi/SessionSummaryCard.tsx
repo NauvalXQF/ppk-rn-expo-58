@@ -4,6 +4,10 @@ import { View, Text, StyleSheet } from 'react-native';
 import { AppCard } from '@/components/ui/AppCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Colors, FontFamily, FontSize } from '@/constants/theme';
+import {
+  formatRupiah,
+  normalizeGracePolicy,
+} from '@/services/fines/fineCalculationService';
 import type { DetailSesi } from '@/types/models';
 import { formatJam, formatTanggal } from '@/utils/date';
 
@@ -20,6 +24,10 @@ export function SessionSummaryCard({
   const formattedTanggal = formatTanggal(sesi.tanggal);
   const formattedWaktu = `${formatJam(sesi.jamMulai)}–${formatJam(sesi.jamSelesai)}`;
   const displayLab = labNama?.trim() || sesi.labNama?.trim() || sesi.ruang;
+  const policy = normalizeGracePolicy({
+    gracePeriodMinutes: sesi.gracePeriodMinutes,
+    lateFineAmount: sesi.lateFineAmount,
+  });
 
   return (
     <AppCard style={styles.card}>
@@ -34,6 +42,11 @@ export function SessionSummaryCard({
 
       <Text style={styles.metaText}>
         {formattedTanggal}, {formattedWaktu} WIB · {displayLab}
+      </Text>
+
+      <Text style={styles.policyText}>
+        Toleransi {policy.gracePeriodMinutes} menit · Denda telat{' '}
+        {formatRupiah(policy.lateFineAmount)}
       </Text>
     </AppCard>
   );
@@ -63,6 +76,11 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: FontSize.xs,
     fontFamily: FontFamily.regular,
+    color: Colors.textMuted,
+  },
+  policyText: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
     color: Colors.textMuted,
   },
 });
