@@ -1,0 +1,22 @@
+/node_modules/
+/dist/
+/coverage/
+.[Ee][Nn][Vv]*
+*.[Ee][Nn][Vv]
+*.[Ee][Nn][Vv].*
+!/.env.example
+*.local
+credentials/
+secrets/
+# Service accounts are JSON files with arbitrary filenames.
+*.[Jj][Ss][Oo][Nn]
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.jks
+npm-debug.log*
