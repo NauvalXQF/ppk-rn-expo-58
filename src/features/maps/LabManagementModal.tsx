@@ -6,7 +6,13 @@ import { InfoBanner } from '@/components/ui/InfoBanner';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
 import type { ProfilPengguna } from '@/services/authService';
 import { archiveLaboratory, saveLaboratory } from '@/services/maps/laboratoryService';
-import { DEFAULT_LAB_RADIUS, validCoordinates, validRadius } from '@/services/maps/laboratories';
+import {
+  DEFAULT_GRACE_PERIOD_MINUTES,
+  DEFAULT_LAB_RADIUS,
+  DEFAULT_LATE_FINE_AMOUNT,
+  validCoordinates,
+  validRadius,
+} from '@/services/maps/laboratories';
 import type { Laboratory, LaboratoryCoordinates } from '@/types/laboratory';
 import { LabPickerMap, LabPreview } from './LaboratoryMap';
 import { MapSheet } from './MapSheet';
@@ -19,12 +25,16 @@ const fields = [
   ['latitude', 'Latitude'],
   ['longitude', 'Longitude'],
   ['radiusMeters', 'Radius (meter)'],
+  ['gracePeriodMinutes', 'Toleransi keterlambatan (menit)'],
+  ['lateFineAmount', 'Nominal denda keterlambatan (Rp)'],
 ] as const;
 
 type Draft = Record<(typeof fields)[number][0], string>;
 const blank: Draft = {
   nama: '', kode: '', gedung: '', latitude: '', longitude: '',
   radiusMeters: String(DEFAULT_LAB_RADIUS), kapasitas: '',
+  gracePeriodMinutes: String(DEFAULT_GRACE_PERIOD_MINUTES),
+  lateFineAmount: String(DEFAULT_LATE_FINE_AMOUNT),
 };
 const COORDINATE_DECIMALS = 7;
 
@@ -64,6 +74,8 @@ export function LabManagementModal({
         nama: lab.nama, kode: lab.kode, gedung: lab.gedung,
         kapasitas: String(lab.kapasitas), latitude: String(lab.latitude),
         longitude: String(lab.longitude), radiusMeters: String(lab.radiusMeters),
+        gracePeriodMinutes: String(lab.gracePeriodMinutes ?? DEFAULT_GRACE_PERIOD_MINUTES),
+        lateFineAmount: String(lab.lateFineAmount ?? DEFAULT_LATE_FINE_AMOUNT),
       } : blank,
     });
     setError(undefined);
@@ -107,7 +119,7 @@ export function LabManagementModal({
     }
   }
 
-  if (!visible || actor.role !== 'asisten') return null;
+  if (!visible || (actor.role !== 'asisten' && actor.role !== 'aslab')) return null;
   const draft = editor?.draft;
   const currentLab = laboratories.find((lab) => lab.id === editor?.id);
   const latitude = decimal(draft?.latitude ?? '');
@@ -205,7 +217,13 @@ export function LabManagementModal({
               value={draft[key]}
               editable={!busy}
               autoCapitalize={key === 'kode' ? 'characters' : 'none'}
-              keyboardType={key === 'kapasitas' ? 'number-pad' : key === 'radiusMeters' ? 'decimal-pad' : 'default'}
+              keyboardType={
+                key === 'kapasitas' || key === 'gracePeriodMinutes' || key === 'lateFineAmount'
+                  ? 'number-pad'
+                  : key === 'radiusMeters'
+                    ? 'decimal-pad'
+                    : 'default'
+              }
               onChangeText={(value) => change(key, value)}
             />
           ))}
@@ -232,6 +250,8 @@ export function LabManagementModal({
             onPress={() => void write(() => saveLaboratory(actor, {
               nama: draft.nama, kode: draft.kode, gedung: draft.gedung, latitude, longitude,
               radiusMeters, kapasitas: decimal(draft.kapasitas),
+              gracePeriodMinutes: decimal(draft.gracePeriodMinutes) || DEFAULT_GRACE_PERIOD_MINUTES,
+              lateFineAmount: decimal(draft.lateFineAmount) || DEFAULT_LATE_FINE_AMOUNT,
             }, editor.id), 'Laboratorium berhasil disimpan.')}
           />
           {currentLab?.aktif ? (

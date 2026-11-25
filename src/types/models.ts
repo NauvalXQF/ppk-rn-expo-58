@@ -30,7 +30,7 @@ export interface Aslab {
   id: string;
   peran: 'aslab';
   nama: string;
-  nip: string;
+  nip?: string;
   email?: string;
   managedCourseIds?: string[];
 }
@@ -86,6 +86,9 @@ export interface Praktikum {
   id: string;
   nama: string;
   kode: string;
+  aslabUids?: string[];
+  defaultGracePeriodMinutes?: number;
+  defaultLateFineAmount?: number;
 }
 
 export interface Kelas {
@@ -114,6 +117,7 @@ export interface Jadwal {
   ruang: string;
   labId?: string;
   topik: string;
+  courseId?: string;
 }
 
 export interface Sesi {

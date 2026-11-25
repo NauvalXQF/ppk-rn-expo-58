@@ -18,7 +18,15 @@ export type AppIconName =
   | 'check-circle'
   | 'clock'
   | 'users'
-  | 'bar-chart-2';
+  | 'bar-chart-2'
+  | 'credit-card'
+  | 'layers'
+  | 'upload'
+  | 'download'
+  | 'repeat'
+  | 'sliders'
+  | 'check'
+  | 'alert-circle';
 
 interface AppIconProps {
   name: AppIconName;
