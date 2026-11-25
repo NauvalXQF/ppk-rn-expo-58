@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { AppIcon } from '@/components/ui/AppIcon';
@@ -14,9 +14,13 @@ import { ScreenContainer } from '@/components/ui/ScreenContainer';
 import { Colors, FontFamily, FontSize, Shadow, Spacing } from '@/constants/theme';
 import { PresensiSuccess } from '@/features/sesi/praktikan/PresensiSuccess';
 import { useGeofence } from '@/hooks/useGeofence';
+import {
+  evaluateAttendanceLateness,
+  formatRupiah,
+} from '@/services/fines/fineCalculationService';
 import { useApp } from '@/store/app-context';
 import { isPraktikanInClass, selectDetailSesi } from '@/store/selectors';
-import { evaluateSessionScheduleWindow } from '@/utils/date';
+import { evaluateSessionScheduleWindow, formatWaktuPresensi } from '@/utils/date';
 import { LocationStatusCard } from './LocationStatusCard';
 import { SessionSummaryCard } from './SessionSummaryCard';
 
@@ -33,10 +37,20 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
   const [catatan, setCatatan] = useState('');
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const isPraktikan = user?.peran === 'praktikan';
   const isEligibleKelas =
     isPraktikan && detail ? isPraktikanInClass(user, detail.sesi.kelasId) : false;
+  const hasApprovedLeave = Boolean(
+    isPraktikan &&
+      user &&
+      detail &&
+      !detail.presensiSaya &&
+      state.approvedLeaves?.some(
+        (leave) => leave.sessionId === detail.sesi.id && leave.uid === user.id,
+      ),
+  );
   const scheduleCheck = detail
     ? evaluateSessionScheduleWindow(detail.sesi)
     : { isWithinSchedule: true, status: 'INVALID' as const };
@@ -44,10 +58,19 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
     detail &&
       isPraktikan &&
       isEligibleKelas &&
+      !hasApprovedLeave &&
       detail.sesi.status === 'dibuka' &&
       scheduleCheck.isWithinSchedule &&
       !detail.presensiSaya,
   );
+
+  useEffect(() => {
+    if (!shouldTrackLocation) return;
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [shouldTrackLocation]);
 
   const geofence = useGeofence(detail?.sesi ?? null, shouldTrackLocation);
 
@@ -105,12 +128,18 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
 
   const canSubmit =
     isEligibleKelas &&
+    !hasApprovedLeave &&
     sesi.status === 'dibuka' &&
     scheduleCheck.isWithinSchedule &&
     !presensiSaya &&
     geofence.verification?.status === 'DALAM_RADIUS' &&
     geofence.reading !== null &&
     !loading;
+
+  const liveLateness =
+    sesi.status === 'dibuka'
+      ? evaluateAttendanceLateness({ session: sesi, recordedAt: nowMs })
+      : null;
 
   const handleOpenConfirm = () => {
     setLocalError(null);
@@ -165,8 +194,12 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
       {isEligibleKelas && presensiSaya ? (
         <View style={styles.sectionGap}>
           <InfoBanner
-            tone="success"
-            message="Anda Sudah Hadir pada sesi ini."
+            tone={presensiSaya.lateStatus === 'late' ? 'warning' : 'success'}
+            message={
+              presensiSaya.lateStatus === 'late'
+                ? `Anda Tercatat Hadir (Terlambat +${presensiSaya.lateMinutes ?? 1} menit).`
+                : 'Anda Sudah Hadir pada sesi ini.'
+            }
             description={
               typeof presensiSaya.distanceMeters === 'number'
                 ? `Tercatat pada jarak ${Math.round(presensiSaya.distanceMeters)} meter dari ${geofence.labTarget.labNama}.`
@@ -176,11 +209,30 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
           <PresensiSuccess
             waktuPresensi={presensiSaya.waktuPresensi}
             catatan={presensiSaya.catatan}
+            lateStatus={presensiSaya.lateStatus}
+            lateMinutes={presensiSaya.lateMinutes}
+            fineAmount={sesi.lateFineAmount}
           />
         </View>
       ) : null}
 
-      {isEligibleKelas && !presensiSaya && sesi.status === 'dijadwalkan' ? (
+      {isEligibleKelas && !presensiSaya && hasApprovedLeave ? (
+        <View style={styles.sectionGap}>
+          <InfoBanner
+            tone="info"
+            message="Tidak Hadir dengan Izin (Excused Absence)"
+            description="Pengajuan izin Anda pada sesi ini telah disetujui sehingga Anda tidak perlu melakukan presensi dan bebas dari denda."
+          />
+          <AppButton
+            label="Izin Disetujui (Bebas Denda)"
+            onPress={() => {}}
+            disabled
+            variant="secondary"
+          />
+        </View>
+      ) : null}
+
+      {isEligibleKelas && !presensiSaya && !hasApprovedLeave && sesi.status === 'dijadwalkan' ? (
         <View style={styles.sectionGap}>
           <InfoBanner
             tone="neutral"
@@ -195,7 +247,7 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
         </View>
       ) : null}
 
-      {isEligibleKelas && !presensiSaya && sesi.status === 'ditutup' ? (
+      {isEligibleKelas && !presensiSaya && !hasApprovedLeave && sesi.status === 'ditutup' ? (
         <View style={styles.sectionGap}>
           <InfoBanner
             tone="warning"
@@ -209,7 +261,7 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
         </View>
       ) : null}
 
-      {isEligibleKelas && !presensiSaya && sesi.status === 'dibuka' && !scheduleCheck.isWithinSchedule ? (
+      {isEligibleKelas && !presensiSaya && !hasApprovedLeave && sesi.status === 'dibuka' && !scheduleCheck.isWithinSchedule ? (
         <View style={styles.sectionGap}>
           <InfoBanner
             tone="warning"
@@ -224,8 +276,23 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
         </View>
       ) : null}
 
-      {isEligibleKelas && !presensiSaya && sesi.status === 'dibuka' && scheduleCheck.isWithinSchedule ? (
+      {isEligibleKelas && !presensiSaya && !hasApprovedLeave && sesi.status === 'dibuka' && scheduleCheck.isWithinSchedule ? (
         <View style={styles.sectionGap}>
+          {liveLateness ? (
+            <InfoBanner
+              tone={liveLateness.lateStatus === 'late' ? 'warning' : 'info'}
+              message={
+                liveLateness.lateStatus === 'late'
+                  ? `Melewati Batas Toleransi (+${liveLateness.lateMinutes} menit)`
+                  : 'Dalam Masa Toleransi (Tepat Waktu)'
+              }
+              description={
+                liveLateness.lateStatus === 'late'
+                  ? `Presensi tetap dicatat sebagai Hadir (Terlambat) dan menerbitkan 1 tagihan denda sebesar ${formatRupiah(liveLateness.fineAmount)}.`
+                  : `Batas tepat waktu hingga pukul ${formatWaktuPresensi(liveLateness.graceDeadlineAt)} WIB (toleransi ${liveLateness.gracePeriodMinutes} menit).`
+              }
+            />
+          ) : null}
           <LocationStatusCard
             labTarget={geofence.labTarget}
             verification={geofence.verification}

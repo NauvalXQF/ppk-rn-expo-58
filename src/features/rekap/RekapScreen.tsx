@@ -2,8 +2,11 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { useApp } from '@/store/app-context';
-import { selectRekapSesi, selectSesiUntukPengguna } from '@/store/selectors';
-import { LABEL_STATUS } from '@/types/models';
+import {
+  selectRekapSesiDetail,
+  selectSesiUntukPengguna,
+} from '@/store/selectors';
+import { isStaffUser, LABEL_STATUS } from '@/types/models';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { formatTanggal, formatJam } from '@/utils/date';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
@@ -22,7 +25,7 @@ export function RekapScreen() {
 
   const openCount = sessions.filter((s) => s.status === 'dibuka').length;
   const totalRateSum = sessions.reduce((acc, s) => {
-    const r = selectRekapSesi(state, s.id);
+    const r = selectRekapSesiDetail(state, s.id);
     if (r.totalPraktikan === 0) return acc;
     return acc + (r.jumlahHadir / r.totalPraktikan) * 100;
   }, 0);
@@ -45,14 +48,17 @@ export function RekapScreen() {
                 {user.nama}
               </AppText>
               <AppText variant="caption" color={Colors.textMuted}>
-                Asisten Praktikum{user.peran === 'asisten' ? ` · NIP ${user.nip}` : ''}
+                {user.peran === 'aslab'
+                  ? 'Asisten Laboratorium'
+                  : 'Asisten Praktikum'}
+                {isStaffUser(user) ? ` · NIP ${user.nip}` : ''}
               </AppText>
             </View>
           </View>
           <View style={styles.headerRight}>
             <View style={styles.rolePill}>
               <AppText variant="caption" weight="medium" color={Colors.text}>
-                Asisten
+                {user.peran === 'aslab' ? 'Aslab' : 'Asprak'}
               </AppText>
             </View>
             <NotificationBell />
@@ -91,7 +97,7 @@ export function RekapScreen() {
         <View style={styles.list}>
           {sessions.map((item) => {
             const kelas = state.kelas.find((k) => k.id === item.kelasId);
-            const rekap = selectRekapSesi(state, item.id);
+            const rekap = selectRekapSesiDetail(state, item.id);
             const ratio =
               rekap.totalPraktikan > 0
                 ? rekap.jumlahHadir / rekap.totalPraktikan
@@ -145,6 +151,10 @@ export function RekapScreen() {
                   </Text>
                   <Text style={styles.cardCount}>
                     {rekap.jumlahHadir}/{rekap.totalPraktikan} hadir
+                    {rekap.jumlahTerlambat > 0
+                      ? ` · ${rekap.jumlahTerlambat} telat`
+                      : ''}
+                    {rekap.jumlahIzin > 0 ? ` · ${rekap.jumlahIzin} izin` : ''}
                   </Text>
                 </View>
               </AppCard>

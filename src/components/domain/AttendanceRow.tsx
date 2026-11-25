@@ -2,14 +2,40 @@ import React from 'react';
 import { View, Text, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 
+export type AttendanceRowBadgeTone = 'success' | 'warning' | 'neutral' | 'info';
+
 export interface AttendanceRowProps {
   nama: string;
   nim: string;
   waktu: string;
   catatan?: string;
   kelas?: string;
+  badgeLabel?: string;
+  badgeTone?: AttendanceRowBadgeTone;
   style?: StyleProp<ViewStyle>;
 }
+
+const badgeToneStyles: Record<
+  AttendanceRowBadgeTone,
+  { backgroundColor: string; color: string }
+> = {
+  success: {
+    backgroundColor: Colors.successSoft,
+    color: Colors.success,
+  },
+  warning: {
+    backgroundColor: Colors.warningSoft,
+    color: Colors.warning,
+  },
+  neutral: {
+    backgroundColor: Colors.neutralSoft,
+    color: Colors.textMuted,
+  },
+  info: {
+    backgroundColor: Colors.unreadSurface,
+    color: Colors.accentBlue,
+  },
+};
 
 export function AttendanceRow({
   nama,
@@ -17,9 +43,12 @@ export function AttendanceRow({
   waktu,
   catatan,
   kelas,
+  badgeLabel = 'Hadir',
+  badgeTone = 'success',
   style,
 }: AttendanceRowProps) {
   const subtitle = kelas ? `${nim} · ${kelas}` : nim;
+  const toneStyle = badgeToneStyles[badgeTone] ?? badgeToneStyles.success;
 
   return (
     <View style={[styles.container, style]}>
@@ -32,8 +61,15 @@ export function AttendanceRow({
             {subtitle} · {waktu}
           </Text>
         </View>
-        <View style={styles.badgeHadir}>
-          <Text style={styles.badgeText}>Hadir</Text>
+        <View
+          style={[
+            styles.badgeHadir,
+            { backgroundColor: toneStyle.backgroundColor },
+          ]}
+        >
+          <Text style={[styles.badgeText, { color: toneStyle.color }]}>
+            {badgeLabel}
+          </Text>
         </View>
       </View>
 

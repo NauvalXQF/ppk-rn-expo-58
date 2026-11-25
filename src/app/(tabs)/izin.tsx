@@ -3,9 +3,13 @@ import { Redirect } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useApp } from '@/store/app-context';
 import { getActivePermissionRepository } from '@/services/firestorePermissionRepository';
-import { getPraktikanClassIds } from '@/store/selectors';
+import {
+  getPraktikanClassIds,
+  selectSesiUntukPengguna,
+} from '@/store/selectors';
 import {
   PermissionsScreen,
+  mapPenggunaToPermissionActor,
   mapProfilToPermissionActor,
   mapSesiToLeaveOptions,
 } from '@/features/permissions';
@@ -20,13 +24,16 @@ export default function IzinRoute() {
       : undefined;
 
   const actor = useMemo(
-    () => mapProfilToPermissionActor(pengguna, activeClassIds),
-    [activeClassIds, pengguna],
+    () =>
+      state.currentUser
+        ? mapPenggunaToPermissionActor(state.currentUser)
+        : mapProfilToPermissionActor(pengguna, activeClassIds),
+    [activeClassIds, pengguna, state.currentUser],
   );
 
   const sessions = useMemo(
-    () => mapSesiToLeaveOptions(state.sesi, state.kelas),
-    [state.kelas, state.sesi],
+    () => mapSesiToLeaveOptions(selectSesiUntukPengguna(state), state.kelas),
+    [state],
   );
 
   const repository = useMemo(() => getActivePermissionRepository(), []);

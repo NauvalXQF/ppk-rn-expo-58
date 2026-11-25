@@ -9,6 +9,7 @@ import type {
   SubmitLeaveResult,
 } from '@/features/permissions/types';
 import { classifyLeaveReason, type AiServiceConfig } from '@/services/aiService';
+import { waiveUnpaidFineInFirestore } from '@/services/fines/fineCalculationService';
 
 /** Batas maksimal panjang alasan izin sesuai `firestore.rules` (1..1000 karakter). */
 export const MAX_LEAVE_REASON_LENGTH = 1000;
@@ -77,6 +78,7 @@ export interface PermissionServiceOptions {
   repository?: PermissionRepository;
   aiConfig?: AiServiceConfig;
   now?: () => Date;
+  onApproveWaiveFine?: (sessionId: string, uid: string) => Promise<boolean>;
 }
 
 export function validateLeaveReason(reason: string): string {
@@ -119,7 +121,25 @@ export function validateSessionForPraktikan(
 }
 
 export function canActorDecideLeave(actor: PermissionActor | null): boolean {
-  return actor?.role === 'asisten' && actor.uid.trim().length > 0;
+  return Boolean(
+    actor &&
+      (actor.role === 'asprak' ||
+        actor.role === 'aslab' ||
+        actor.role === 'asisten') &&
+      actor.uid.trim().length > 0,
+  );
+}
+
+export function filterLeavesForActor(
+  actor: PermissionActor,
+  requests: LeaveRequest[],
+): LeaveRequest[] {
+  if (actor.role !== 'asprak') return requests;
+  const allowedLabIds = new Set(
+    (actor.assignedLabIds ?? []).map((id) => id.trim()).filter(Boolean),
+  );
+  if (allowedLabIds.size === 0) return [];
+  return requests.filter((item) => allowedLabIds.has(item.classId));
 }
 
 function normalizeTimestampValue(raw: unknown): string | null {
@@ -565,7 +585,7 @@ export async function decideLeaveRequest(
   const nowFn = options.now ?? (() => new Date());
   const timestamp = nowFn().toISOString();
 
-  return repository.updateLeaveDecision(input.requestId, {
+  const decided = await repository.updateLeaveDecision(input.requestId, {
     status: input.decision,
     decidedBy: input.actor.uid,
     decidedByName: input.actor.displayName,
@@ -573,6 +593,13 @@ export async function decideLeaveRequest(
     decisionNote: cleanNote,
     updatedAt: timestamp,
   });
+
+  if (decided.status === 'approved') {
+    const waiveFn = options.onApproveWaiveFine ?? waiveUnpaidFineInFirestore;
+    await waiveFn(decided.sessionId, decided.uid).catch(() => false);
+  }
+
+  return decided;
 }
 
 export function subscribePraktikanLeaves(
@@ -608,5 +635,8 @@ export function subscribeAsistenLeaves(
     return () => {};
   }
 
-  return repository.subscribeAllForAsisten(onData, onError);
+  return repository.subscribeAllForAsisten(
+    (items) => onData(filterLeavesForActor(actor, items)),
+    onError,
+  );
 }

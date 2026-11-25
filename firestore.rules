@@ -14,12 +14,27 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    function isAsisten() {
-      return isSignedIn() && profilSaya().role == 'asisten';
-    }
-
     function isPraktikan() {
       return isSignedIn() && profilSaya().role == 'praktikan';
+    }
+
+    // Kompatibel mundur: dokumen lama dengan role 'asisten' diperlakukan sebagai 'asprak'
+    function isAsprak() {
+      return isSignedIn() && (profilSaya().role == 'asprak' || profilSaya().role == 'asisten');
+    }
+
+    function isAslab() {
+      return isSignedIn() && profilSaya().role == 'aslab';
+    }
+
+    function isAsisten() {
+      return isAsprak() || isAslab();
+    }
+
+    function isAssignedAsprak(labId) {
+      return isAsprak()
+        && exists(/databases/$(database)/documents/labAssignments/$(labId + '_' + request.auth.uid))
+        && get(/databases/$(database)/documents/labAssignments/$(labId + '_' + request.auth.uid)).data.active == true;
     }
 
     function hanyaFieldBerubah(daftarField) {
@@ -82,11 +97,11 @@ service cloud.firestore {
       }
     }
 
-    // ==================== Data laboratorium (Sprint 3 · SRS-03) ====================
+    // ==================== Data laboratorium (Sprint 3–4) ====================
     match /laboratories/{labId} {
       allow read: if isSignedIn();
 
-      allow create: if isAsisten()
+      allow create: if isAslab()
         && request.resource.data.nama is string
         && request.resource.data.nama.size() > 0
         && request.resource.data.latitude is number
@@ -97,9 +112,16 @@ service cloud.firestore {
         && request.resource.data.longitude <= 180.0
         && request.resource.data.radiusMeters is number
         && request.resource.data.radiusMeters >= 10
-        && request.resource.data.radiusMeters <= 500;
+        && request.resource.data.radiusMeters <= 500
+        && (!('gracePeriodMinutes' in request.resource.data)
+          || (request.resource.data.gracePeriodMinutes is number
+            && request.resource.data.gracePeriodMinutes >= 0
+            && request.resource.data.gracePeriodMinutes <= 120))
+        && (!('lateFineAmount' in request.resource.data)
+          || (request.resource.data.lateFineAmount is number
+            && request.resource.data.lateFineAmount >= 0));
 
-      allow update: if isAsisten()
+      allow update: if isAslab()
         && request.resource.data.nama is string
         && request.resource.data.nama.size() > 0
         && request.resource.data.latitude is number
@@ -110,17 +132,32 @@ service cloud.firestore {
         && request.resource.data.longitude <= 180.0
         && request.resource.data.radiusMeters is number
         && request.resource.data.radiusMeters >= 10
-        && request.resource.data.radiusMeters <= 500;
+        && request.resource.data.radiusMeters <= 500
+        && (!('gracePeriodMinutes' in request.resource.data)
+          || (request.resource.data.gracePeriodMinutes is number
+            && request.resource.data.gracePeriodMinutes >= 0
+            && request.resource.data.gracePeriodMinutes <= 120))
+        && (!('lateFineAmount' in request.resource.data)
+          || (request.resource.data.lateFineAmount is number
+            && request.resource.data.lateFineAmount >= 0));
 
       // Lab diarsipkan (aktif = false), tidak dihapus fisik.
       allow delete: if false;
     }
 
-    // ==================== Data praktikum (P2) ====================
-    // Baca: asisten melihat semua; praktikan hanya kelas tempat ia terdaftar.
+    // ==================== Distribusi Asprak ke Lab (Sprint 4) ====================
+    match /labAssignments/{assignmentId} {
+      allow read: if isAslab()
+        || (isAsprak() && resource.data.uid == request.auth.uid);
+      allow create, update: if isAslab();
+      allow delete: if false;
+    }
+
+    // ==================== Data praktikum (P2 & Aslab) ====================
+    // Baca: Aslab melihat semua; Asprak hanya lab yang ditugaskan; praktikan hanya kelasnya.
     match /classes/{classId} {
-      allow read: if isAsisten() || isAnggotaKelas(classId);
-      allow create, update: if isAsisten();
+      allow read: if isAslab() || isAssignedAsprak(classId) || isAnggotaKelas(classId);
+      allow create, update: if isAslab();
       allow delete: if false;
     }
 
@@ -140,16 +177,17 @@ service cloud.firestore {
           && data.nim is string;
       }
 
-      allow read: if isAsisten()
+      allow read: if isAslab()
+        || isAssignedAsprak(resource.data.classId)
         || (isPraktikan() && resource.data.uid == request.auth.uid);
-      allow create: if isAsisten()
+      allow create: if isAslab()
         && request.resource.data.keys().hasOnly(['classId', 'uid', 'nama', 'nim', 'active', 'createdAt', 'updatedAt'])
         && identitasAnggotaValid(request.resource.data)
         && request.resource.data.active == true
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
         && dapatAktifkanAnggota(request.resource.data);
-      allow update: if isAsisten()
+      allow update: if isAslab()
         && identitasAnggotaValid(request.resource.data)
         && request.resource.data.updatedAt == request.time
         && (
@@ -162,17 +200,21 @@ service cloud.firestore {
     }
 
     match /practicumInitialization/demo {
-      allow get: if isAsisten();
-      allow create: if isAsisten()
+      allow get: if isAslab();
+      allow create: if isAslab()
         && request.resource.data.keys().hasOnly(['initializedBy', 'initializedAt'])
         && request.resource.data.initializedBy == request.auth.uid
         && request.resource.data.initializedAt == request.time;
     }
 
     match /schedules/{scheduleId} {
-      allow read: if isAsisten()
+      allow read: if isAslab()
+        || isAssignedAsprak(resource.data.classId)
         || (isPraktikan() && isAnggotaKelas(resource.data.classId));
-      allow create, update: if isAsisten();
+      allow create: if isAslab() || isAssignedAsprak(request.resource.data.classId);
+      allow update: if isAslab()
+        || (isAssignedAsprak(resource.data.classId)
+          && request.resource.data.classId == resource.data.classId);
       allow delete: if false;
     }
 
@@ -206,12 +248,14 @@ service cloud.firestore {
           && data.ruang is string && data.ruang.size() > 0
           && (
             hanyaFieldBerubah([
-              'topik', 'ruang', 'labId', 'labNama', 'labCoordinates', 'radiusMeters', 'updatedAt'
+              'topik', 'ruang', 'courseId', 'labId', 'labNama', 'labCoordinates',
+              'radiusMeters', 'gracePeriodMinutes', 'lateFineAmount', 'updatedAt'
             ])
             || (
               belumPernahDibuka()
               && hanyaFieldBerubah([
-                'topik', 'ruang', 'labId', 'labNama', 'labCoordinates', 'radiusMeters',
+                'topik', 'ruang', 'courseId', 'labId', 'labNama', 'labCoordinates',
+                'radiusMeters', 'gracePeriodMinutes', 'lateFineAmount',
                 'tanggal', 'jamMulai', 'jamSelesai', 'startAt', 'endAt', 'updatedAt'
               ])
               && data.tanggal.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
@@ -224,16 +268,17 @@ service cloud.firestore {
           );
       }
 
-      allow read: if isAsisten()
+      allow read: if isAslab()
+        || isAssignedAsprak(resource.data.classId)
         || (isPraktikan() && isAnggotaKelas(resource.data.classId));
 
-      allow create: if isAsisten()
+      allow create: if (isAslab() || isAssignedAsprak(request.resource.data.classId))
         && request.resource.data.status == 'closed'
         && request.resource.data.openedAt == null
         && request.resource.data.closedAt == null
         && request.resource.data.get('archived', false) == false;
 
-      allow update: if isAsisten()
+      allow update: if (isAslab() || isAssignedAsprak(resource.data.classId))
         && resource.data.get('archived', false) == false
         && request.resource.data.updatedAt == request.time
         && (
@@ -252,11 +297,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // ==================== Presensi berbasis lokasi (Sprint 3 · SRS-02) ====================
+    // ==================== Presensi berbasis lokasi (Sprint 3–4) ====================
     // ID dokumen = UID praktikan sehingga duplikasi tidak mungkin.
     // Hanya create, hanya saat sesi "open", anggota aktif kelas, dan validasi geofence.
     match /sessions/{sessionId}/attendances/{uid} {
-      allow read: if isSignedIn() && (request.auth.uid == uid || isAsisten());
+      allow read: if isSignedIn()
+        && (request.auth.uid == uid || isAslab() || isAssignedAsprak(sesi(sessionId).classId));
 
       allow create: if isPraktikan()
         && request.auth.uid == uid
@@ -283,13 +329,17 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // ==================== Pengajuan izin (P3) ====================
-    // Field keputusan (status/reviewedBy/reviewedAt/reviewNote) hanya untuk asisten.
+    // ==================== Pengajuan izin (P3 & Scoping Asprak) ====================
+    // Field keputusan (status/reviewedBy/reviewedAt/reviewNote) hanya untuk Aslab/Asprak terkait.
     // Field ai ditulis pemohon sebagai hasil yang dilaporkan klien (informasi
     // pendukung), terpisah dari keputusan dan tidak pernah mengubah status otomatis.
     match /leaveRequests/{requestId} {
       allow read: if isSignedIn()
-        && (resource.data.uid == request.auth.uid || isAsisten());
+        && (
+          resource.data.uid == request.auth.uid
+          || isAslab()
+          || isAssignedAsprak(resource.data.classId)
+        );
 
       allow create: if isPraktikan()
         && request.resource.data.uid == request.auth.uid
@@ -312,7 +362,7 @@ service cloud.firestore {
         && request.resource.data.alasan == resource.data.alasan
         && hanyaFieldBerubah(['ai', 'updatedAt']);
 
-      allow update: if isAsisten()
+      allow update: if (isAslab() || isAssignedAsprak(resource.data.classId))
         && resource.data.status == 'pending'
         && request.resource.data.status in ['approved', 'rejected']
         && request.resource.data.uid == resource.data.uid
@@ -321,6 +371,38 @@ service cloud.firestore {
         && hanyaFieldBerubah(['status', 'reviewedBy', 'reviewedAt', 'reviewNote', 'updatedAt']);
 
       allow delete: if false;
+    }
+
+    // ==================== Tagihan denda keterlambatan (Sprint 4 · SRS-04/08) ====================
+    // Dibuat 1x saat praktikan presensi terlambat (ID = {sessionId}_{uid}).
+    // Status 'paid' TIDAK BOLEH ditulis dari klien; hanya Backend Admin SDK yang boleh melunasi.
+    match /fines/{fineId} {
+      allow read: if isAslab()
+        || (isPraktikan() && resource.data.uid == request.auth.uid)
+        || (isAsprak() && isAssignedAsprak(resource.data.labId));
+
+      allow create: if isPraktikan()
+        && request.resource.data.uid == request.auth.uid
+        && fineId == request.resource.data.sessionId + '_' + request.auth.uid
+        && request.resource.data.status == 'unpaid'
+        && request.resource.data.amount == sesi(request.resource.data.sessionId).get('lateFineAmount', 10000)
+        && request.resource.data.amount > 0;
+
+      // Asprak/Aslab hanya boleh membebaskan tagihan ('waived') jika izin disetujui, tidak pernah 'paid'
+      allow update: if (isAslab() || isAssignedAsprak(resource.data.labId))
+        && resource.data.status == 'unpaid'
+        && request.resource.data.status == 'waived'
+        && hanyaFieldBerubah(['status', 'updatedAt']);
+
+      allow delete: if false;
+    }
+
+    // ==================== Transaksi pembayaran Midtrans (Sprint 4 · SRS-05/08) ====================
+    // Seluruh penulisan (pending, success, failed) dilakukan oleh Backend Admin SDK.
+    match /payments/{orderId} {
+      allow read: if isAslab()
+        || (isPraktikan() && resource.data.uid == request.auth.uid);
+      allow create, update, delete: if false;
     }
 
     // ==================== Log audit notifikasi (Sprint 3 · SRS-06) ====================

@@ -16,7 +16,7 @@ import {
   Spacing,
 } from '@/constants/theme';
 import { evaluateSessionScheduleWindow, formatJam, formatTanggal } from '@/utils/date';
-import { LABEL_STATUS } from '@/types/models';
+import { isStaffUser, LABEL_STATUS } from '@/types/models';
 import { AppButton } from '@/components/ui/AppButton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { IconButton } from '@/components/ui/IconButton';
@@ -73,11 +73,19 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
   const { sesi, kelas, asisten, presensiSaya } = detail;
   const formattedTanggal = formatTanggal(sesi.tanggal);
   const formattedWaktu = `${formatJam(sesi.jamMulai)}–${formatJam(sesi.jamSelesai)}`;
-  const isAsisten = user?.peran === 'asisten';
+  const isStaff = isStaffUser(user);
+  const hasApprovedLeave = Boolean(
+    user?.peran === 'praktikan' &&
+      !presensiSaya &&
+      state.approvedLeaves?.some(
+        (leave) => leave.sessionId === sesi.id && leave.uid === user.id,
+      ),
+  );
   const scheduleCheck = evaluateSessionScheduleWindow(sesi);
   const showFloatingCta =
     user?.peran === 'praktikan' &&
     isPraktikanInClass(user, sesi.kelasId) &&
+    !hasApprovedLeave &&
     sesi.status === 'dibuka' &&
     scheduleCheck.isWithinSchedule &&
     !presensiSaya;
@@ -113,7 +121,7 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
                 <AppIcon name="chevron-left" size={20} color={Colors.text} />
               </IconButton>
 
-              {!isAsisten ? (
+              {!isStaff ? (
                 <IconButton
                   accessibilityLabel="Lihat peta lab"
                   onPress={() => router.push('/(tabs)/peta' as Href)}
@@ -131,7 +139,7 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
               </View>
               <View style={styles.chip}>
                 <Text style={styles.chipText}>
-                  {isAsisten
+                  {isStaff
                     ? `${detail.rekap.jumlahHadir}/${detail.rekap.totalPraktikan} hadir`
                     : `${kelas.nama} · ${sesi.ruang}`}
                 </Text>
@@ -164,7 +172,7 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
 
           {user?.peran === 'praktikan' ? (
             <PraktikanSessionView detail={detail} praktikan={user} />
-          ) : isAsisten ? (
+          ) : isStaff ? (
             <AsistenSessionView detail={detail} />
           ) : null}
         </View>
