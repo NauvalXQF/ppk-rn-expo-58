@@ -1,4 +1,6 @@
-export type Peran = 'praktikan' | 'asisten';
+import type { LateStatus } from '@/types/fine';
+
+export type Peran = 'praktikan' | 'asprak' | 'aslab' | 'asisten';
 
 export type StatusSesi = 'dijadwalkan' | 'dibuka' | 'ditutup';
 
@@ -15,6 +17,24 @@ export interface Praktikan {
   email?: string;
 }
 
+export interface Asprak {
+  id: string;
+  peran: 'asprak';
+  nama: string;
+  nip: string;
+  email?: string;
+  assignedLabIds?: string[];
+}
+
+export interface Aslab {
+  id: string;
+  peran: 'aslab';
+  nama: string;
+  nip: string;
+  email?: string;
+  managedCourseIds?: string[];
+}
+
 export interface Asisten {
   id: string;
   peran: 'asisten';
@@ -23,7 +43,44 @@ export interface Asisten {
   email?: string;
 }
 
-export type Pengguna = Praktikan | Asisten;
+export type StaffPengguna = Asprak | Aslab | Asisten;
+
+export type Pengguna = Praktikan | StaffPengguna;
+
+export function isPraktikanUser(
+  user: Pengguna | null | undefined,
+): user is Praktikan {
+  return Boolean(user && user.peran === 'praktikan');
+}
+
+export function isAsprakUser(
+  user: Pengguna | null | undefined,
+): user is Asprak {
+  return Boolean(user && user.peran === 'asprak');
+}
+
+export function isAslabUser(
+  user: Pengguna | null | undefined,
+): user is Aslab {
+  return Boolean(user && user.peran === 'aslab');
+}
+
+export function isStaffUser(
+  user: Pengguna | null | undefined,
+): user is StaffPengguna {
+  return Boolean(
+    user &&
+      (user.peran === 'asprak' ||
+        user.peran === 'aslab' ||
+        user.peran === 'asisten'),
+  );
+}
+
+export function canManageClassesAndMembers(
+  user: Pengguna | null | undefined,
+): boolean {
+  return Boolean(user && (user.peran === 'aslab' || user.peran === 'asisten'));
+}
 
 export interface Praktikum {
   id: string;
@@ -62,6 +119,7 @@ export interface Jadwal {
 export interface Sesi {
   id: string;
   praktikumId: string;
+  courseId?: string;
   kelasId: string;
   asistenId: string;
   asistenNama?: string;
@@ -73,6 +131,8 @@ export interface Sesi {
     longitude: number;
   };
   radiusMeters?: number;
+  gracePeriodMinutes?: number;
+  lateFineAmount?: number;
   topik: string;
   ruang: string;
   /** Format YYYY-MM-DD, memakai tanggal lokal perangkat. */
@@ -98,6 +158,21 @@ export interface Presensi {
   accuracy?: number;
   distanceMeters?: number;
   geofenceStatus?: 'in_radius' | 'bypass_qr';
+  lateStatus?: LateStatus;
+  lateMinutes?: number;
+  graceDeadlineAt?: string;
+  fineId?: string | null;
+}
+
+export interface ApprovedLeaveRef {
+  id: string;
+  uid: string;
+  sessionId: string;
+  classId: string;
+  praktikanName?: string;
+  praktikanNim?: string;
+  reason?: string;
+  decidedAt?: string | null;
 }
 
 export interface AppState {
@@ -108,6 +183,7 @@ export interface AppState {
   sesi: Sesi[];
   presensi: Presensi[];
   jadwal?: Jadwal[];
+  approvedLeaves?: ApprovedLeaveRef[];
 }
 
 export const LABEL_STATUS: Record<StatusSesi, string> = {
@@ -133,6 +209,10 @@ export type AppAction =
       accuracy?: number;
       distanceMeters?: number;
       geofenceStatus?: 'in_radius' | 'bypass_qr';
+      lateStatus?: LateStatus;
+      lateMinutes?: number;
+      graceDeadlineAt?: string;
+      fineId?: string | null;
     }
   | { type: 'TAMBAH_KELAS'; kelas: Kelas }
   | { type: 'UBAH_KELAS'; kelas: Kelas }
@@ -148,7 +228,19 @@ export type AppAction =
   | { type: 'HAPUS_SESI'; sesiId: string }
   | {
       type: 'SYNC_FIRESTORE';
-      payload: Partial<Pick<AppState, 'pengguna' | 'praktikum' | 'kelas' | 'sesi' | 'presensi' | 'jadwal' | 'currentUser'>>;
+      payload: Partial<
+        Pick<
+          AppState,
+          | 'pengguna'
+          | 'praktikum'
+          | 'kelas'
+          | 'sesi'
+          | 'presensi'
+          | 'jadwal'
+          | 'currentUser'
+          | 'approvedLeaves'
+        >
+      >;
     }
   | { type: 'RESET_DATA' };
 
@@ -157,14 +249,30 @@ export interface BarisRekap {
   praktikan: Praktikan;
 }
 
+export interface BarisIzin {
+  uid: string;
+  nama: string;
+  nim: string;
+  reason?: string;
+  decidedAt?: string | null;
+}
+
 export interface RekapSesi {
   baris: BarisRekap[];
   jumlahHadir: number;
   totalPraktikan: number;
 }
 
+export interface RekapSesiDetail extends RekapSesi {
+  barisIzin: BarisIzin[];
+  jumlahTepatWaktu: number;
+  jumlahTerlambat: number;
+  jumlahIzin: number;
+}
+
 export type StatusKehadiran =
   | 'hadir'
+  | 'izin'
   | 'belum-presensi'
   | 'belum-berlangsung'
   | 'tidak-hadir';
@@ -173,13 +281,14 @@ export interface RiwayatItem {
   sesi: Sesi;
   presensi: Presensi | null;
   status: StatusKehadiran;
+  approvedLeave?: ApprovedLeaveRef | null;
 }
 
 export interface DetailSesi {
   sesi: Sesi;
   praktikum: Praktikum;
   kelas: Kelas;
-  asisten: Asisten;
+  asisten: StaffPengguna;
   presensiSaya: Presensi | null;
   rekap: RekapSesi;
 }

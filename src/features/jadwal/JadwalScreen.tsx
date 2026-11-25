@@ -16,6 +16,7 @@ import {
   selectRekapSesi,
   selectSesiUntukPengguna,
 } from '@/store/selectors';
+import { isStaffUser } from '@/types/models';
 import {
   Colors,
   FontFamily,
@@ -39,7 +40,7 @@ export function JadwalScreen() {
   const router = useRouter();
   const { state, loading, error } = useApp();
   const user = state.currentUser;
-  const isAsisten = user?.peran === 'asisten';
+  const isAsisten = isStaffUser(user);
 
   const [filterKey, setFilterKey] = useState<string>('semua');
   const [searchOpen, setSearchOpen] = useState(false);

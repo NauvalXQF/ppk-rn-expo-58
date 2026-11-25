@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { useApp } from '@/store/app-context';
 import { getPraktikanClassIds } from '@/store/selectors';
 import { useAuth } from '@/contexts/AuthContext';
+import { isStaffUser } from '@/types/models';
 import {
   Colors,
   FontFamily,
@@ -50,16 +51,23 @@ export default function ProfilRoute() {
     return null;
   }
 
-  const isAsisten = user.peran === 'asisten';
-  const kelasLabel = !isAsisten
-    ? (() => {
-        const ids = getPraktikanClassIds(user);
-        if (ids.length === 0) return 'Belum terdaftar di kelas';
-        return ids
-          .map((id) => state.kelas.find((k) => k.id === id)?.nama ?? id)
-          .join(', ');
-      })()
-    : null;
+  const isAsisten = isStaffUser(user);
+  const roleDisplayLabel =
+    user.peran === 'aslab'
+      ? 'Asisten Laboratorium'
+      : user.peran === 'asprak' || user.peran === 'asisten'
+        ? 'Asisten Praktikum'
+        : 'Praktikan';
+  const kelasLabel =
+    user.peran === 'praktikan'
+      ? (() => {
+          const ids = getPraktikanClassIds(user);
+          if (ids.length === 0) return 'Belum terdaftar di kelas';
+          return ids
+            .map((id) => state.kelas.find((k) => k.id === id)?.nama ?? id)
+            .join(', ');
+        })()
+      : null;
 
   const handleGantiPengguna = async () => {
     setLoadingKeluar(true);
@@ -84,7 +92,7 @@ export default function ProfilRoute() {
         <Text style={styles.userName}>{user.nama}</Text>
         <View style={styles.rolePill}>
           <Text style={styles.rolePillText}>
-            {isAsisten ? 'Asisten Praktikum · PPK' : `Praktikan · ${kelasLabel}`}
+            {isAsisten ? `${roleDisplayLabel} · PPK` : `Praktikan · ${kelasLabel}`}
           </Text>
         </View>
       </View>
@@ -100,7 +108,7 @@ export default function ProfilRoute() {
         ) : null}
         <InfoRow
           label="Peran"
-          value={isAsisten ? 'Asisten Praktikum' : 'Praktikan'}
+          value={roleDisplayLabel}
           last
         />
       </AppCard>

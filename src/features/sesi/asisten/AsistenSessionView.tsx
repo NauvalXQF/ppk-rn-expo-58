@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import type { DetailSesi } from '@/types/models';
 import { useApp } from '@/store/app-context';
+import { selectRekapSesiDetail } from '@/store/selectors';
 import { Spacing } from '@/constants/theme';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { InfoBanner } from '@/components/ui/InfoBanner';
@@ -13,9 +14,10 @@ export interface AsistenSessionViewProps {
 }
 
 export function AsistenSessionView({ detail }: AsistenSessionViewProps) {
-  const { bukaSesi, tutupSesi, error } = useApp();
+  const { state, bukaSesi, tutupSesi, error } = useApp();
   const [bukaSheetVisible, setBukaSheetVisible] = useState(false);
   const [tutupSheetVisible, setTutupSheetVisible] = useState(false);
+  const rekapDetail = selectRekapSesiDetail(state, detail.sesi.id);
 
   const handleBukaSesiConfirm = () => {
     bukaSesi(detail.sesi.id).catch(() => {});
@@ -38,7 +40,7 @@ export function AsistenSessionView({ detail }: AsistenSessionViewProps) {
       />
 
       <View style={styles.rekapSection}>
-        <RekapSummary rekap={detail.rekap} />
+        <RekapSummary rekap={detail.rekap} rekapDetail={rekapDetail} />
       </View>
 
       <ConfirmSheet

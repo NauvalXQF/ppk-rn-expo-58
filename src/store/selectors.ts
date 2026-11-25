@@ -1,16 +1,20 @@
-import type {
-  AppState,
-  Asisten,
-  BarisRekap,
-  DetailSesi,
-  Jadwal,
-  Pengguna,
-  Praktikan,
-  RekapSesi,
-  RiwayatItem,
-  Sesi,
-  StatusKehadiran,
-  StatusSesi,
+import {
+  isStaffUser,
+  type AppState,
+  type ApprovedLeaveRef,
+  type BarisIzin,
+  type BarisRekap,
+  type DetailSesi,
+  type Jadwal,
+  type Pengguna,
+  type Praktikan,
+  type RekapSesi,
+  type RekapSesiDetail,
+  type RiwayatItem,
+  type Sesi,
+  type StaffPengguna,
+  type StatusKehadiran,
+  type StatusSesi,
 } from '@/types/models';
 import { DEFAULT_SCHEDULES } from '@/services/practicumService';
 
@@ -95,6 +99,54 @@ export function selectRekapSesi(state: AppState, sesiId: string): RekapSesi {
   };
 }
 
+export function selectRekapSesiDetail(
+  state: AppState,
+  sesiId: string,
+  approvedLeavesOverride?: ApprovedLeaveRef[],
+): RekapSesiDetail {
+  const base = selectRekapSesi(state, sesiId);
+  const attendedUids = new Set(base.baris.map((b) => b.presensi.praktikanId));
+
+  let jumlahTepatWaktu = 0;
+  let jumlahTerlambat = 0;
+  for (const b of base.baris) {
+    if (b.presensi.lateStatus === 'late') {
+      jumlahTerlambat += 1;
+    } else {
+      jumlahTepatWaktu += 1;
+    }
+  }
+
+  const leaves = approvedLeavesOverride ?? state.approvedLeaves ?? [];
+  const seenIzinUids = new Set<string>();
+  const barisIzin: BarisIzin[] = [];
+
+  for (const leave of leaves) {
+    if (leave.sessionId !== sesiId) continue;
+    if (attendedUids.has(leave.uid) || seenIzinUids.has(leave.uid)) continue;
+    seenIzinUids.add(leave.uid);
+
+    const praktikan = state.pengguna.find(
+      (u): u is Praktikan => u.id === leave.uid && u.peran === 'praktikan',
+    );
+    barisIzin.push({
+      uid: leave.uid,
+      nama: praktikan?.nama || leave.praktikanName || leave.uid,
+      nim: praktikan?.nim || leave.praktikanNim || '-',
+      reason: leave.reason,
+      decidedAt: leave.decidedAt ?? null,
+    });
+  }
+
+  return {
+    ...base,
+    barisIzin,
+    jumlahTepatWaktu,
+    jumlahTerlambat,
+    jumlahIzin: barisIzin.length,
+  };
+}
+
 export function selectPesertaPraktikum(state: AppState): Praktikan[] {
   return state.pengguna.filter(
     (u): u is Praktikan => u.peran === 'praktikan',
@@ -105,7 +157,12 @@ export function selectJadwalUntukPengguna(state: AppState): Jadwal[] {
   const user = state.currentUser;
   const list = state.jadwal ?? DEFAULT_SCHEDULES;
   if (!user) return [];
-  if (user.peran === 'asisten') return [...list];
+  if (user.peran === 'aslab' || user.peran === 'asisten') return [...list];
+  if (user.peran === 'asprak') {
+    const allowedLabs = new Set(user.assignedLabIds ?? []);
+    if (allowedLabs.size === 0) return [];
+    return list.filter((j) => allowedLabs.has(j.kelasId));
+  }
   const classIds = getPraktikanClassIds(user);
   return list.filter((j) => classIds.includes(j.kelasId));
 }
@@ -116,8 +173,14 @@ export function selectSesiUntukPengguna(state: AppState): Sesi[] {
 
   if (!user) {
     daftarSesi = [];
-  } else if (user.peran === 'asisten') {
+  } else if (user.peran === 'aslab' || user.peran === 'asisten') {
     daftarSesi = [...state.sesi];
+  } else if (user.peran === 'asprak') {
+    const allowedLabs = new Set(user.assignedLabIds ?? []);
+    daftarSesi =
+      allowedLabs.size === 0
+        ? []
+        : state.sesi.filter((s) => allowedLabs.has(s.kelasId));
   } else {
     const classIds = getPraktikanClassIds(user);
     daftarSesi = state.sesi.filter((s) => classIds.includes(s.kelasId));
@@ -152,11 +215,11 @@ export function selectDetailSesi(
     nama: sesi.kelasId,
     praktikumId: sesi.praktikumId,
   };
-  const asisten =
+  const asisten: StaffPengguna =
     state.pengguna.find(
-      (u): u is Asisten => u.id === sesi.asistenId && u.peran === 'asisten',
+      (u): u is StaffPengguna => isStaffUser(u) && u.id === sesi.asistenId,
     ) ??
-    (state.currentUser?.peran === 'asisten' && state.currentUser.id === sesi.asistenId
+    (isStaffUser(state.currentUser) && state.currentUser.id === sesi.asistenId
       ? state.currentUser
       : {
           id: sesi.asistenId,
@@ -192,6 +255,7 @@ export function selectDetailSesi(
 export function selectRiwayatPraktikan(
   state: AppState,
   praktikanId: string,
+  approvedLeavesOverride?: ApprovedLeaveRef[],
 ): RiwayatItem[] {
   const praktikan =
     state.pengguna.find(
@@ -204,6 +268,7 @@ export function selectRiwayatPraktikan(
   if (!praktikan) return [];
 
   const classIds = getPraktikanClassIds(praktikan);
+  const leaves = approvedLeavesOverride ?? state.approvedLeaves ?? [];
   const sesiList = state.sesi
     .filter((s) => classIds.includes(s.kelasId))
     .sort((a, b) => {
@@ -218,9 +283,15 @@ export function selectRiwayatPraktikan(
         (p) => p.sesiId === sesi.id && p.praktikanId === praktikanId,
       ) ?? null;
 
+    const approvedLeave =
+      leaves.find((l) => l.sessionId === sesi.id && l.uid === praktikanId) ??
+      null;
+
     let status: StatusKehadiran;
     if (presensi) {
       status = 'hadir';
+    } else if (approvedLeave) {
+      status = 'izin';
     } else if (sesi.status === 'dibuka') {
       status = 'belum-presensi';
     } else if (sesi.status === 'dijadwalkan') {
@@ -233,6 +304,7 @@ export function selectRiwayatPraktikan(
       sesi,
       presensi,
       status,
+      approvedLeave,
     };
   });
 }

@@ -1,4 +1,4 @@
-export type PermissionUserRole = 'praktikan' | 'asisten';
+export type PermissionUserRole = 'praktikan' | 'asprak' | 'aslab' | 'asisten';
 
 /**
  * Status keputusan asisten terhadap pengajuan izin (SRS-07 & Kontrak Firestore).
@@ -18,6 +18,8 @@ export interface PermissionActor {
   nip?: string;
   /** Daftar ID kelas yang diikuti praktikan (atau kelas tunggal saat masih 1-to-1). */
   classIds?: string[];
+  /** Daftar ID lab/kelas yang menjadi tanggung jawab Asprak (Sprint 4 · SRS-03). */
+  assignedLabIds?: string[];
 }
 
 export interface LeaveSessionOption {

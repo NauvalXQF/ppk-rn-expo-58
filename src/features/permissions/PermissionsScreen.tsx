@@ -42,14 +42,16 @@ export function PermissionsScreen({
     repository,
   };
 
+  const isReviewer = actor.role !== 'praktikan';
+
   return (
     <ScreenContainer variant="gradient">
       <View style={styles.header}>
         <Text style={styles.title}>
-          {actor.role === 'asisten' ? 'Pemeriksaan Izin' : 'Pengajuan Izin'}
+          {isReviewer ? 'Pemeriksaan Izin' : 'Pengajuan Izin'}
         </Text>
         <Text style={styles.subtitle}>
-          {actor.role === 'asisten'
+          {isReviewer
             ? 'Tinjau pengajuan izin praktikan & klasifikasi AI'
             : 'Ajukan izin ketidakhadiran & pantau keputusan asisten'}
         </Text>

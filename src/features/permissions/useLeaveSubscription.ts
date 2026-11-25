@@ -18,7 +18,11 @@ export function useLeaveSubscription(
   actor: PermissionActor,
   repository: PermissionRepository = defaultPermissionRepository,
 ) {
-  const currentKey = `${mode}:${actor.role}:${actor.uid}`;
+  const assignedLabsKey = (actor.assignedLabIds ?? [])
+    .slice()
+    .sort()
+    .join(',');
+  const currentKey = `${mode}:${actor.role}:${actor.uid}:${assignedLabsKey}`;
   const [state, setState] = useState<SubscriptionState | null>(null);
 
   // Stabilkan objek aktor berdasarkan nilai primitif agar listener tidak re-subscribe saat parent re-render.
@@ -27,8 +31,13 @@ export function useLeaveSubscription(
       uid: actor.uid,
       role: actor.role,
       displayName: actor.displayName,
+      ...(assignedLabsKey
+        ? { assignedLabIds: assignedLabsKey.split(',').filter(Boolean) }
+        : actor.role === 'asprak'
+          ? { assignedLabIds: [] }
+          : {}),
     }),
-    [actor.uid, actor.role, actor.displayName],
+    [actor.uid, actor.role, actor.displayName, assignedLabsKey],
   );
 
   useEffect(() => {
