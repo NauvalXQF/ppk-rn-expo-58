@@ -152,14 +152,9 @@ export default function KelolaLabScreen() {
 
         {/* 2. Daftar Laboratorium Aktif */}
         <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>
-              Laboratorium Aktif ({activeLabs.length})
-            </Text>
-            {currentLab ? (
-              <Text style={styles.selectedHint}>Target: {currentLab.nama}</Text>
-            ) : null}
-          </View>
+          <Text style={styles.sectionTitle}>
+            Laboratorium Aktif ({activeLabs.length})
+          </Text>
 
           {activeLabs.length === 0 ? (
             <InfoBanner
@@ -183,18 +178,13 @@ export default function KelolaLabScreen() {
                       <View style={styles.labCardHeader}>
                         <View style={styles.labTitleRow}>
                           <Text style={styles.labName}>{lab.nama}</Text>
-                          <View style={styles.labHeaderRight}>
-                            <View style={styles.labBadge}>
-                              <Text style={styles.labBadgeText}>{lab.kode}</Text>
-                            </View>
-                            <TouchableOpacity
-                              hitSlop={8}
-                              onPress={() => handleOpenEditLab(lab.id)}
-                              style={styles.editIconBtn}
-                            >
-                              <AppIcon name="sliders" size={14} color={Colors.primary} />
-                            </TouchableOpacity>
-                          </View>
+                          <TouchableOpacity
+                            hitSlop={8}
+                            onPress={() => handleOpenEditLab(lab.id)}
+                            style={styles.editIconBtn}
+                          >
+                            <AppIcon name="sliders" size={14} color={Colors.primary} />
+                          </TouchableOpacity>
                         </View>
                         <Text style={styles.labGedung}>{lab.gedung}</Text>
                       </View>
@@ -341,20 +331,10 @@ const styles = StyleSheet.create({
   section: {
     gap: Spacing.sm,
   },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
   sectionTitle: {
     fontSize: FontSize.sm,
     fontFamily: FontFamily.semibold,
     color: Colors.text,
-  },
-  selectedHint: {
-    fontSize: FontSize.xs,
-    fontFamily: FontFamily.medium,
-    color: Colors.primary,
   },
   courseChipRow: {
     flexDirection: 'row',
@@ -382,27 +362,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: Spacing.xs,
   },
-  labHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   labName: {
     flex: 1,
     fontSize: FontSize.sm,
     fontFamily: FontFamily.semibold,
     color: Colors.text,
-  },
-  labBadge: {
-    backgroundColor: Colors.neutralSoft,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: Radius.pill,
-  },
-  labBadgeText: {
-    fontSize: 10,
-    fontFamily: FontFamily.semibold,
-    color: Colors.textMuted,
   },
   editIconBtn: {
     width: 28,

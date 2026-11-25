@@ -1,9 +1,3 @@
-import React, { useState } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { FilterChip } from '@/components/ui/FilterChip';
@@ -15,12 +9,18 @@ import {
   Radius,
   Spacing,
 } from '@/constants/theme';
-import type { ProfilPengguna } from '@/services/authService';
 import {
   getDateRange,
   type DashboardMetrics,
   type PeriodFilter,
 } from '@/services/aslab/dashboardService';
+import type { ProfilPengguna } from '@/services/authService';
+import { useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 export interface AslabDashboardViewProps {
   actor?: ProfilPengguna;
@@ -143,7 +143,7 @@ export function AslabDashboardView({
           </View>
           <View style={styles.amountCol}>
             <Text style={styles.amountLabel}>Tertunggak / Belum Lunas</Text>
-            <Text style={[styles.amountValue, { color: Colors.warning }]}>
+            <Text style={[styles.amountValue, { color: Colors.danger }]}>
               Rp{metrics.fineTotalUnpaid.toLocaleString('id-ID')}
             </Text>
           </View>
@@ -285,7 +285,12 @@ export function AslabDashboardView({
                         </Text>
                       </View>
                       <View style={styles.fineRightCol}>
-                        <Text style={styles.fineAmount}>
+                        <Text
+                          style={[
+                            styles.fineAmount,
+                            !isPaid && !isPending && !isWaived && { color: Colors.danger },
+                          ]}
+                        >
                           Rp{fine.amount.toLocaleString('id-ID')}
                         </Text>
                         <View
@@ -436,12 +441,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   amountLabel: {
-    fontSize: 10,
+    fontSize: FontSize.xs,
     fontFamily: FontFamily.medium,
     color: Colors.textMuted,
   },
   amountValue: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.lg,
     fontFamily: FontFamily.semibold,
   },
   section: {
