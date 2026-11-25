@@ -9,6 +9,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Colors, FontFamily, Radius, Shadow } from '@/constants/theme';
 
 const TAB_ICONS: Record<string, AppIconName> = {
+  dashboard: 'bar-chart-2',
+  'kelola-lab': 'layers',
   jadwal: 'calendar',
   peta: 'map-pin',
   kehadiran: 'grid',
@@ -18,9 +20,11 @@ const TAB_ICONS: Record<string, AppIconName> = {
 };
 
 const TAB_LABELS: Record<string, string> = {
+  dashboard: 'Dashboard',
+  'kelola-lab': 'Kelola Lab',
   jadwal: 'Jadwal',
   peta: 'Peta',
-  kehadiran: 'Rekap',
+  kehadiran: 'Kehadiran',
   rekap: 'Rekap',
   izin: 'Izin',
   profil: 'Profil',
@@ -138,7 +142,10 @@ export default function TabsLayout() {
     return <Redirect href="/" />;
   }
 
-  const isAsisten = pengguna?.role === 'asisten';
+  const role = pengguna?.role;
+  const isAslab = role === 'aslab';
+  const isAsprak = role === 'asprak' || role === 'asisten';
+  const isPraktikan = role === 'praktikan';
 
   return (
     <Tabs
@@ -147,23 +154,48 @@ export default function TabsLayout() {
         headerShown: false,
       }}
     >
-      <Tabs.Screen name="jadwal" options={{ title: 'Jadwal' }} />
+      <Tabs.Screen
+        name="dashboard"
+        options={{
+          title: 'Dashboard',
+          href: isAslab ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
+        name="kelola-lab"
+        options={{
+          title: 'Kelola Lab',
+          href: isAslab ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
+        name="jadwal"
+        options={{
+          title: isAsprak ? 'Sesi' : 'Jadwal',
+        }}
+      />
       <Tabs.Screen name="peta" options={{ title: 'Peta' }} />
       <Tabs.Screen
         name="kehadiran"
         options={{
           title: 'Kehadiran',
-          href: isAsisten ? null : undefined,
+          href: isPraktikan ? undefined : null,
         }}
       />
       <Tabs.Screen
         name="rekap"
         options={{
           title: 'Rekap',
-          href: isAsisten ? undefined : null,
+          href: isAsprak ? undefined : null,
         }}
       />
-      <Tabs.Screen name="izin" options={{ title: 'Izin' }} />
+      <Tabs.Screen
+        name="izin"
+        options={{
+          title: 'Izin',
+          href: isAslab ? null : undefined,
+        }}
+      />
       <Tabs.Screen name="profil" options={{ title: 'Profil' }} />
     </Tabs>
   );

@@ -50,8 +50,9 @@ export default function ProfilRoute() {
     return null;
   }
 
-  const isAsisten = user.peran === 'asisten';
-  const kelasLabel = !isAsisten
+  const isStaff = user.peran === 'asisten' || user.peran === 'asprak' || user.peran === 'aslab';
+  const roleTitle = user.peran === 'aslab' ? 'Asisten Laboratorium' : user.peran === 'asprak' || user.peran === 'asisten' ? 'Asisten Praktikum' : 'Praktikan';
+  const kelasLabel = !isStaff && user.peran === 'praktikan'
     ? (() => {
         const ids = getPraktikanClassIds(user);
         if (ids.length === 0) return 'Belum terdaftar di kelas';
@@ -76,31 +77,31 @@ export default function ProfilRoute() {
   return (
     <ScreenContainer variant="gradient">
       <View style={styles.hero}>
-        <View style={[styles.avatar, isAsisten && styles.avatarDark]}>
-          <Text style={[styles.avatarText, isAsisten && styles.avatarTextDark]}>
+        <View style={[styles.avatar, isStaff && styles.avatarDark]}>
+          <Text style={[styles.avatarText, isStaff && styles.avatarTextDark]}>
             {user.nama.charAt(0).toUpperCase()}
           </Text>
         </View>
         <Text style={styles.userName}>{user.nama}</Text>
         <View style={styles.rolePill}>
           <Text style={styles.rolePillText}>
-            {isAsisten ? 'Asisten Praktikum · PPK' : `Praktikan · ${kelasLabel}`}
+            {isStaff ? `${roleTitle} · PPK` : `Praktikan · ${kelasLabel}`}
           </Text>
         </View>
       </View>
 
       <AppCard style={styles.infoCard}>
         <InfoRow
-          label={isAsisten ? 'NIP' : 'NIM'}
-          value={isAsisten ? user.nip : user.nim}
+          label={isStaff ? 'NIP' : 'NIM'}
+          value={(isStaff ? ('nip' in user ? user.nip : '-') : ('nim' in user ? user.nim : '-')) ?? '-'}
         />
         <InfoRow label="Email" value={pengguna?.email ?? '-'} />
-        {!isAsisten ? (
+        {!isStaff ? (
           <InfoRow label="Kelas Aktif" value={kelasLabel ?? '-'} />
         ) : null}
         <InfoRow
           label="Peran"
-          value={isAsisten ? 'Asisten Praktikum' : 'Praktikan'}
+          value={roleTitle}
           last
         />
       </AppCard>

@@ -1,4 +1,4 @@
-export type Peran = 'praktikan' | 'asisten';
+export type Peran = 'praktikan' | 'asprak' | 'aslab' | 'asisten';
 
 export type StatusSesi = 'dijadwalkan' | 'dibuka' | 'ditutup';
 
@@ -23,12 +23,32 @@ export interface Asisten {
   email?: string;
 }
 
-export type Pengguna = Praktikan | Asisten;
+export interface Asprak {
+  id: string;
+  peran: 'asprak';
+  nama: string;
+  nip: string;
+  email?: string;
+}
+
+export interface Aslab {
+  id: string;
+  peran: 'aslab';
+  nama: string;
+  nip?: string;
+  email?: string;
+  managedCourseIds?: string[];
+}
+
+export type Pengguna = Praktikan | Asisten | Asprak | Aslab;
 
 export interface Praktikum {
   id: string;
   nama: string;
   kode: string;
+  aslabUids?: string[];
+  defaultGracePeriodMinutes?: number;
+  defaultLateFineAmount?: number;
 }
 
 export interface Kelas {
@@ -57,6 +77,7 @@ export interface Jadwal {
   ruang: string;
   labId?: string;
   topik: string;
+  courseId?: string;
 }
 
 export interface Sesi {
@@ -73,6 +94,9 @@ export interface Sesi {
     longitude: number;
   };
   radiusMeters?: number;
+  gracePeriodMinutes?: number;
+  lateFineAmount?: number;
+  courseId?: string;
   topik: string;
   ruang: string;
   /** Format YYYY-MM-DD, memakai tanggal lokal perangkat. */

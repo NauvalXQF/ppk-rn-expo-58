@@ -17,7 +17,7 @@ import {
 import { getFirebaseAuth, getFirebaseDb } from '@/config/firebase';
 import type { Pengguna } from '@/types/models';
 
-export type Role = 'praktikan' | 'asisten';
+export type Role = 'praktikan' | 'asprak' | 'aslab' | 'asisten';
 
 export type ProfilPengguna = {
   uid: string;
@@ -27,21 +27,31 @@ export type ProfilPengguna = {
   nim?: string;
   nip?: string;
   kelasId?: string;
+  managedCourseIds?: string[];
 };
 
 const KOLEKSI_USERS = 'users';
 
 function normalisasiProfil(uid: string, data: DocumentData, user: User): ProfilPengguna {
+  const rawRole = data.role;
+  let role: Role = 'praktikan';
+  if (rawRole === 'aslab') {
+    role = 'aslab';
+  } else if (rawRole === 'asprak') {
+    role = 'asprak';
+  } else if (rawRole === 'asisten') {
+    role = 'asisten';
+  }
+
   return {
     uid,
     email: String(data.email ?? user.email ?? ''),
     nama: String(data.nama ?? user.displayName ?? 'Pengguna'),
-    // Role tidak pernah dipercaya dari input pengguna saat registrasi;
-    // nilai di luar daftar role yang sah dianggap praktikan.
-    role: data.role === 'asisten' ? 'asisten' : 'praktikan',
+    role,
     nim: typeof data.nim === 'string' ? data.nim : undefined,
     nip: typeof data.nip === 'string' ? data.nip : undefined,
     kelasId: typeof data.kelasId === 'string' ? data.kelasId : undefined,
+    managedCourseIds: Array.isArray(data.managedCourseIds) ? data.managedCourseIds : undefined,
   };
 }
 
@@ -171,7 +181,45 @@ export function pesanErrorAuth(error: unknown): string {
   }
 }
 
+export function isAslab(profil?: ProfilPengguna | Pengguna | null): boolean {
+  if (!profil) return false;
+  return 'role' in profil ? profil.role === 'aslab' : (profil as Pengguna).peran === 'aslab';
+}
+
+export function isAsprak(profil?: ProfilPengguna | Pengguna | null): boolean {
+  if (!profil) return false;
+  const role = 'role' in profil ? profil.role : (profil as Pengguna).peran;
+  return role === 'asprak' || role === 'asisten';
+}
+
+export function isPraktikan(profil?: ProfilPengguna | Pengguna | null): boolean {
+  if (!profil) return false;
+  const role = 'role' in profil ? profil.role : (profil as Pengguna).peran;
+  return role === 'praktikan';
+}
+
 export function kePenggunaAplikasi(profil: ProfilPengguna): Pengguna {
+  if (profil.role === 'aslab') {
+    return {
+      id: profil.uid,
+      peran: 'aslab',
+      nama: profil.nama,
+      nip: profil.nip ?? '-',
+      email: profil.email,
+      managedCourseIds: profil.managedCourseIds,
+    };
+  }
+
+  if (profil.role === 'asprak') {
+    return {
+      id: profil.uid,
+      peran: 'asprak',
+      nama: profil.nama,
+      nip: profil.nip ?? '-',
+      email: profil.email,
+    };
+  }
+
   if (profil.role === 'asisten') {
     return {
       id: profil.uid,

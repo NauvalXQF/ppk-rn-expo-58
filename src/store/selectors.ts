@@ -105,7 +105,7 @@ export function selectJadwalUntukPengguna(state: AppState): Jadwal[] {
   const user = state.currentUser;
   const list = state.jadwal ?? DEFAULT_SCHEDULES;
   if (!user) return [];
-  if (user.peran === 'asisten') return [...list];
+  if (user.peran !== 'praktikan') return [...list];
   const classIds = getPraktikanClassIds(user);
   return list.filter((j) => classIds.includes(j.kelasId));
 }
@@ -116,7 +116,7 @@ export function selectSesiUntukPengguna(state: AppState): Sesi[] {
 
   if (!user) {
     daftarSesi = [];
-  } else if (user.peran === 'asisten') {
+  } else if (user.peran !== 'praktikan') {
     daftarSesi = [...state.sesi];
   } else {
     const classIds = getPraktikanClassIds(user);

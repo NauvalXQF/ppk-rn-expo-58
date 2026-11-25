@@ -27,7 +27,8 @@ function hasAttendanceRoute(route: SitemapType | null): boolean {
 export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
   const focused = useIsFocused();
   const sitemap = useSitemap();
-  const isAssistant = actor.role === 'asisten';
+  const isAssistant = actor.role === 'asisten' || actor.role === 'asprak' || actor.role === 'aslab';
+  const canManageLab = actor.role === 'aslab' || actor.role === 'asisten';
   const laboratories = useLaboratoryData(focused);
   const activity = useMapsActivity(actor.uid, isAssistant, focused);
   const { state: location, retry: retryLocation } = useUserLocation(focused);
@@ -144,7 +145,7 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
               ) : null}
             </View>
           <View style={styles.actions}>
-            {isAssistant ? (
+            {canManageLab ? (
               <AppButton label="Kelola lab" variant="secondary"
                 onPress={() => { setSelectedId(undefined); setManagementVisible(true); }} />
             ) : null}
@@ -170,7 +171,7 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
           } : undefined}
         />
       ) : null}
-      {isAssistant ? (
+      {canManageLab ? (
         <LabManagementModal
           visible={managementVisible}
           actor={actor}
