@@ -7,6 +7,7 @@ import { getPraktikanClassIds, selectRiwayatPraktikan } from '@/store/selectors'
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { formatTanggal, formatWaktuPresensi } from '@/utils/date';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
+import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppText } from '@/components/ui/AppText';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -156,6 +157,12 @@ export function KehadiranScreen() {
           </View>
         </AppCard>
       ) : null}
+
+      <AppButton
+        label="Buka Pengajuan Izin"
+        variant="secondary"
+        onPress={() => router.push('/(tabs)/izin')}
+      />
 
       {/* Main Glass Stat + DotHeatmap */}
       <AppCard style={styles.heatmapCard}>
