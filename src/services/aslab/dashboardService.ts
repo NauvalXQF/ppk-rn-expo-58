@@ -1,12 +1,12 @@
+import { getFirebaseDb } from '@/config/firebase';
+import type { Laboratory } from '@/types/laboratory';
+import type { Jadwal, Sesi } from '@/types/models';
 import {
   collection,
   getDocs,
 } from 'firebase/firestore';
-import { getFirebaseDb } from '@/config/firebase';
-import type { Laboratory } from '@/types/laboratory';
-import type { Jadwal, Sesi } from '@/types/models';
 
-export type PeriodFilter = 'hari' | 'minggu' | 'bulan';
+export type PeriodFilter = 'hari' | 'minggu' | 'bulan' | 'semua';
 
 export interface DateRange {
   start: Date;
@@ -78,6 +78,12 @@ export function getDateRange(period: PeriodFilter, refDate = new Date()): DateRa
     const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59, 999);
     const label = `${start.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })} – ${end.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}`;
     return { start, end, label };
+  }
+
+  if (period === 'semua') {
+    const start = new Date(2020, 0, 1, 0, 0, 0, 0);
+    const end = new Date(2100, 11, 31, 23, 59, 59, 999);
+    return { start, end, label: 'Semua Periode' };
   }
 
   // bulan
