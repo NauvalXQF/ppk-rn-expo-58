@@ -39,3 +39,33 @@ test('P3 never sends Firebase bearer tokens over cleartext LAN', () => {
   assert.equal(resolvePaymentApiOrigin('http://192.168.1.10:3000', true), null);
   assert.equal(resolvePaymentApiOrigin('https://sandbox-proxy.example.test', false), 'https://sandbox-proxy.example.test');
 });
+
+test('P3 fine notice queued during an outage is replayed after process restart only for its owner', async () => {
+  const values = new Map();
+  const store = {
+    setItem: async (key, value) => values.set(key, value),
+    getAllKeys: async () => [...values.keys()],
+    removeItem: async (key) => values.delete(key),
+  };
+  const queueModule = { exports: {} };
+  const code = ts.transpileModule(readFileSync('src/services/payments/fineCreatedQueue.ts', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const mocks = {
+    '@react-native-async-storage/async-storage': { default: store },
+    'react-native': {},
+    '@/services/payments/paymentService': { PaymentRequestError: class extends Error {} },
+    '@/services/payments/paymentData': moduleFixture.exports,
+  };
+  new Function('require', 'exports', code)((id) => mocks[id], queueModule.exports);
+  const { createFineCreatedQueue } = queueModule.exports;
+  await createFineCreatedQueue(store, async () => { throw new Error('offline'); }).enqueue('owner', 'session_owner');
+  assert.equal(values.size, 1);
+  const sent = [];
+  const restarted = createFineCreatedQueue(store, async (uid, id) => sent.push([uid, id]));
+  await restarted.drain('other');
+  assert.equal(sent.length, 0);
+  await Promise.all([restarted.drain('owner'), restarted.drain('owner')]);
+  assert.deepEqual(sent, [['owner', 'session_owner']]);
+  assert.equal(values.size, 0);
+});

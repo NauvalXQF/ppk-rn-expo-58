@@ -1,5 +1,7 @@
 # Backend Lokal PPK
 
+Untuk kontrak provisioning, pembayaran, webhook, worker, dan langkah uji Sandbox, baca [Integrasi Lokal Pembayaran Sprint 4](./SPRINT-4.md).
+
 Backend Express untuk Sprint 4. Fase ini menyediakan health check, konfigurasi lokal, dan fondasi verifikasi Firebase ID token untuk rute yang akan ditambahkan setelah review.
 
 ## Persiapan

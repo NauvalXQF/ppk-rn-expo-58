@@ -4,17 +4,21 @@ import { initializeFirebaseAdmin } from './config/firebaseAdmin.ts';
 import { firebaseProvisioningStore, registerProvisioning } from './provisioning.ts';
 import { registerPayments } from './payments.ts';
 import { sandboxGateway } from './midtrans.ts';
+import { expoTransport, notificationWorker } from './notificationWorker.ts';
 
 function start() {
   const { host, port, firebaseProjectId } = parseEnv(process.env);
   const firebase = initializeFirebaseAdmin(firebaseProjectId);
   const serverKey = process.env.MIDTRANS_SERVER_KEY?.trim();
   const signatureSecret = process.env.MIDTRANS_SIGNATURE_SECRET_KEY?.trim();
+  const worker = process.env.PAYMENT_NOTIFICATION_WORKER === 'true'
+    ? notificationWorker(firebase.firestore, expoTransport(fetch, process.env.EXPO_PUSH_ACCESS_TOKEN?.trim())) : undefined;
   const server = createApp((api) => {
     registerProvisioning(api, firebase.identity, firebaseProvisioningStore(firebase.auth, firebase.firestore));
     registerPayments(api, firebase.identity, firebase.firestore, serverKey ? sandboxGateway(serverKey) : undefined, signatureSecret);
   }).listen(port, host, () => {
     console.info('Backend HTTP listening on %s port %d.', host, port);
+    worker?.start();
   });
 
   server.once('error', () => {
@@ -35,6 +39,7 @@ function start() {
 
     server.close(async (error) => {
       try {
+        await worker?.stop();
         await firebase.close();
       } catch {
         console.error('Firebase Admin cleanup failed.');

@@ -1,13 +1,18 @@
 export type NotificationEventType =
   | 'session_opened'
   | 'schedule_changed'
-  | 'leave_decided';
+  | 'leave_decided'
+  | 'fine_created'
+  | 'payment_success'
+  | 'payment_failed';
 
 export type NotificationScreenTarget =
   | 'presensi'
   | 'sesi'
   | 'jadwal'
-  | 'izin';
+  | 'izin'
+  | 'denda'
+  | 'pembayaran';
 
 export type NotificationDeliveryStatus = 'sent' | 'delivered' | 'failed';
 
@@ -27,6 +32,9 @@ export interface NotificationDataPayload {
   scheduleId?: string;
   requestId?: string;
   notificationId?: string;
+  fineId?: string;
+  orderId?: string;
+  tab?: 'aktif' | 'riwayat';
 }
 
 export interface PushNotificationPayload {
