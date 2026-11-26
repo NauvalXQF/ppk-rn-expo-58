@@ -14,6 +14,7 @@ const TAB_ICONS: Record<string, AppIconName> = {
   jadwal: 'calendar',
   peta: 'map-pin',
   kehadiran: 'grid',
+  denda: 'credit-card',
   rekap: 'grid',
   izin: 'file-text',
   profil: 'user',
@@ -31,6 +32,7 @@ const TAB_LABELS: Record<string, string> = {
 };
 
 interface TabBarProps {
+  hideIzinTab: boolean;
   state: {
     index: number;
     routes: { key: string; name: string }[];
@@ -47,6 +49,7 @@ interface TabBarProps {
 }
 
 function FloatingPillTabBar({
+  hideIzinTab,
   state,
   descriptors,
   emitter,
@@ -57,6 +60,7 @@ function FloatingPillTabBar({
   const visibleRoutes = state.routes.filter((route) => {
     const opts = descriptors[route.key]?.options;
     if (opts && opts.href === null) return false;
+    if (hideIzinTab && route.name === 'izin') return false;
     return route.name in TAB_ICONS;
   });
 
@@ -149,7 +153,7 @@ export default function TabsLayout() {
 
   return (
     <Tabs
-      tabBar={(props) => <FloatingPillTabBar {...props} />}
+      tabBar={(props) => <FloatingPillTabBar {...props} hideIzinTab={isPraktikan} />}
       screenOptions={{
         headerShown: false,
       }}
@@ -179,6 +183,13 @@ export default function TabsLayout() {
         name="kehadiran"
         options={{
           title: 'Kehadiran',
+          href: isPraktikan ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
+        name="denda"
+        options={{
+          title: 'Denda',
           href: isPraktikan ? undefined : null,
         }}
       />

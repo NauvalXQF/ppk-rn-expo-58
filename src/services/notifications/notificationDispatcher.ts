@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 
 import { getDb } from '@/services/practicumService';
+import { registerFineCreatedNotifier } from '@/services/fines/fineCalculationService';
 import {
   getUsersDeviceTokens,
   isExpoPushToken,
@@ -32,6 +33,11 @@ import type {
 export const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
 export const ANDROID_NOTIFICATION_CHANNEL_ID = 'praktikum-events';
 const MAX_EXPO_BATCH_SIZE = 100;
+
+registerFineCreatedNotifier(async ({ uid, fineId }) => {
+  const { enqueueFineCreated } = await import('@/services/payments/fineCreatedQueue');
+  await enqueueFineCreated(uid, fineId);
+});
 
 export interface ExpoPushMessage {
   to: string;
@@ -338,11 +344,12 @@ function mapNotificationDoc(
   const recipientUid =
     typeof data.recipientUid === 'string' ? data.recipientUid.trim() : '';
   const type = data.type;
+  const paymentEvent = type === 'fine_created' || type === 'payment_success' || type === 'payment_failed';
   if (
     !recipientUid ||
     (type !== 'session_opened' &&
       type !== 'schedule_changed' &&
-      type !== 'leave_decided')
+      type !== 'leave_decided' && !paymentEvent)
   ) {
     return null;
   }
@@ -351,7 +358,7 @@ function mapNotificationDoc(
     data.data && typeof data.data === 'object'
       ? (data.data as Record<string, unknown>)
       : {};
-  const screen =
+  const screen = paymentEvent ? 'denda' :
     rawData.screen === 'presensi' ||
     rawData.screen === 'sesi' ||
     rawData.screen === 'jadwal' ||
@@ -382,6 +389,9 @@ function mapNotificationDoc(
       ...(typeof rawData.classId === 'string' ? { classId: rawData.classId } : {}),
       ...(typeof rawData.scheduleId === 'string' ? { scheduleId: rawData.scheduleId } : {}),
       ...(typeof rawData.requestId === 'string' ? { requestId: rawData.requestId } : {}),
+      ...(paymentEvent ? { tab: type === 'fine_created' ? 'aktif' : 'riwayat' } : {}),
+      ...(typeof rawData.fineId === 'string' ? { fineId: rawData.fineId } : {}),
+      ...(typeof rawData.orderId === 'string' ? { orderId: rawData.orderId } : {}),
     },
     status,
     createdAt: normalizeTimestamp(data.createdAt),
@@ -458,7 +468,18 @@ export function subscribeUserNotifications(
   auditStore?: NotificationAuditStore,
 ): Unsubscribe {
   const store = auditStore ?? firestoreNotificationStore;
-  return store.subscribeForUser(uid, onData, onError);
+  const unsubscribe = store.subscribeForUser(uid, onData, onError);
+  if (auditStore) return unsubscribe;
+  let active = true;
+  let stopReplay: (() => void) | undefined;
+  void import('@/services/payments/fineCreatedQueue').then(({ watchFineCreatedQueue }) => {
+    if (active) stopReplay = watchFineCreatedQueue(uid);
+  }).catch(() => {});
+  return () => {
+    active = false;
+    stopReplay?.();
+    unsubscribe();
+  };
 }
 
 // ======================================================

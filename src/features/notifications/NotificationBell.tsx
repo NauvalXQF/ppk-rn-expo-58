@@ -45,6 +45,9 @@ const TYPE_META: Record<
     bg: Colors.primarySoft,
     color: Colors.primary,
   },
+  fine_created: { label: 'Denda Baru', bg: Colors.warningSoft, color: Colors.warning },
+  payment_success: { label: 'Pembayaran Berhasil', bg: Colors.successSoft, color: Colors.success },
+  payment_failed: { label: 'Pembayaran Belum Berhasil', bg: Colors.dangerSoft, color: Colors.danger },
 };
 
 function formatNotificationTime(iso: string): string {

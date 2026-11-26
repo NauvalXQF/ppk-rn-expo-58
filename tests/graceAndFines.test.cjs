@@ -234,6 +234,17 @@ test('T-18: attendance at or before exact grace deadline is on_time with zero fi
   });
 
   const { submitAttendanceToFirestore } = load('services/attendanceService');
+  const withinGrace = await submitAttendanceToFirestore(praktikanB, {
+    sesiId: 'sesi-1',
+    praktikanId: praktikanB.id,
+    waktuPresensi: new Date(scheduledStart.getTime() + 10 * 60_000).toISOString(),
+    geo: validGeo,
+    labTarget,
+  });
+  assert.equal(withinGrace.lateStatus, 'on_time');
+  assert.equal(withinGrace.fineId, null);
+  assert.equal(docs.has(`fines/sesi-1_${praktikanB.id}`), false);
+
   const saved = await submitAttendanceToFirestore(praktikanA, {
     sesiId: 'sesi-1',
     praktikanId: praktikanA.id,
@@ -863,7 +874,9 @@ test('T-37: firestore.rules enforces 3-role RBAC, asprak scoping, deterministic 
   assert.match(rulesText, /match \/fines\/\{fineId\}/);
   assert.match(rulesText, /fineId == request\.resource\.data\.sessionId \+ '_' \+ request\.auth\.uid/);
   assert.match(rulesText, /request\.resource\.data\.status == 'unpaid'/);
-  assert.match(rulesText, /sesi\(request\.resource\.data\.sessionId\)\.get\('lateFineAmount', 10000\)/);
+  assert.match(rulesText, /dendaSesuaiPresensi\(request\.resource\.data\)/);
+  assert.match(rulesText, /let session = sesi\(fine\.sessionId\)/);
+  assert.match(rulesText, /fine\.amount == session\.get\('lateFineAmount', 10000\)/);
   assert.match(rulesText, /request\.resource\.data\.status == 'waived'/);
   assert.match(rulesText, /match \/payments\/\{orderId\}[\s\S]*?allow create, update, delete: if false;/);
 });

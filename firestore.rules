@@ -377,6 +377,62 @@ service cloud.firestore {
     // Dibuat 1x saat praktikan presensi terlambat (ID = {sessionId}_{uid}).
     // Status 'paid' TIDAK BOLEH ditulis dari klien; hanya Backend Admin SDK yang boleh melunasi.
     match /fines/{fineId} {
+      function jadwalMulaiWib(session) {
+        let tanggal = session.tanggal.split('-');
+        let jam = session.jamMulai.split(':');
+        return timestamp.date(int(tanggal[0]), int(tanggal[1]), int(tanggal[2]))
+          + duration.value(int(jam[0]) * 60 + int(jam[1]) - 420, 'm');
+      }
+
+      function lewatToleransi(session) {
+        let openedAt = session.get('openedAt', null);
+        let hasSchedule = session.get('tanggal', '') is string
+          && session.get('jamMulai', '') is string
+          && session.get('tanggal', '').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          && session.get('jamMulai', '').matches('([01][0-9]|2[0-3]):[0-5][0-9]');
+        let grace = session.get('gracePeriodMinutes', 15);
+        let tolerance = duration.value(grace is number && grace >= 0 && grace <= 120 ? int(grace) : 15, 'm');
+        // Kedua batas harus lewat, setara dengan max(jadwal mulai, waktu buka) + toleransi.
+        return openedAt is timestamp
+          && request.time > openedAt + tolerance
+          && (!hasSchedule || request.time > jadwalMulaiWib(session) + tolerance);
+      }
+
+      function dendaSesuaiPresensi(fine) {
+        let session = sesi(fine.sessionId);
+        let uid = request.auth.uid;
+        let attendancePath = /databases/$(database)/documents/sessions/$(fine.sessionId)/attendances/$(uid);
+        let attendance = getAfter(attendancePath).data;
+        let labId = session.get('labId', null);
+        let courseId = session.get('courseId', null);
+        let praktikumId = session.get('praktikumId', null);
+        return fine.attendanceId == 'sessions/' + fine.sessionId + '/attendances/' + uid
+          && attendance.uid == uid
+          && attendance.sessionId == fine.sessionId
+          && attendance.classId == session.classId
+          && attendance.status == 'hadir'
+          && attendance.lateStatus == 'late'
+          && attendance.recordedAt == request.time
+          && !exists(attendancePath)
+          && attendance.fineId == fineId
+          && fine.labId == (labId is string && labId != '' ? labId : session.classId)
+          && fine.courseId == (courseId is string && courseId != '' ? courseId
+            : praktikumId is string && praktikumId != '' ? praktikumId : 'praktikum-ppk')
+          && fine.lateMinutes is int
+          && fine.lateMinutes > 0
+          && fine.lateMinutes == attendance.lateMinutes
+          && fine.amount is int
+          && fine.amount > 0
+          && fine.amount == session.get('lateFineAmount', 10000)
+          && lewatToleransi(session);
+      }
+
+      // Transaksi presensi mengecek ID denda sebelum dokumennya ada.
+      allow get: if resource == null
+        && isPraktikan()
+        && request.auth.uid.matches('^[A-Za-z0-9_-]+$')
+        && fineId.matches('^.+_' + request.auth.uid + '$');
+
       allow read: if isAslab()
         || (isPraktikan() && resource.data.uid == request.auth.uid)
         || (isAsprak() && isAssignedAsprak(resource.data.labId));
@@ -384,9 +440,9 @@ service cloud.firestore {
       allow create: if isPraktikan()
         && request.resource.data.uid == request.auth.uid
         && fineId == request.resource.data.sessionId + '_' + request.auth.uid
+        && request.resource.data.id == fineId
         && request.resource.data.status == 'unpaid'
-        && request.resource.data.amount == sesi(request.resource.data.sessionId).get('lateFineAmount', 10000)
-        && request.resource.data.amount > 0;
+        && dendaSesuaiPresensi(request.resource.data);
 
       // Asprak/Aslab hanya boleh membebaskan tagihan ('waived') jika izin disetujui, tidak pernah 'paid'
       allow update: if (isAslab() || isAssignedAsprak(resource.data.labId))
