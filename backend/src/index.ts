@@ -1,11 +1,19 @@
 import { createApp } from './app.ts';
 import { InvalidEnvironmentError, parseEnv } from './config/env.ts';
 import { initializeFirebaseAdmin } from './config/firebaseAdmin.ts';
+import { firebaseProvisioningStore, registerProvisioning } from './provisioning.ts';
+import { registerPayments } from './payments.ts';
+import { sandboxGateway } from './midtrans.ts';
 
 function start() {
   const { host, port, firebaseProjectId } = parseEnv(process.env);
   const firebase = initializeFirebaseAdmin(firebaseProjectId);
-  const server = createApp().listen(port, host, () => {
+  const serverKey = process.env.MIDTRANS_SERVER_KEY?.trim();
+  const signatureSecret = process.env.MIDTRANS_SIGNATURE_SECRET_KEY?.trim();
+  const server = createApp((api) => {
+    registerProvisioning(api, firebase.identity, firebaseProvisioningStore(firebase.auth, firebase.firestore));
+    registerPayments(api, firebase.identity, firebase.firestore, serverKey ? sandboxGateway(serverKey) : undefined, signatureSecret);
+  }).listen(port, host, () => {
     console.info('Backend HTTP listening on %s port %d.', host, port);
   });
 

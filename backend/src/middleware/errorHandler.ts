@@ -1,6 +1,10 @@
 import type { ErrorRequestHandler } from 'express';
 
 const errors = {
+  INVALID_INPUT: { status: 400, message: 'Invalid request.' },
+  PAYMENT_CONFLICT: { status: 409, message: 'This fine cannot start a new payment.' },
+  PAYMENT_INITIALIZING: { status: 409, message: 'The active order is being reconciled.' },
+  PAYMENT_UNAVAILABLE: { status: 503, message: 'Payment provider is temporarily unavailable.' },
   INVALID_JSON: { status: 400, message: 'Request body must contain valid JSON.' },
   UNAUTHENTICATED: { status: 401, message: 'A valid Firebase ID token is required.' },
   FORBIDDEN: { status: 403, message: 'This account does not have access.' },
