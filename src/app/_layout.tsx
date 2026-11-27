@@ -68,6 +68,7 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="sesi/[sesiId]" />
             <Stack.Screen name="presensi/[sesiId]" />
+            <Stack.Screen name="pembayaran/[fineId]" />
           </Stack>
         </NotificationProvider>
       </AuthProvider>
