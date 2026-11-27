@@ -1,18 +1,21 @@
+import React, { useEffect, useState } from 'react';
+import { Redirect } from 'expo-router';
+import { StyleSheet, View } from 'react-native';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
+import { SkeletonCard, SkeletonTile } from '@/components/ui/SkeletonCard';
+import { Spacing } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { AslabDashboardView } from '@/features/aslab/AslabDashboardView';
 import { useLaboratoryData } from '@/features/maps/useMapsData';
 import {
   calculateDashboardMetrics,
-  fetchDashboardFines,
+  subscribeDashboardFines,
   type FineRecord,
   type PeriodFilter,
 } from '@/services/aslab/dashboardService';
 import { useApp } from '@/store/app-context';
 import type { Laboratory } from '@/types/laboratory';
 import type { Praktikan } from '@/types/models';
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
 
 export default function AslabDashboardScreen() {
   const { pengguna } = useAuth();
@@ -23,21 +26,17 @@ export default function AslabDashboardScreen() {
   const [period, setPeriod] = useState<PeriodFilter>('hari');
   const [fines, setFines] = useState<FineRecord[]>([]);
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      fetchDashboardFines()
-        .then((list) => {
-          if (active) setFines(list);
-        })
-        .catch(() => {
-          if (active) setFines([]);
-        });
-      return () => {
-        active = false;
-      };
-    }, []),
-  );
+  const isAslab = pengguna?.role === 'aslab';
+
+  useEffect(() => {
+    if (!isAslab) return;
+    return subscribeDashboardFines(setFines, () => setFines([]));
+  }, [isAslab]);
+
+  if (!pengguna) return null;
+  if (!isAslab) {
+    return <Redirect href="/jadwal" />;
+  }
 
   const classMembers = (state.pengguna ?? [])
     .filter((u): u is Praktikan => u.peran === 'praktikan')
@@ -52,16 +51,40 @@ export default function AslabDashboardScreen() {
     filter: period,
   });
 
-  if (!pengguna) return null;
+  const isLoading = labData.snapshot === undefined && !labData.error;
 
   return (
     <ScreenContainer variant="gradient" hasTabBar={true}>
-      <AslabDashboardView
-        actor={pengguna}
-        metrics={metrics}
-        period={period}
-        onChangePeriod={setPeriod}
-      />
+      {isLoading ? (
+        <View style={styles.skeletonWrap}>
+          <View style={styles.skeletonGrid}>
+            <SkeletonTile />
+            <SkeletonTile />
+            <SkeletonTile />
+            <SkeletonTile />
+          </View>
+          <SkeletonCard />
+          <SkeletonCard />
+        </View>
+      ) : (
+        <AslabDashboardView
+          actor={pengguna}
+          metrics={metrics}
+          period={period}
+          onChangePeriod={setPeriod}
+        />
+      )}
     </ScreenContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  skeletonWrap: {
+    gap: Spacing.md,
+  },
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+});

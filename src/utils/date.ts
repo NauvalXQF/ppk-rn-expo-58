@@ -1,23 +1,31 @@
 export function formatTanggal(tanggal: string): string {
+  const trimmed = tanggal?.trim();
+  if (!trimmed) return '-';
+  const parsed = new Date(`${trimmed}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return trimmed;
   return new Intl.DateTimeFormat('id-ID', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-  }).format(new Date(`${tanggal}T00:00:00`));
+  }).format(parsed);
 }
 
 export function formatJam(jam: string): string {
-  return jam.replace(':', '.');
+  return (jam ?? '').replace(':', '.');
 }
 
 export function formatWaktuPresensi(iso: string): string {
+  const trimmed = iso?.trim();
+  if (!trimmed) return '-';
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return '-';
   return new Intl.DateTimeFormat('id-ID', {
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
   })
-    .format(new Date(iso))
+    .format(parsed)
     .replace(':', '.');
 }
 

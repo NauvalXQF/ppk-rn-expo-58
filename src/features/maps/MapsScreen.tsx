@@ -1,12 +1,12 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { router, useIsFocused, useSitemap, type Href, type SitemapType } from 'expo-router';
-import { ActivityIndicator, Linking, Platform, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton } from '@/components/ui/AppButton';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { Colors, FontFamily, FontSize, Radius, Shadow, Spacing } from '@/constants/theme';
 import type { ProfilPengguna } from '@/services/authService';
 import { activeLaboratories, selectLaboratories } from '@/services/maps/laboratories';
+import { router, useIsFocused, useSitemap, type Href, type SitemapType } from 'expo-router';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LabActivitySheet } from './LabActivitySheet';
 import { LabManagementModal } from './LabManagementModal';
 import LaboratoryMap from './LaboratoryMap';
@@ -28,7 +28,7 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
   const focused = useIsFocused();
   const sitemap = useSitemap();
   const isAssistant = actor.role === 'asisten' || actor.role === 'asprak' || actor.role === 'aslab';
-  const canManageLab = actor.role === 'aslab' || actor.role === 'asisten';
+  const canManageLab = actor.role === 'aslab';
   const laboratories = useLaboratoryData(focused);
   const activity = useMapsActivity(actor.uid, isAssistant, focused);
   const { state: location, retry: retryLocation } = useUserLocation(focused);
@@ -107,43 +107,43 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
           onSelect={selectLab}
         />
         <View style={[styles.controls, styles.bottomControls]}>
-            <View style={styles.notice}>
-              {location.status === 'denied' ? (
-                <>
-                  <InfoBanner tone="warning" message={Platform.OS === 'web'
-                    ? 'Izin lokasi ditolak. Izinkan lokasi di pengaturan situs browser, lalu coba lagi.'
-                    : 'Izin lokasi ditolak. Izinkan akses untuk menampilkan posisi kamu.'} />
-                  <AppButton label={location.canAskAgain ? 'Izinkan lokasi' : 'Buka pengaturan aplikasi'}
-                    variant="secondary" onPress={location.canAskAgain ? retryLocation : openSettings} />
-                  {settingsError ? <InfoBanner tone="warning" message="Buka pengaturan ponsel dan izinkan lokasi untuk aplikasi ini." /> : null}
-                </>
-              ) : location.status === 'gps-off' ? (
-                <>
-                  <InfoBanner tone="warning" message="GPS nonaktif. Nyalakan lokasi di pengaturan cepat perangkat." />
-                  <AppButton label="Cek kembali GPS" variant="secondary" onPress={retryLocation} />
-                </>
-              ) : location.status === 'unavailable' ? (
-                <>
-                  <InfoBanner tone="warning" message="Lokasi belum tersedia. Coba dari area dengan sinyal lebih baik." />
-                  <AppButton label="Segarkan lokasi" variant="secondary" onPress={retryLocation} />
-                </>
-              ) : location.status === 'unsupported' ? (
-                <InfoBanner tone="neutral" message="Lokasi browser hanya tersedia pada situs aman dengan dukungan geolokasi." />
-              ) : location.status === 'searching' ? (
+          <View style={styles.notice}>
+            {location.status === 'denied' ? (
+              <>
+                <InfoBanner tone="warning" message={Platform.OS === 'web'
+                  ? 'Izin lokasi ditolak. Izinkan lokasi di pengaturan situs browser, lalu coba lagi.'
+                  : 'Izin lokasi ditolak. Izinkan akses untuk menampilkan posisi kamu.'} />
+                <AppButton label={location.canAskAgain ? 'Izinkan lokasi' : 'Buka pengaturan aplikasi'}
+                  variant="secondary" onPress={location.canAskAgain ? retryLocation : openSettings} />
+                {settingsError ? <InfoBanner tone="warning" message="Buka pengaturan ponsel dan izinkan lokasi untuk aplikasi ini." /> : null}
+              </>
+            ) : location.status === 'gps-off' ? (
+              <>
+                <InfoBanner tone="warning" message="GPS nonaktif. Nyalakan lokasi di pengaturan cepat perangkat." />
+                <AppButton label="Cek kembali GPS" variant="secondary" onPress={retryLocation} />
+              </>
+            ) : location.status === 'unavailable' ? (
+              <>
+                <InfoBanner tone="warning" message="Lokasi belum tersedia. Coba dari area dengan sinyal lebih baik." />
+                <AppButton label="Segarkan lokasi" variant="secondary" onPress={retryLocation} />
+              </>
+            ) : location.status === 'unsupported' ? (
+              <InfoBanner tone="neutral" message="Lokasi browser hanya tersedia pada situs aman dengan dukungan geolokasi." />
+            ) : location.status === 'searching' ? (
+              <View style={[styles.heading, styles.locationNotice]}>
+                <ActivityIndicator size="small" color={Colors.warning} />
+                <Text style={styles.detail}>Mencari lokasi…</Text>
+              </View>
+            ) : point && (point.accuracy == null || point.accuracy > 50) ? (
+              <>
                 <View style={[styles.heading, styles.locationNotice]}>
                   <ActivityIndicator size="small" color={Colors.warning} />
-                  <Text style={styles.detail}>Mencari lokasi…</Text>
+                  <Text style={styles.detail}>Sinyal GPS lemah. Mencari posisi yang lebih akurat…</Text>
                 </View>
-              ) : point && (point.accuracy == null || point.accuracy > 50) ? (
-                <>
-                  <View style={[styles.heading, styles.locationNotice]}>
-                    <ActivityIndicator size="small" color={Colors.warning} />
-                    <Text style={styles.detail}>Sinyal GPS lemah. Mencari posisi yang lebih akurat…</Text>
-                  </View>
-                  <AppButton label="Segarkan lokasi" variant="secondary" onPress={retryLocation} />
-                </>
-              ) : null}
-            </View>
+                <AppButton label="Segarkan lokasi" variant="secondary" onPress={retryLocation} />
+              </>
+            ) : null}
+          </View>
           <View style={styles.actions}>
             {canManageLab ? (
               <AppButton label="Kelola lab" variant="secondary"

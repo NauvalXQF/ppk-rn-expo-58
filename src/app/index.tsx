@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Redirect } from 'expo-router';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -9,14 +11,13 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Redirect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { FormField } from '@/components/ui/FormField';
 import { InfoBanner } from '@/components/ui/InfoBanner';
+import { isFirebaseConfigured } from '@/config/firebase';
 import {
   Colors,
   FontFamily,
@@ -26,14 +27,13 @@ import {
   Shadow,
   Spacing,
 } from '@/constants/theme';
-import { isFirebaseConfigured } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { pesanErrorAuth } from '@/services/authService';
 
 type Mode = 'masuk' | 'daftar';
 
 export default function IndexRoute() {
-  const { status, masuk, daftar } = useAuth();
+  const { status, pengguna, error: authError, masuk, daftar, retryProfile } = useAuth();
 
   const [mode, setMode] = useState<Mode>('masuk');
   const [nama, setNama] = useState('');
@@ -55,7 +55,7 @@ export default function IndexRoute() {
 
   // Sesi masih aktif: halaman login dilewati.
   if (status === 'masuk') {
-    return <Redirect href="/jadwal" />;
+    return <Redirect href={pengguna?.role === 'aslab' ? '/dashboard' : '/jadwal'} />;
   }
 
   const gantiMode = (berikutnya: Mode) => {
@@ -237,6 +237,17 @@ export default function IndexRoute() {
                 ) : null}
 
                 {error ? <InfoBanner message={error} tone="danger" /> : null}
+                {!error && authError ? (
+                  <View style={styles.retryBox}>
+                    <InfoBanner message={authError} tone="danger" />
+                    <AppButton
+                      label="Coba Muat Ulang Profil"
+                      variant="secondary"
+                      size="sm"
+                      onPress={() => void retryProfile()}
+                    />
+                  </View>
+                ) : null}
 
                 <AppButton
                   label={mode === 'daftar' ? 'Buat Akun Praktikan' : 'Masuk'}
@@ -288,6 +299,9 @@ const styles = StyleSheet.create({
   togglePassBtn: {
     paddingHorizontal: 8,
     paddingVertical: 6,
+  },
+  retryBox: {
+    gap: Spacing.xs,
   },
   togglePassText: {
     fontSize: FontSize.xs,

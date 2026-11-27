@@ -6,6 +6,7 @@ import {
   Pressable,
   ActivityIndicator,
   Platform,
+  View,
   type StyleProp,
   type ViewStyle,
   type TextStyle,
@@ -23,6 +24,7 @@ interface AppButtonProps {
   size?: ButtonSize;
   disabled?: boolean;
   loading?: boolean;
+  loadingLabel?: string;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -33,6 +35,7 @@ export function AppButton({
   size = 'md',
   disabled = false,
   loading = false,
+  loadingLabel = 'Memuat...',
   style,
 }: AppButtonProps) {
   const [scale] = useState(() => new Animated.Value(1));
@@ -105,7 +108,10 @@ export function AppButton({
         style={containerStyle}
       >
         {loading ? (
-          <ActivityIndicator size="small" color={indicatorColor} />
+          <View style={styles.loadingRow}>
+            <ActivityIndicator size="small" color={indicatorColor} />
+            <Text style={textStyle}>{loadingLabel}</Text>
+          </View>
         ) : (
           <Text style={textStyle}>{label}</Text>
         )}
@@ -120,6 +126,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
   },
   md: {
     minHeight: 50,

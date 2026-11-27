@@ -117,7 +117,7 @@ test('T-01: identifies aslab, asprak, and praktikan roles with backward compatib
   assert.equal(asprakApp.peran, 'asprak');
 
   const legacyApp = kePenggunaAplikasi(legacyProfile);
-  assert.equal(legacyApp.peran, 'asisten');
+  assert.equal(legacyApp.peran, 'asprak');
 });
 
 // ============================================================================
@@ -234,10 +234,20 @@ test('commitBulkLaboratorium, commitBulkPraktikan, commitBulkAsprak write only v
   };
 
   const labAssignmentService = loadSource('services/aslab/labAssignmentService', {
-    '@/config/firebase': { getFirebaseDb: () => mockDb },
+    '@/config/firebase': {
+      getFirebaseDb: () => mockDb,
+      getFirebaseAuth: () => ({ currentUser: null }),
+    },
+    '@/services/payments/paymentData': {
+      resolvePaymentApiOrigin: () => 'http://localhost:4000',
+    },
     'firebase/firestore': {
       collection: (db, name) => ({ collectionName: name }),
-      doc: (dbOrColl, id) => ({ id: id ?? 'gen-id', path: `${dbOrColl.collectionName || dbOrColl}/${id || 'gen-id'}` }),
+      doc: (dbOrColl, ...segments) => {
+        const id = segments.length > 0 ? segments[segments.length - 1] : 'gen-id';
+        const prefix = dbOrColl?.collectionName || 'doc';
+        return { id, path: `${prefix}/${segments.join('/') || id}` };
+      },
       serverTimestamp: () => 'server-time',
       writeBatch: () => mockBatch,
       arrayUnion: (...items) => items,
@@ -297,11 +307,31 @@ test('commitBulkLaboratorium, commitBulkPraktikan, commitBulkAsprak write only v
     },
   ];
 
-  const praktikanResult = await labAssignmentService.commitBulkPraktikan(actorAslab, 'lab-1', praktikanRows);
+  const praktikanResult = await labAssignmentService.commitBulkPraktikan(
+    actorAslab,
+    'lab-1',
+    praktikanRows,
+    {
+      courseId: 'c1',
+      provisionUsers: async ({ users }) =>
+        users.map((u) => ({ rowId: u.rowId, outcome: 'created', uid: 'uid-real-1' })),
+    },
+  );
   assert.equal(praktikanResult.successCount, 1);
   assert.equal(operations.length, 1);
+  assert.equal(operations[0].ref.id, 'lab-1_uid-real-1');
+  assert.equal(operations[0].data.uid, 'uid-real-1');
   assert.equal(operations[0].data.nim, '245150200111001');
   assert.equal(operations[0].data.active, true);
+  assert.deepEqual(Object.keys(operations[0].data).sort(), [
+    'active',
+    'classId',
+    'createdAt',
+    'nama',
+    'nim',
+    'uid',
+    'updatedAt',
+  ]);
 });
 
 // ============================================================================
@@ -318,10 +348,20 @@ test('T-06 & T-07: transfers praktikan and asprak atomically between labs withou
   };
 
   const labAssignmentService = loadSource('services/aslab/labAssignmentService', {
-    '@/config/firebase': { getFirebaseDb: () => mockDb },
+    '@/config/firebase': {
+      getFirebaseDb: () => mockDb,
+      getFirebaseAuth: () => ({ currentUser: null }),
+    },
+    '@/services/payments/paymentData': {
+      resolvePaymentApiOrigin: () => 'http://localhost:4000',
+    },
     'firebase/firestore': {
       collection: (db, name) => ({ collectionName: name }),
-      doc: (dbOrColl, id) => ({ id, path: `${dbOrColl.collectionName || dbOrColl}/${id}` }),
+      doc: (dbOrColl, ...segments) => {
+        const id = segments.length > 0 ? segments[segments.length - 1] : 'gen-id';
+        const prefix = dbOrColl?.collectionName || 'doc';
+        return { id, path: `${prefix}/${segments.join('/') || id}` };
+      },
       serverTimestamp: () => 'server-time',
       writeBatch: () => mockBatch,
       arrayUnion: (...items) => items,
@@ -345,11 +385,21 @@ test('T-06 & T-07: transfers praktikan and asprak atomically between labs withou
   await labAssignmentService.transferPraktikan(actorAslab, 'lab-a', 'lab-b', { uid: 'u1', nim: '123', nama: 'Andi' });
   assert.equal(operations.length, 2);
   assert.equal(operations[0].type, 'update');
+  assert.equal(operations[0].ref.id, 'lab-a_u1');
+  assert.deepEqual(Object.keys(operations[0].data).sort(), ['active', 'updatedAt']);
   assert.equal(operations[0].data.active, false); // Deactivated in Lab A
-  assert.equal(operations[0].data.transferredTo, 'lab-b');
   assert.equal(operations[1].type, 'set');
+  assert.equal(operations[1].ref.id, 'lab-b_u1');
   assert.equal(operations[1].data.active, true); // Activated in Lab B
-  assert.equal(operations[1].data.transferredFrom, 'lab-a');
+  assert.deepEqual(Object.keys(operations[1].data).sort(), [
+    'active',
+    'classId',
+    'createdAt',
+    'nama',
+    'nim',
+    'uid',
+    'updatedAt',
+  ]);
 
   // Transfer Asprak Lab A -> Lab B
   operations.length = 0;

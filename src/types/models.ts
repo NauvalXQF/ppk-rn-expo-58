@@ -56,7 +56,7 @@ export function isPraktikanUser(
 export function isAsprakUser(
   user: Pengguna | null | undefined,
 ): user is Asprak {
-  return Boolean(user && user.peran === 'asprak');
+  return Boolean(user && (user.peran === 'asprak' || user.peran === 'asisten'));
 }
 
 export function isAslabUser(
@@ -70,16 +70,16 @@ export function isStaffUser(
 ): user is StaffPengguna {
   return Boolean(
     user &&
-      (user.peran === 'asprak' ||
-        user.peran === 'aslab' ||
-        user.peran === 'asisten'),
+    (user.peran === 'asprak' ||
+      user.peran === 'aslab' ||
+      user.peran === 'asisten'),
   );
 }
 
 export function canManageClassesAndMembers(
   user: Pengguna | null | undefined,
 ): boolean {
-  return Boolean(user && (user.peran === 'aslab' || user.peran === 'asisten'));
+  return Boolean(user && user.peran === 'aslab');
 }
 
 export interface Praktikum {
@@ -203,21 +203,21 @@ export type AppAction =
   | { type: 'BUKA_SESI'; sesiId: string }
   | { type: 'TUTUP_SESI'; sesiId: string }
   | {
-      type: 'CATAT_PRESENSI';
-      sesiId: string;
-      praktikanId: string;
-      catatan?: string;
-      waktuPresensi?: string;
-      latitude?: number;
-      longitude?: number;
-      accuracy?: number;
-      distanceMeters?: number;
-      geofenceStatus?: 'in_radius' | 'bypass_qr';
-      lateStatus?: LateStatus;
-      lateMinutes?: number;
-      graceDeadlineAt?: string;
-      fineId?: string | null;
-    }
+    type: 'CATAT_PRESENSI';
+    sesiId: string;
+    praktikanId: string;
+    catatan?: string;
+    waktuPresensi?: string;
+    latitude?: number;
+    longitude?: number;
+    accuracy?: number;
+    distanceMeters?: number;
+    geofenceStatus?: 'in_radius' | 'bypass_qr';
+    lateStatus?: LateStatus;
+    lateMinutes?: number;
+    graceDeadlineAt?: string;
+    fineId?: string | null;
+  }
   | { type: 'TAMBAH_KELAS'; kelas: Kelas }
   | { type: 'UBAH_KELAS'; kelas: Kelas }
   | { type: 'HAPUS_KELAS'; kelasId: string }
@@ -231,21 +231,21 @@ export type AppAction =
   | { type: 'UBAH_SESI'; sesi: Sesi }
   | { type: 'HAPUS_SESI'; sesiId: string }
   | {
-      type: 'SYNC_FIRESTORE';
-      payload: Partial<
-        Pick<
-          AppState,
-          | 'pengguna'
-          | 'praktikum'
-          | 'kelas'
-          | 'sesi'
-          | 'presensi'
-          | 'jadwal'
-          | 'currentUser'
-          | 'approvedLeaves'
-        >
-      >;
-    }
+    type: 'SYNC_FIRESTORE';
+    payload: Partial<
+      Pick<
+        AppState,
+        | 'pengguna'
+        | 'praktikum'
+        | 'kelas'
+        | 'sesi'
+        | 'presensi'
+        | 'jadwal'
+        | 'currentUser'
+        | 'approvedLeaves'
+      >
+    >;
+  }
   | { type: 'RESET_DATA' };
 
 export interface BarisRekap {

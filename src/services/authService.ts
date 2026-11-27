@@ -28,6 +28,7 @@ export type ProfilPengguna = {
   nip?: string;
   kelasId?: string;
   managedCourseIds?: string[];
+  assignedLabIds?: string[];
 };
 
 const KOLEKSI_USERS = 'users';
@@ -37,10 +38,9 @@ function normalisasiProfil(uid: string, data: DocumentData, user: User): ProfilP
   let role: Role = 'praktikan';
   if (rawRole === 'aslab') {
     role = 'aslab';
-  } else if (rawRole === 'asprak') {
+  } else if (rawRole === 'asprak' || rawRole === 'asisten') {
+    // Normalisasi role legacy 'asisten' menjadi 'asprak'
     role = 'asprak';
-  } else if (rawRole === 'asisten') {
-    role = 'asisten';
   }
 
   return {
@@ -52,6 +52,7 @@ function normalisasiProfil(uid: string, data: DocumentData, user: User): ProfilP
     nip: typeof data.nip === 'string' ? data.nip : undefined,
     kelasId: typeof data.kelasId === 'string' ? data.kelasId : undefined,
     managedCourseIds: Array.isArray(data.managedCourseIds) ? data.managedCourseIds : undefined,
+    assignedLabIds: Array.isArray(data.assignedLabIds) ? data.assignedLabIds : undefined,
   };
 }
 
@@ -210,22 +211,14 @@ export function kePenggunaAplikasi(profil: ProfilPengguna): Pengguna {
     };
   }
 
-  if (profil.role === 'asprak') {
+  if (profil.role === 'asprak' || profil.role === 'asisten') {
     return {
       id: profil.uid,
       peran: 'asprak',
       nama: profil.nama,
       nip: profil.nip ?? '-',
       email: profil.email,
-    };
-  }
-
-  if (profil.role === 'asisten') {
-    return {
-      id: profil.uid,
-      peran: 'asisten',
-      nama: profil.nama,
-      nip: profil.nip ?? '-',
+      assignedLabIds: profil.assignedLabIds,
     };
   }
 
