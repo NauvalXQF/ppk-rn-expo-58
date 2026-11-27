@@ -13,6 +13,7 @@ import * as Notifications from 'expo-notifications';
 import { useRouter, type Href } from 'expo-router';
 
 import { useAuth } from '@/contexts/AuthContext';
+import { resolvePaymentNotificationRoute } from '@/services/payments/paymentData';
 import {
   resolveNotificationRoute,
   subscribeUserNotifications,
@@ -95,6 +96,7 @@ export function NotificationProvider({ children }: PropsWithChildren) {
   });
 
   const activeUid = authStatus === 'masuk' ? pengguna?.uid ?? null : null;
+  const role = pengguna?.role;
   const activeUidRef = useRef<string | null>(activeUid);
   useEffect(() => {
     activeUidRef.current = activeUid;
@@ -117,7 +119,7 @@ export function NotificationProvider({ children }: PropsWithChildren) {
 
   const handledResponseIdsRef = useRef<Set<string>>(new Set());
   const receivedNotificationIdsRef = useRef<Set<string>>(new Set());
-  const pendingRouteRef = useRef<string | null>(null);
+  const pendingRouteRef = useRef<{ route: string; payment: boolean; recipientUid: unknown } | null>(null);
   const initialSnapshotLoadedRef = useRef(false);
   const knownAuditIdsRef = useRef<Set<string>>(new Set());
 
@@ -131,17 +133,21 @@ export function NotificationProvider({ children }: PropsWithChildren) {
     ): boolean => {
       const route = resolveNotificationRoute(data);
       if (!route) return false;
+      const payment = resolvePaymentNotificationRoute(data) !== null;
+      const recipientUid = data && 'recipientUid' in data ? data.recipientUid : undefined;
 
       if (authStatus !== 'masuk') {
-        pendingRouteRef.current = route;
+        pendingRouteRef.current = { route, payment, recipientUid };
         return false;
       }
 
       pendingRouteRef.current = null;
+      if (payment && (role !== 'praktikan' ||
+        (recipientUid !== undefined && recipientUid !== activeUid))) return false;
       router.push(route as Href);
       return true;
     },
-    [authStatus, router],
+    [authStatus, role, activeUid, router],
   );
 
   // Jalankan rute deep-link yang tertunda setelah pemulihan autentikasi selesai.
@@ -149,9 +155,12 @@ export function NotificationProvider({ children }: PropsWithChildren) {
     if (authStatus === 'masuk' && pendingRouteRef.current) {
       const target = pendingRouteRef.current;
       pendingRouteRef.current = null;
-      router.push(target as Href);
+      if (!target.payment || (role === 'praktikan' &&
+        (target.recipientUid === undefined || target.recipientUid === activeUid))) {
+        router.push(target.route as Href);
+      }
     }
-  }, [authStatus, router]);
+  }, [authStatus, role, activeUid, router]);
 
   // Setup foreground handler, Android channel, dan listener interaksi notifikasi (SRS-06 & SRS-08).
   useEffect(() => {
@@ -171,13 +180,13 @@ export function NotificationProvider({ children }: PropsWithChildren) {
 
     const handleResponse = (response: Notifications.NotificationResponse | null) => {
       if (!response) return;
-      const responseId = response.notification.request.identifier;
-      if (handledResponseIdsRef.current.has(responseId)) return;
-      handledResponseIdsRef.current.add(responseId);
-
       const data = response.notification.request.content.data as
         | Record<string, unknown>
         | undefined;
+      const responseId = typeof data?.notificationId === 'string'
+        ? data.notificationId : response.notification.request.identifier;
+      if (handledResponseIdsRef.current.has(responseId)) return;
+      handledResponseIdsRef.current.add(responseId);
       if (typeof data?.notificationId === 'string') {
         const notifId = data.notificationId;
         setReadState((prev) => {
@@ -347,6 +356,7 @@ export function NotificationProvider({ children }: PropsWithChildren) {
         for (const item of items) {
           if (knownAuditIdsRef.current.has(item.id)) continue;
           knownAuditIdsRef.current.add(item.id);
+          if (resolvePaymentNotificationRoute({ type: item.type })) continue;
 
           // Jika push remote belum masuk di perangkat ini (mis. emulator atau jaringan lambat),
           // tampilkan notifikasi lokal sekali saja tanpa duplikasi.

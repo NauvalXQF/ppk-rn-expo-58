@@ -16,7 +16,7 @@ export function enqueuePaymentEvent(tx: Transaction, db: Firestore, type: Paymen
   const id = paymentEventId(type, fineId, orderId);
   const [title, body] = messages[type];
   const payload = { recipientUid: uid, type, title, body,
-    data: { type, screen: 'denda', fineId, ...(orderId ? { orderId } : {}),
+    data: { type, screen: 'denda', fineId, recipientUid: uid, ...(orderId ? { orderId } : {}),
       notificationId: id, tab: type === 'fine_created' ? 'aktif' : 'riwayat' } };
   tx.create(db.doc('notifications/' + id), { ...payload, status: 'sent', createdAt: FieldValue.serverTimestamp() });
   tx.create(db.doc('notificationOutbox/' + id), { ...payload, state: 'queued', nextAt: Timestamp.now() });

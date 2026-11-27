@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { notificationWorker } from '../src/notificationWorker.ts';
 
-function fixture(deviceCount = 1, readFails = false) {
+function fixture(deviceCount = 1, readFails = false, removeDevice = async () => {}) {
   const event = 'payment_success_fixture';
   const now = { toMillis: () => 0 };
   let job = { state: 'queued', nextAt: now, recipientUid: 'learner', title: 'Done', body: '',
@@ -11,7 +11,7 @@ function fixture(deviceCount = 1, readFails = false) {
   const ref = { id: event };
   let writes = Promise.resolve();
   const db = {
-    doc(path) { return { path }; },
+    doc(path) { return { path, delete: removeDevice }; },
     collection(path) {
       if (path === 'notificationOutbox') return {
         where: () => ({ limit: () => ({ get: async () => ({ docs: [{ ref }] }) }) }),
@@ -60,6 +60,31 @@ test('two workers claim one push, retain its audit ID and process the receipt', 
   await second.poll();
   assert.equal(job().state, 'done');
   assert.equal(audit(), 'delivered');
+});
+
+test('a rejected device cleanup does not retry processed receipts or report false success', async (t) => {
+  let deletions = 0;
+  const { db, job, ready, audit } = fixture(1, false, async () => {
+    deletions++;
+    throw new Error('sensitive synthetic failure');
+  });
+  const log = t.mock.method(console, 'error', () => {});
+  let calls = 0;
+  const worker = notificationWorker(db, async (path) => {
+    calls++;
+    return path === 'send'
+      ? { limited: false, data: [{ status: 'ok', id: 'ticket' }] }
+      : { limited: false, data: { ticket: { status: 'error', details: { error: 'DeviceNotRegistered' } } } };
+  });
+  await worker.poll();
+  ready();
+  await worker.poll();
+  assert.equal(deletions, 1);
+  assert.equal(job().state, 'done');
+  assert.equal(audit(), 'failed');
+  assert.deepEqual(log.mock.calls[0].arguments, ['Could not remove unregistered push token.']);
+  await notificationWorker(db, async () => { calls++; }).poll();
+  assert.equal(calls, 2);
 });
 
 test('a registry read failure does not discard a job that never reached Expo', async () => {

@@ -143,7 +143,8 @@ export function notificationWorker(db: Firestore, send = expoTransport()) {
           if (!result) { unresolved.push(receipt); continue; }
           if (result.status === 'ok') delivered = true;
           if (result.details?.error === 'DeviceNotRegistered') {
-            await db.doc('users/' + job.recipientUid + '/devices/' + receipt.deviceId).delete();
+            await db.doc('users/' + job.recipientUid + '/devices/' + receipt.deviceId).delete()
+              .catch(() => console.error('Could not remove unregistered push token.'));
           }
         }
       }
