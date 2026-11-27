@@ -43,17 +43,38 @@ function decimal(value: string): number {
   return /^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized) ? Number(normalized) : NaN;
 }
 
+function draftForLab(lab?: Laboratory): Draft {
+  return lab
+    ? {
+        nama: lab.nama,
+        kode: lab.kode,
+        gedung: lab.gedung,
+        kapasitas: String(lab.kapasitas),
+        latitude: String(lab.latitude),
+        longitude: String(lab.longitude),
+        radiusMeters: String(lab.radiusMeters),
+        gracePeriodMinutes: String(lab.gracePeriodMinutes ?? DEFAULT_GRACE_PERIOD_MINUTES),
+        lateFineAmount: String(lab.lateFineAmount ?? DEFAULT_LATE_FINE_AMOUNT),
+      }
+    : blank;
+}
+
 export function LabManagementModal({
-  visible, actor, laboratories, location, writable, onClose,
+  visible, actor, laboratories, location, writable, initialLabId, onClose,
 }: {
   visible: boolean;
   actor: ProfilPengguna;
   laboratories: readonly Laboratory[];
   location?: LaboratoryCoordinates;
   writable: boolean;
+  initialLabId?: string | null;
   onClose: () => void;
 }) {
-  const [editor, setEditor] = useState<{ id?: string; draft: Draft }>();
+  const [editor, setEditor] = useState<{ id?: string; draft: Draft } | undefined>(() => {
+    if (!initialLabId) return undefined;
+    const target = laboratories.find((lab) => lab.id === initialLabId);
+    return target ? { id: target.id, draft: draftForLab(target) } : undefined;
+  });
   const [error, setError] = useState<string>();
   const [success, setSuccess] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -70,13 +91,7 @@ export function LabManagementModal({
   function edit(lab?: Laboratory) {
     setEditor({
       id: lab?.id,
-      draft: lab ? {
-        nama: lab.nama, kode: lab.kode, gedung: lab.gedung,
-        kapasitas: String(lab.kapasitas), latitude: String(lab.latitude),
-        longitude: String(lab.longitude), radiusMeters: String(lab.radiusMeters),
-        gracePeriodMinutes: String(lab.gracePeriodMinutes ?? DEFAULT_GRACE_PERIOD_MINUTES),
-        lateFineAmount: String(lab.lateFineAmount ?? DEFAULT_LATE_FINE_AMOUNT),
-      } : blank,
+      draft: draftForLab(lab),
     });
     setError(undefined);
     setSuccess(undefined);
@@ -247,12 +262,16 @@ export function LabManagementModal({
             label="Simpan laboratorium"
             disabled={busy || !writable || Boolean(editor.id && !currentLab)}
             loading={busy && !confirmArchive}
-            onPress={() => void write(() => saveLaboratory(actor, {
-              nama: draft.nama, kode: draft.kode, gedung: draft.gedung, latitude, longitude,
-              radiusMeters, kapasitas: decimal(draft.kapasitas),
-              gracePeriodMinutes: decimal(draft.gracePeriodMinutes) || DEFAULT_GRACE_PERIOD_MINUTES,
-              lateFineAmount: decimal(draft.lateFineAmount) || DEFAULT_LATE_FINE_AMOUNT,
-            }, editor.id), 'Laboratorium berhasil disimpan.')}
+            onPress={() => {
+              const parsedGrace = decimal(draft.gracePeriodMinutes);
+              const parsedFine = decimal(draft.lateFineAmount);
+              void write(() => saveLaboratory(actor, {
+                nama: draft.nama, kode: draft.kode, gedung: draft.gedung, latitude, longitude,
+                radiusMeters, kapasitas: decimal(draft.kapasitas),
+                gracePeriodMinutes: Number.isFinite(parsedGrace) ? parsedGrace : DEFAULT_GRACE_PERIOD_MINUTES,
+                lateFineAmount: Number.isFinite(parsedFine) ? parsedFine : DEFAULT_LATE_FINE_AMOUNT,
+              }, editor.id), 'Laboratorium berhasil disimpan.');
+            }}
           />
           {currentLab?.aktif ? (
             confirmArchive ? (

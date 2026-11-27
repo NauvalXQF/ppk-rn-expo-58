@@ -4,6 +4,7 @@ import { AppIcon, type AppIconName } from '@/components/ui/AppIcon';
 import { FilterChip } from '@/components/ui/FilterChip';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
+import { SkeletonCard } from '@/components/ui/SkeletonCard';
 import {
   Colors,
   FontFamily,
@@ -16,8 +17,10 @@ import { BulkInsertModal } from '@/features/aslab/BulkInsertModal';
 import { MemberTransferModal } from '@/features/aslab/MemberTransferModal';
 import { LabManagementModal } from '@/features/maps/LabManagementModal';
 import { useLaboratoryData } from '@/features/maps/useMapsData';
+import { NotificationBell } from '@/features/notifications/NotificationBell';
 import type { BulkType } from '@/services/aslab/bulkCsvService';
 import type { Laboratory } from '@/types/laboratory';
+import { Redirect } from 'expo-router';
 import { useState } from 'react';
 import {
   StyleSheet,
@@ -86,11 +89,18 @@ export default function KelolaLabScreen() {
   const [bulkModalType, setBulkModalType] = useState<BulkType | null>(null);
   const [transferModalVisible, setTransferModalVisible] = useState(false);
   const [singleLabModalVisible, setSingleLabModalVisible] = useState(false);
+  const [editingLabId, setEditingLabId] = useState<string | null>(null);
   const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
+
+  if (pengguna && pengguna.role !== 'aslab') {
+    return <Redirect href="/jadwal" />;
+  }
 
   const selectedCourse =
     DEFAULT_COURSES.find((c) => c.id === selectedCourseId) ?? DEFAULT_COURSES[0];
-  const activeLabs = laboratories.filter((l: Laboratory) => l.aktif);
+  const activeLabs = laboratories.filter(
+    (l: Laboratory) => l.aktif && (!l.courseId || l.courseId === selectedCourse.id),
+  );
   const currentLab =
     activeLabs.find((l: Laboratory) => l.id === selectedLabId) ?? activeLabs[0];
 
@@ -104,11 +114,13 @@ export default function KelolaLabScreen() {
   }
 
   function handleOpenAddLab() {
+    setEditingLabId(null);
     setSingleLabModalVisible(true);
   }
 
   function handleOpenEditLab(labId: string) {
     setSelectedLabId(labId);
+    setEditingLabId(labId);
     setSingleLabModalVisible(true);
   }
 
@@ -120,15 +132,18 @@ export default function KelolaLabScreen() {
           <View style={styles.headerTextCol}>
             <Text style={styles.title}>Kelola Lab</Text>
             <Text style={styles.subtitle}>
-              Pengaturan laboratorium, impor CSV, dan mutasi anggota
+              Pengaturan lab, CSV & mutasi
             </Text>
           </View>
-          <AppButton
-            label="+ Tambah"
-            variant="primary"
-            size="sm"
-            onPress={handleOpenAddLab}
-          />
+          <View style={styles.headerActions}>
+            <NotificationBell />
+            <AppButton
+              label="+ Tambah"
+              variant="primary"
+              size="sm"
+              onPress={handleOpenAddLab}
+            />
+          </View>
         </View>
 
         {feedbackSuccess ? (
@@ -156,7 +171,12 @@ export default function KelolaLabScreen() {
             Laboratorium Aktif ({activeLabs.length})
           </Text>
 
-          {activeLabs.length === 0 ? (
+          {labData.snapshot === undefined && !labData.error ? (
+            <View style={styles.labsList}>
+              <SkeletonCard />
+              <SkeletonCard />
+            </View>
+          ) : activeLabs.length === 0 ? (
             <InfoBanner
               tone="neutral"
               message="Belum ada laboratorium terdaftar. Tambah manual atau impor data melalui CSV."
@@ -178,6 +198,11 @@ export default function KelolaLabScreen() {
                       <View style={styles.labCardHeader}>
                         <View style={styles.labTitleRow}>
                           <Text style={styles.labName}>{lab.nama}</Text>
+                          {isCurrent ? (
+                            <View style={styles.selectedPill}>
+                              <Text style={styles.selectedPillText}>Dipilih</Text>
+                            </View>
+                          ) : null}
                           <TouchableOpacity
                             hitSlop={8}
                             onPress={() => handleOpenEditLab(lab.id)}
@@ -186,24 +211,22 @@ export default function KelolaLabScreen() {
                             <AppIcon name="sliders" size={14} color={Colors.primary} />
                           </TouchableOpacity>
                         </View>
-                        <Text style={styles.labGedung}>{lab.gedung}</Text>
                       </View>
 
-                      <View style={styles.policyRow}>
-                        <View style={styles.policyPill}>
-                          <AppIcon name="map-pin" size={12} color={Colors.textMuted} />
-                          <Text style={styles.policyPillText}>Radius {lab.radiusMeters}m</Text>
+                      <View style={styles.kvContainer}>
+                        <View style={styles.kvRow}>
+                          <Text style={styles.kvKey}>Lokasi</Text>
+                          <Text style={styles.kvVal}>{lab.gedung || 'Belum diatur'}</Text>
                         </View>
-                        <View style={styles.policyPill}>
-                          <AppIcon name="clock" size={12} color={Colors.textMuted} />
-                          <Text style={styles.policyPillText}>
-                            Toleransi {lab.gracePeriodMinutes ?? 15} mnt
-                          </Text>
+                        <View style={styles.kvRow}>
+                          <Text style={styles.kvKey}>Radius Geofence</Text>
+                          <Text style={styles.kvVal}>{lab.radiusMeters} meter</Text>
                         </View>
-                        <View style={styles.policyPill}>
-                          <AppIcon name="credit-card" size={12} color={Colors.textMuted} />
-                          <Text style={styles.policyPillText}>
-                            Denda Rp{(lab.lateFineAmount ?? 10000).toLocaleString('id-ID')}
+                        <View style={[styles.kvRow, styles.kvRowLast]}>
+                          <Text style={styles.kvKey}>Toleransi & Denda</Text>
+                          <Text style={styles.kvVal}>
+                            {lab.gracePeriodMinutes ?? 15} mnt · Rp
+                            {(lab.lateFineAmount ?? 10000).toLocaleString('id-ID')}
                           </Text>
                         </View>
                       </View>
@@ -221,42 +244,42 @@ export default function KelolaLabScreen() {
           <AppCard variant="glass" style={styles.toolsCard}>
             <ToolRow
               icon="layers"
-              iconBg="rgba(123, 184, 212, 0.16)"
-              iconColor={Colors.accentBlue}
+              iconBg={Colors.neutralSoft}
+              iconColor={Colors.text}
               title="Impor Data Laboratorium"
               subtitle={`Tambah banyak lab untuk ${selectedCourse.kode}`}
               onPress={() => openBulkModal('laboratorium')}
             />
             <ToolRow
               icon="users"
-              iconBg={Colors.successSoft}
-              iconColor={Colors.success}
+              iconBg={Colors.neutralSoft}
+              iconColor={Colors.text}
               title="Impor Daftar Praktikan"
               subtitle={
                 currentLab
-                  ? `Masukkan praktikan ke ${currentLab.nama}`
+                  ? `Target: ${currentLab.nama}`
                   : 'Daftarkan praktikan ke lab terpilih'
               }
               onPress={() => openBulkModal('praktikan')}
             />
             <ToolRow
               icon="user"
-              iconBg={Colors.warningSoft}
-              iconColor={Colors.warning}
+              iconBg={Colors.neutralSoft}
+              iconColor={Colors.text}
               title="Impor Penugasan Asprak"
               subtitle={
                 currentLab
-                  ? `Tugaskan asprak ke ${currentLab.nama}`
+                  ? `Target: ${currentLab.nama}`
                   : 'Tugaskan asprak ke lab terpilih'
               }
               onPress={() => openBulkModal('asprak')}
             />
             <ToolRow
               icon="repeat"
-              iconBg={Colors.primarySoft}
-              iconColor={Colors.primary}
+              iconBg={Colors.neutralSoft}
+              iconColor={Colors.text}
               title="Transfer Anggota Antar Lab"
-              subtitle="Pindahkan praktikan atau asprak tanpa ubah jadwal"
+              subtitle="Pindahkan tanpa ubah jadwal"
               onPress={() => setTransferModalVisible(true)}
               last={true}
             />
@@ -296,6 +319,7 @@ export default function KelolaLabScreen() {
           visible={singleLabModalVisible}
           actor={pengguna}
           laboratories={laboratories}
+          initialLabId={editingLabId}
           writable={true}
           onClose={() => setSingleLabModalVisible(false)}
         />
@@ -317,6 +341,11 @@ const styles = StyleSheet.create({
   headerTextCol: {
     flex: 1,
     gap: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   title: {
     fontSize: FontSize.xl,
@@ -376,30 +405,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  labGedung: {
+  selectedPill: {
+    backgroundColor: Colors.primarySoft,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Radius.pill,
+  },
+  selectedPillText: {
+    fontSize: 10,
+    fontFamily: FontFamily.semibold,
+    color: Colors.primary,
+  },
+  kvContainer: {
+    marginTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingTop: Spacing.xs,
+  },
+  kvRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  kvRowLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 0,
+  },
+  kvKey: {
     fontSize: FontSize.xs,
     fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },
-  policyRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: Spacing.sm,
-  },
-  policyPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.neutralSoft,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: Radius.sm,
-  },
-  policyPillText: {
-    fontSize: 10,
+  kvVal: {
+    fontSize: FontSize.xs,
     fontFamily: FontFamily.medium,
-    color: Colors.textMuted,
+    color: Colors.text,
   },
   toolsCard: {
     padding: 0,

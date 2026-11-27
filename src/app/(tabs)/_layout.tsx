@@ -120,12 +120,14 @@ function FloatingPillTabBar({
               />
               <Text
                 numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
                 style={[
                   styles.tabLabel,
                   isFocused && styles.tabLabelActive,
                 ]}
               >
-                {TAB_LABELS[route.name] ?? options?.title ?? route.name}
+                {options?.title ?? TAB_LABELS[route.name] ?? route.name}
               </Text>
             </Pressable>
           );
@@ -218,7 +220,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
   },
   pill: {
     flexDirection: 'row',
@@ -227,7 +229,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 356,
     height: 66,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     borderRadius: Radius.pill,
     backgroundColor: Colors.glassStrong,
     borderWidth: 1,
@@ -236,9 +238,11 @@ const styles = StyleSheet.create({
     ...Shadow.floating,
   },
   tabItem: {
-    width: 62,
+    flex: 1,
+    minWidth: 0,
     height: 50,
     borderRadius: 24,
+    paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,

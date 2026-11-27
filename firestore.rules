@@ -27,6 +27,13 @@ service cloud.firestore {
       return isSignedIn() && profilSaya().role == 'aslab';
     }
 
+    function managesCourse(courseId) {
+      return isAslab()
+        && courseId is string
+        && courseId.size() > 0
+        && profilSaya().get('managedCourseIds', []).hasAny([courseId]);
+    }
+
     function isAsisten() {
       return isAsprak() || isAslab();
     }
@@ -97,11 +104,19 @@ service cloud.firestore {
       }
     }
 
+    // ==================== Mata kuliah (Sprint 4) ====================
+    match /courses/{courseId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAslab() && managesCourse(courseId);
+      allow delete: if false;
+    }
+
     // ==================== Data laboratorium (Sprint 3–4) ====================
     match /laboratories/{labId} {
       allow read: if isSignedIn();
 
       allow create: if isAslab()
+        && (!('courseId' in request.resource.data) || managesCourse(request.resource.data.courseId))
         && request.resource.data.nama is string
         && request.resource.data.nama.size() > 0
         && request.resource.data.latitude is number
@@ -122,6 +137,7 @@ service cloud.firestore {
             && request.resource.data.lateFineAmount >= 0));
 
       allow update: if isAslab()
+        && (!('courseId' in request.resource.data) || managesCourse(request.resource.data.courseId))
         && request.resource.data.nama is string
         && request.resource.data.nama.size() > 0
         && request.resource.data.latitude is number

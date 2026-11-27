@@ -4,6 +4,8 @@ import type { Jadwal, Sesi } from '@/types/models';
 import {
   collection,
   getDocs,
+  onSnapshot,
+  Timestamp,
 } from 'firebase/firestore';
 
 export type PeriodFilter = 'hari' | 'minggu' | 'bulan' | 'semua';
@@ -28,6 +30,7 @@ export interface FineRecord {
   status: 'unpaid' | 'pending_payment' | 'paid' | 'waived';
   lateMinutes: number;
   paidAt?: string | null;
+  settledAt?: string | null;
   createdAt?: unknown;
 }
 
@@ -128,9 +131,13 @@ export function calculateDashboardMetrics({
   const completedSessions = filteredSessions.filter((s) => s.status === 'ditutup');
   const scheduledSessions = filteredSessions.filter((s) => s.status === 'dijadwalkan');
 
-  // Filter fines by range
+  // Filter fines by range (prefer settledAt for paid fines)
   const filteredFines = fines.filter((f) => {
-    const dateStr = f.sessionTanggal || (typeof f.createdAt === 'string' ? f.createdAt : '');
+    const rawDate =
+      f.status === 'paid'
+        ? f.settledAt || f.paidAt || f.sessionTanggal || f.createdAt
+        : f.sessionTanggal || f.createdAt;
+    const dateStr = typeof rawDate === 'string' ? rawDate : '';
     return isDateWithinRange(dateStr, range);
   });
 
@@ -202,15 +209,97 @@ export function calculateDashboardMetrics({
   };
 }
 
+function toIsoStringOrNull(val: unknown): string | null {
+  if (!val) return null;
+  if (typeof val === 'string') return val;
+  if (val instanceof Timestamp) return val.toDate().toISOString();
+  if (typeof (val as { toDate?: () => Date }).toDate === 'function') {
+    return (val as { toDate: () => Date }).toDate().toISOString();
+  }
+  return null;
+}
+
 export async function fetchDashboardFines(): Promise<FineRecord[]> {
   try {
     const db = getFirebaseDb();
-    const snap = await getDocs(collection(db, 'fines'));
-    return snap.docs.map((d) => ({
-      id: d.id,
-      ...(d.data() as Omit<FineRecord, 'id'>),
-    }));
+    const [finesSnap, paymentsSnap] = await Promise.all([
+      getDocs(collection(db, 'fines')),
+      getDocs(collection(db, 'payments')),
+    ]);
+    const settledByFineId = new Map<string, string>();
+    for (const p of paymentsSnap.docs) {
+      const pData = p.data();
+      if (pData.status === 'success' && typeof pData.fineId === 'string') {
+        const settled = toIsoStringOrNull(pData.settledAt);
+        if (settled) settledByFineId.set(pData.fineId, settled);
+      }
+    }
+    return finesSnap.docs.map((d) => {
+      const data = d.data() as Omit<FineRecord, 'id'>;
+      return {
+        id: d.id,
+        ...data,
+        paidAt: toIsoStringOrNull(data.paidAt),
+        settledAt: settledByFineId.get(d.id) ?? toIsoStringOrNull(data.settledAt),
+      };
+    });
   } catch {
     return [];
   }
+}
+
+export function subscribeDashboardFines(
+  onUpdate: (fines: FineRecord[]) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  const db = getFirebaseDb();
+  let rawFines: FineRecord[] = [];
+  const settledByFineId = new Map<string, string>();
+
+  const emit = () => {
+    onUpdate(
+      rawFines.map((f) => ({
+        ...f,
+        settledAt: settledByFineId.get(f.id) ?? f.settledAt ?? null,
+      })),
+    );
+  };
+
+  const unsubFines = onSnapshot(
+    collection(db, 'fines'),
+    (snap) => {
+      rawFines = snap.docs.map((d) => {
+        const data = d.data() as Omit<FineRecord, 'id'>;
+        return {
+          id: d.id,
+          ...data,
+          paidAt: toIsoStringOrNull(data.paidAt),
+          settledAt: toIsoStringOrNull(data.settledAt),
+        };
+      });
+      emit();
+    },
+    (err) => onError?.(err),
+  );
+
+  const unsubPayments = onSnapshot(
+    collection(db, 'payments'),
+    (snap) => {
+      settledByFineId.clear();
+      for (const d of snap.docs) {
+        const pData = d.data();
+        if (pData.status === 'success' && typeof pData.fineId === 'string') {
+          const settled = toIsoStringOrNull(pData.settledAt);
+          if (settled) settledByFineId.set(pData.fineId, settled);
+        }
+      }
+      emit();
+    },
+    (err) => onError?.(err),
+  );
+
+  return () => {
+    unsubFines();
+    unsubPayments();
+  };
 }

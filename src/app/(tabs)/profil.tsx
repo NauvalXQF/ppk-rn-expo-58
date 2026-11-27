@@ -17,6 +17,7 @@ import { ScreenContainer } from '@/components/ui/ScreenContainer';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
+import { InfoBanner } from '@/components/ui/InfoBanner';
 import { NotificationPrompt } from '@/features/notifications/NotificationPrompt';
 
 function InfoRow({
@@ -46,6 +47,7 @@ export default function ProfilRoute() {
 
   const [confirmGantiVisible, setConfirmGantiVisible] = useState(false);
   const [loadingKeluar, setLoadingKeluar] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   if (!user) {
     return null;
@@ -71,10 +73,15 @@ export default function ProfilRoute() {
 
   const handleGantiPengguna = async () => {
     setLoadingKeluar(true);
+    setLogoutError(null);
     try {
       await keluar();
       dispatch({ type: 'KELUAR' });
       router.replace('/');
+    } catch (err) {
+      setLogoutError(
+        err instanceof Error ? err.message : 'Gagal keluar dari akun. Coba lagi.',
+      );
     } finally {
       setLoadingKeluar(false);
       setConfirmGantiVisible(false);
@@ -83,6 +90,10 @@ export default function ProfilRoute() {
 
   return (
     <ScreenContainer variant="gradient">
+      <View style={styles.headerRow}>
+        <Text style={styles.screenTitle}>Profil</Text>
+      </View>
+
       <View style={styles.hero}>
         <View style={[styles.avatar, isStaff && styles.avatarDark]}>
           <Text style={[styles.avatarText, isStaff && styles.avatarTextDark]}>
@@ -92,7 +103,11 @@ export default function ProfilRoute() {
         <Text style={styles.userName}>{user.nama}</Text>
         <View style={styles.rolePill}>
           <Text style={styles.rolePillText}>
-            {isStaff ? `${roleDisplayLabel} · PPK` : `Praktikan · ${kelasLabel}`}
+            {user.peran === 'aslab'
+              ? roleDisplayLabel
+              : isStaff
+                ? `${roleDisplayLabel} · PPK`
+                : `Praktikan · ${kelasLabel}`}
           </Text>
         </View>
       </View>
@@ -116,6 +131,7 @@ export default function ProfilRoute() {
       <NotificationPrompt />
 
       <View style={styles.actions}>
+        {logoutError ? <InfoBanner tone="danger" message={logoutError} /> : null}
         <AppButton
           label="Keluar dari Akun"
           variant="secondary"
@@ -125,7 +141,7 @@ export default function ProfilRoute() {
       </View>
 
       <Text style={styles.versionText}>
-        Versi 1.0.0 · Praktikum Pemrograman Komputer
+        Versi 1.0.0 · Praktikum Pengembangan Platform Khusus
       </Text>
 
       <ConfirmSheet
@@ -141,6 +157,16 @@ export default function ProfilRoute() {
 }
 
 const styles = StyleSheet.create({
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  screenTitle: {
+    fontSize: FontSize.xl,
+    fontFamily: FontFamily.semibold,
+    color: Colors.text,
+  },
   hero: {
     alignItems: 'center',
     gap: 8,

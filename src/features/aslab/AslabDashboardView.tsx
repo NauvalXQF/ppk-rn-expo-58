@@ -1,7 +1,14 @@
+import React, { useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { AppCard } from '@/components/ui/AppCard';
-import { AppIcon } from '@/components/ui/AppIcon';
+import { AppIcon, type AppIconName } from '@/components/ui/AppIcon';
 import { FilterChip } from '@/components/ui/FilterChip';
 import { InfoBanner } from '@/components/ui/InfoBanner';
+import { NotificationBell } from '@/features/notifications/NotificationBell';
 import {
   Colors,
   FontFamily,
@@ -9,18 +16,12 @@ import {
   Radius,
   Spacing,
 } from '@/constants/theme';
+import type { ProfilPengguna } from '@/services/authService';
 import {
   getDateRange,
   type DashboardMetrics,
   type PeriodFilter,
 } from '@/services/aslab/dashboardService';
-import type { ProfilPengguna } from '@/services/authService';
-import { useState } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
 
 export interface AslabDashboardViewProps {
   actor?: ProfilPengguna;
@@ -30,7 +31,45 @@ export interface AslabDashboardViewProps {
   referenceDate?: Date;
 }
 
+interface KpiCardProps {
+  icon: AppIconName;
+  label: string;
+  value: number | string;
+  badgeText: string;
+  badgeBg: string;
+  badgeColor: string;
+}
+
+function KpiCard({
+  icon,
+  label,
+  value,
+  badgeText,
+  badgeBg,
+  badgeColor,
+}: KpiCardProps) {
+  return (
+    <AppCard variant="glass" style={styles.statTile}>
+      <View style={styles.kpiTopRow}>
+        <AppIcon name={icon} size={17} color={Colors.text} />
+        <Text style={styles.statLabel} numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
+      <View style={styles.kpiBottomRow}>
+        <Text style={styles.statValue}>{value}</Text>
+        <View style={[styles.kpiBadge, { backgroundColor: badgeBg }]}>
+          <Text style={[styles.kpiBadgeText, { color: badgeColor }]} numberOfLines={1}>
+            {badgeText}
+          </Text>
+        </View>
+      </View>
+    </AppCard>
+  );
+}
+
 export function AslabDashboardView({
+  actor,
   metrics,
   period,
   onChangePeriod,
@@ -40,9 +79,66 @@ export function AslabDashboardView({
   const dateRange = getDateRange(period, referenceDate);
 
   const percentCollected = Math.round(metrics.paymentRatio * 100);
+  const totalBilledAndWaived =
+    metrics.fineTotalPaid + metrics.fineTotalUnpaid + metrics.fineTotalWaived;
+  const hasFines = metrics.fineTotalPaid + metrics.fineTotalUnpaid > 0;
+  const barColor = !hasFines
+    ? Colors.textMuted
+    : percentCollected >= 80
+      ? Colors.success
+      : percentCollected >= 40
+        ? Colors.warning
+        : Colors.danger;
+  const barBadgeBg = !hasFines
+    ? Colors.neutralSoft
+    : percentCollected >= 80
+      ? Colors.successSoft
+      : percentCollected >= 40
+        ? Colors.warningSoft
+        : Colors.dangerSoft;
+
+  const paidFlex = totalBilledAndWaived > 0 ? metrics.fineTotalPaid : 0;
+  const unpaidFlex = totalBilledAndWaived > 0 ? metrics.fineTotalUnpaid : 0;
+  const waivedFlex = totalBilledAndWaived > 0 ? metrics.fineTotalWaived : 0;
+
+  // Mini bar chart values
+  const chartBars = [
+    { label: 'Aktif', count: metrics.ongoingSessions.length, color: Colors.success },
+    { label: 'Jadwal', count: metrics.upcomingSessions.length, color: Colors.accentBlue },
+    { label: 'Selesai', count: metrics.completedSessions.length, color: Colors.primary },
+    { label: 'Denda', count: metrics.finesList.length, color: Colors.danger },
+  ];
+  const maxBarCount = Math.max(1, ...chartBars.map((b) => b.count));
 
   return (
     <View style={styles.content}>
+      {/* 0. Profile Header + Role Pill + NotificationBell */}
+      {actor ? (
+        <View style={styles.profileHeader}>
+          <View style={styles.profileLeft}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {actor.nama ? actor.nama.charAt(0).toUpperCase() : 'A'}
+              </Text>
+            </View>
+            <View style={styles.profileTextCol}>
+              <Text style={styles.profileName} numberOfLines={1}>
+                {actor.nama}
+              </Text>
+              <Text style={styles.profileSub} numberOfLines={1}>
+                Aslab · Asisten Laboratorium
+              </Text>
+            </View>
+          </View>
+          <View style={styles.headerRight}>
+            <View style={styles.rolePill}>
+              <Text style={styles.rolePillText}>Aslab</Text>
+            </View>
+            <NotificationBell />
+          </View>
+        </View>
+      ) : null}
+
       {/* 1. Header Title & Period Filter */}
       <View style={styles.header}>
         <View style={styles.titleRow}>
@@ -50,7 +146,6 @@ export function AslabDashboardView({
           <Text style={styles.rangeLabel}>{dateRange.label}</Text>
         </View>
 
-        {/* Period Filter Chips */}
         <View style={styles.filterRow}>
           <FilterChip
             label="Hari Ini"
@@ -75,63 +170,73 @@ export function AslabDashboardView({
         </View>
       </View>
 
-      {/* 2. Grid StatTiles (2 Kolom) */}
+      {/* 2. KPI 2x2 Grid (Orbix Style) */}
       <View style={styles.statsGrid}>
-        <AppCard variant="glass" style={styles.statTile}>
-          <View style={styles.statIconBox}>
-            <AppIcon name="layers" size={18} color={Colors.accentBlue} />
-          </View>
-          <Text style={styles.statValue}>{metrics.totalLabs}</Text>
-          <Text style={styles.statLabel}>Laboratorium Aktif</Text>
-        </AppCard>
-
-        <AppCard variant="glass" style={styles.statTile}>
-          <View style={[styles.statIconBox, { backgroundColor: Colors.successSoft }]}>
-            <AppIcon name="users" size={18} color={Colors.success} />
-          </View>
-          <Text style={styles.statValue}>{metrics.totalPraktikan}</Text>
-          <Text style={styles.statLabel}>Praktikan Terdaftar</Text>
-        </AppCard>
-
-        <AppCard variant="glass" style={styles.statTile}>
-          <View style={[styles.statIconBox, { backgroundColor: Colors.warningSoft }]}>
-            <AppIcon name="clock" size={18} color={Colors.warning} />
-          </View>
-          <Text style={styles.statValue}>
-            {metrics.ongoingSessions.length} Berlangsung
-          </Text>
-          <Text style={styles.statLabel}>
-            {metrics.upcomingSessions.length} Jadwal Mendatang
-          </Text>
-        </AppCard>
-
-        <AppCard variant="glass" style={styles.statTile}>
-          <View style={[styles.statIconBox, { backgroundColor: Colors.primarySoft }]}>
-            <AppIcon name="check-circle" size={18} color={Colors.primary} />
-          </View>
-          <Text style={styles.statValue}>{metrics.completedSessions.length}</Text>
-          <Text style={styles.statLabel}>Sesi Selesai ({period})</Text>
-        </AppCard>
+        <KpiCard
+          icon="layers"
+          label="Laboratorium"
+          value={metrics.totalLabs}
+          badgeText="Aktif"
+          badgeBg={Colors.neutralSoft}
+          badgeColor={Colors.textMuted}
+        />
+        <KpiCard
+          icon="users"
+          label="Praktikan"
+          value={metrics.totalPraktikan}
+          badgeText="Terdaftar"
+          badgeBg={Colors.successSoft}
+          badgeColor={Colors.success}
+        />
+        <KpiCard
+          icon="clock"
+          label="Berlangsung"
+          value={metrics.ongoingSessions.length}
+          badgeText={`${metrics.upcomingSessions.length} Jadwal`}
+          badgeBg={Colors.warningSoft}
+          badgeColor={Colors.warning}
+        />
+        <KpiCard
+          icon="check-circle"
+          label="Sesi Selesai"
+          value={metrics.completedSessions.length}
+          badgeText={period === 'semua' ? 'Semua' : period}
+          badgeBg={Colors.primarySoft}
+          badgeColor={Colors.primary}
+        />
       </View>
 
-      {/* 3. Ringkasan Kas & Denda (Glass Card) */}
+      {/* 3. Arus Kas Denda Praktikum (Segmented Bar) */}
       <AppCard variant="glass" style={styles.financialCard}>
         <View style={styles.financialHeader}>
           <View style={styles.financialTitleRow}>
-            <AppIcon name="credit-card" size={18} color={Colors.primary} />
+            <AppIcon name="credit-card" size={17} color={Colors.text} />
             <Text style={styles.financialTitle}>Arus Kas Denda Praktikum</Text>
           </View>
-          <Text style={styles.ratioText}>{percentCollected}% Lunas</Text>
+          <View style={[styles.ratioPill, { backgroundColor: barBadgeBg }]}>
+            <Text style={[styles.ratioText, { color: barColor }]}>
+              {hasFines ? `${percentCollected}% Lunas` : 'Belum Ada Tagihan'}
+            </Text>
+          </View>
         </View>
 
-        {/* Progress Bar */}
+        {/* Segmented Proportion Bar */}
         <View style={styles.progressBarTrack}>
-          <View
-            style={[
-              styles.progressBarFill,
-              { width: `${Math.min(100, Math.max(0, percentCollected))}%` },
-            ]}
-          />
+          {totalBilledAndWaived > 0 ? (
+            <>
+              {paidFlex > 0 ? (
+                <View style={{ flex: paidFlex, height: '100%', backgroundColor: barColor }} />
+              ) : null}
+              {unpaidFlex > 0 ? (
+                <View style={{ flex: unpaidFlex, height: '100%', backgroundColor: Colors.danger }} />
+              ) : null}
+              {waivedFlex > 0 ? (
+                <View style={{ flex: waivedFlex, height: '100%', backgroundColor: Colors.textMuted }} />
+              ) : null}
+            </>
+          ) : (
+            <View style={{ width: '0%', height: '100%' }} />
+          )}
         </View>
 
         <View style={styles.financialAmountsRow}>
@@ -158,7 +263,37 @@ export function AslabDashboardView({
         </View>
       </AppCard>
 
-      {/* 4. Status Tiap Laboratorium */}
+      {/* 4. Ringkasan Aktivitas (Mini Bar Chart - Orbix Analytics Style) */}
+      <AppCard variant="glass" style={styles.chartCard}>
+        <View style={styles.chartHeader}>
+          <Text style={styles.chartTitle}>Ringkasan Aktivitas</Text>
+          <Text style={styles.chartSub}>{dateRange.label}</Text>
+        </View>
+        <View style={styles.barsRow}>
+          {chartBars.map((item) => {
+            const barHeight = item.count > 0 ? Math.max(12, Math.round((item.count / maxBarCount) * 56)) : 6;
+            return (
+              <View key={item.label} style={styles.barCol}>
+                <Text style={styles.barCount}>{item.count}</Text>
+                <View style={styles.barTrack}>
+                  <View
+                    style={[
+                      styles.barFill,
+                      {
+                        height: barHeight,
+                        backgroundColor: item.count > 0 ? item.color : Colors.border,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.barLabel}>{item.label}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </AppCard>
+
+      {/* 5. Status Operasional Tiap Lab */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Status Operasional Tiap Lab</Text>
         <View style={styles.labStatusList}>
@@ -169,11 +304,16 @@ export function AslabDashboardView({
             return (
               <AppCard key={lab.id} variant="glass" style={styles.labStatusCard}>
                 <View style={styles.labStatusHeader}>
-                  <View style={styles.labNameCol}>
-                    <Text style={styles.labStatusName}>{lab.nama}</Text>
-                    <Text style={styles.labStatusGedung}>
-                      {lab.gedung || 'Lokasi belum diatur'}
-                    </Text>
+                  <View style={styles.labTitleGroup}>
+                    <View style={styles.labIconBox}>
+                      <AppIcon name="layers" size={16} color={Colors.text} />
+                    </View>
+                    <View style={styles.labNameCol}>
+                      <Text style={styles.labStatusName}>{lab.nama}</Text>
+                      <Text style={styles.labStatusGedung}>
+                        {lab.gedung || 'Lokasi belum diatur'}
+                      </Text>
+                    </View>
                   </View>
                   <View
                     style={[
@@ -197,33 +337,18 @@ export function AslabDashboardView({
                 </View>
 
                 <View style={styles.labStatusDetails}>
-                  <View style={styles.labMetaRow}>
-                    <View style={styles.labMetaItem}>
-                      <AppIcon name="users" size={12} color={Colors.textMuted} />
-                      <Text style={styles.labDetailText}>{totalPraktikan} Praktikan</Text>
-                    </View>
-                    <View style={styles.labMetaItem}>
-                      <AppIcon name="user" size={12} color={Colors.textMuted} />
-                      <Text style={styles.labDetailText}>{totalAsprak} Asprak</Text>
-                    </View>
+                  <View style={styles.labDetailRow}>
+                    <Text style={styles.labDetailKey}>Anggota Lab</Text>
+                    <Text style={styles.labDetailVal}>
+                      {totalPraktikan} Praktikan · {totalAsprak} Asprak
+                    </Text>
                   </View>
-                  <View style={styles.labMetaRow}>
-                    <View style={styles.labMetaItem}>
-                      <AppIcon name="map-pin" size={12} color={Colors.textMuted} />
-                      <Text style={styles.labDetailText}>Radius {lab.radiusMeters}m</Text>
-                    </View>
-                    <View style={styles.labMetaItem}>
-                      <AppIcon name="clock" size={12} color={Colors.textMuted} />
-                      <Text style={styles.labDetailText}>
-                        Toleransi {lab.gracePeriodMinutes ?? 15} mnt
-                      </Text>
-                    </View>
-                    <View style={styles.labMetaItem}>
-                      <AppIcon name="credit-card" size={12} color={Colors.textMuted} />
-                      <Text style={styles.labDetailText}>
-                        Denda Rp{(lab.lateFineAmount ?? 10000).toLocaleString('id-ID')}
-                      </Text>
-                    </View>
+                  <View style={styles.labDetailRow}>
+                    <Text style={styles.labDetailKey}>Aturan & Denda</Text>
+                    <Text style={styles.labDetailVal}>
+                      Radius {lab.radiusMeters}m · {lab.gracePeriodMinutes ?? 15} mnt · Rp
+                      {(lab.lateFineAmount ?? 10000).toLocaleString('id-ID')}
+                    </Text>
                   </View>
                 </View>
               </AppCard>
@@ -232,7 +357,7 @@ export function AslabDashboardView({
         </View>
       </View>
 
-      {/* 5. Sub-Tab: Riwayat Sesi vs Riwayat Keuangan */}
+      {/* 6. Sub-Tab: Riwayat Sesi (HopOn Timeline) vs Riwayat Keuangan */}
       <View style={styles.section}>
         <View style={styles.subTabRow}>
           <FilterChip
@@ -251,85 +376,93 @@ export function AslabDashboardView({
           metrics.completedSessions.length === 0 ? (
             <InfoBanner tone="neutral" message="Belum ada sesi selesai pada periode ini." />
           ) : (
-            <View style={styles.historyList}>
-              {metrics.completedSessions.map((session) => (
-                <AppCard key={session.id} variant="glass" style={styles.historyItemCard}>
-                  <View style={styles.historyHeader}>
-                    <Text style={styles.historyTopik}>{session.topik}</Text>
-                    <Text style={styles.historyDate}>{session.tanggal}</Text>
-                  </View>
-                  <Text style={styles.historySub}>
-                    {session.ruang} · {session.jamMulai} - {session.jamSelesai} WIB
-                  </Text>
-                </AppCard>
-              ))}
-            </View>
-          )
-        ) : (
-          metrics.finesList.length === 0 ? (
-            <InfoBanner tone="neutral" message="Belum ada catatan tagihan denda pada periode ini." />
-          ) : (
-            <View style={styles.historyList}>
-              {metrics.finesList.map((fine) => {
-                const isPaid = fine.status === 'paid';
-                const isWaived = fine.status === 'waived';
-                const isPending = fine.status === 'pending_payment';
-
+            <AppCard variant="glass" style={styles.timelineCard}>
+              {metrics.completedSessions.map((session, idx) => {
+                const isLast = idx === metrics.completedSessions.length - 1;
                 return (
-                  <AppCard key={fine.id} variant="glass" style={styles.historyItemCard}>
-                    <View style={styles.historyHeader}>
-                      <View style={styles.fineStudentInfo}>
-                        <Text style={styles.fineStudentName}>{fine.praktikanNama}</Text>
-                        <Text style={styles.fineTopik}>
-                          {fine.labNama} · {fine.sessionTopik}
-                        </Text>
+                  <View key={session.id} style={styles.timelineItem}>
+                    <View style={styles.timelineRail}>
+                      <View style={styles.timelineDot} />
+                      {!isLast ? <View style={styles.timelineLine} /> : null}
+                    </View>
+                    <View style={[styles.timelineBody, !isLast && styles.timelineBodyBorder]}>
+                      <View style={styles.timelineTextCol}>
+                        <Text style={styles.historyTopik}>{session.topik}</Text>
+                        <Text style={styles.historySub}>{session.ruang}</Text>
                       </View>
-                      <View style={styles.fineRightCol}>
-                        <Text
-                          style={[
-                            styles.fineAmount,
-                            !isPaid && !isPending && !isWaived && { color: Colors.danger },
-                          ]}
-                        >
-                          Rp{fine.amount.toLocaleString('id-ID')}
-                        </Text>
-                        <View
-                          style={[
-                            styles.fineStatusBadge,
-                            isPaid && styles.fineStatusPaid,
-                            isPending && styles.fineStatusPending,
-                            isWaived && styles.fineStatusWaived,
-                            !isPaid && !isPending && !isWaived && styles.fineStatusUnpaid,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.fineStatusText,
-                              isPaid && styles.fineStatusTextPaid,
-                              isPending && styles.fineStatusTextPending,
-                              isWaived && styles.fineStatusTextWaived,
-                              !isPaid && !isPending && !isWaived && styles.fineStatusTextUnpaid,
-                            ]}
-                          >
-                            {isPaid
-                              ? 'Lunas'
-                              : isPending
-                                ? 'Menunggu'
-                                : isWaived
-                                  ? 'Dibebaskan'
-                                  : 'Belum Lunas'}
-                          </Text>
-                        </View>
+                      <View style={styles.timelineTimeCol}>
+                        <Text style={styles.timelineTime}>{session.jamMulai} WIB</Text>
+                        <Text style={styles.historyDate}>{session.tanggal}</Text>
                       </View>
                     </View>
-                    <Text style={styles.fineDetailDate}>
-                      Terlambat {fine.lateMinutes} mnt · {fine.sessionTanggal}
-                    </Text>
-                  </AppCard>
+                  </View>
                 );
               })}
-            </View>
+            </AppCard>
           )
+        ) : metrics.finesList.length === 0 ? (
+          <InfoBanner tone="neutral" message="Belum ada catatan tagihan denda pada periode ini." />
+        ) : (
+          <View style={styles.historyList}>
+            {metrics.finesList.map((fine) => {
+              const isPaid = fine.status === 'paid';
+              const isWaived = fine.status === 'waived';
+              const isPending = fine.status === 'pending_payment';
+
+              return (
+                <AppCard key={fine.id} variant="glass" style={styles.historyItemCard}>
+                  <View style={styles.historyHeader}>
+                    <View style={styles.fineStudentInfo}>
+                      <Text style={styles.fineStudentName}>{fine.praktikanNama}</Text>
+                      <Text style={styles.fineTopik}>
+                        {fine.labNama} · {fine.sessionTopik}
+                      </Text>
+                    </View>
+                    <View style={styles.fineRightCol}>
+                      <Text
+                        style={[
+                          styles.fineAmount,
+                          !isPaid && !isPending && !isWaived && { color: Colors.danger },
+                        ]}
+                      >
+                        Rp{fine.amount.toLocaleString('id-ID')}
+                      </Text>
+                      <View
+                        style={[
+                          styles.fineStatusBadge,
+                          isPaid && styles.fineStatusPaid,
+                          isPending && styles.fineStatusPending,
+                          isWaived && styles.fineStatusWaived,
+                          !isPaid && !isPending && !isWaived && styles.fineStatusUnpaid,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.fineStatusText,
+                            isPaid && styles.fineStatusTextPaid,
+                            isPending && styles.fineStatusTextPending,
+                            isWaived && styles.fineStatusTextWaived,
+                            !isPaid && !isPending && !isWaived && styles.fineStatusTextUnpaid,
+                          ]}
+                        >
+                          {isPaid
+                            ? 'Lunas'
+                            : isPending
+                              ? 'Menunggu'
+                              : isWaived
+                                ? 'Dibebaskan'
+                                : 'Belum Lunas'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  <Text style={styles.fineDetailDate}>
+                    Terlambat {fine.lateMinutes} mnt · {fine.sessionTanggal}
+                  </Text>
+                </AppCard>
+              );
+            })}
+          </View>
         )}
       </View>
     </View>
@@ -339,6 +472,62 @@ export function AslabDashboardView({
 const styles = StyleSheet.create({
   content: {
     gap: Spacing.md,
+  },
+  profileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+  },
+  profileLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.semibold,
+    color: Colors.textOnDark,
+  },
+  profileTextCol: {
+    flex: 1,
+  },
+  profileName: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.semibold,
+    color: Colors.text,
+  },
+  profileSub: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
+    color: Colors.textMuted,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  rolePill: {
+    backgroundColor: Colors.glassStrong,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  rolePillText: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
+    color: Colors.text,
   },
   header: {
     gap: Spacing.sm,
@@ -373,30 +562,49 @@ const styles = StyleSheet.create({
     flexBasis: '47%',
     flexGrow: 1,
     padding: Spacing.md,
-    gap: 4,
+    gap: Spacing.sm,
     borderRadius: Radius.md,
   },
+  kpiTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs + 2,
+  },
   statIconBox: {
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 28,
     borderRadius: Radius.sm,
-    backgroundColor: 'rgba(123, 184, 212, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+  },
+  statLabel: {
+    flex: 1,
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.medium,
+    color: Colors.textMuted,
+  },
+  kpiBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: Spacing.xs,
   },
   statValue: {
-    fontSize: FontSize.lg,
+    fontSize: FontSize.xl,
     fontFamily: FontFamily.semibold,
     color: Colors.text,
   },
-  statLabel: {
-    fontSize: FontSize.xs,
-    fontFamily: FontFamily.regular,
-    color: Colors.textMuted,
+  kpiBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: Radius.pill,
+  },
+  kpiBadgeText: {
+    fontSize: 10,
+    fontFamily: FontFamily.semibold,
   },
   financialCard: {
-    padding: Spacing.lg,
+    padding: Spacing.md + 2,
     gap: Spacing.md,
     borderRadius: Radius.lg,
   },
@@ -404,32 +612,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: Spacing.sm,
   },
   financialTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs + 2,
+    flex: 1,
   },
   financialTitle: {
     fontSize: FontSize.sm,
     fontFamily: FontFamily.semibold,
     color: Colors.text,
   },
+  ratioPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.pill,
+  },
   ratioText: {
-    fontSize: FontSize.xs,
+    fontSize: 10,
     fontFamily: FontFamily.semibold,
-    color: Colors.primary,
   },
   progressBarTrack: {
-    height: 8,
+    flexDirection: 'row',
+    height: 9,
     borderRadius: Radius.pill,
     backgroundColor: Colors.neutralSoft,
     overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.accentPink,
   },
   financialAmountsRow: {
     flexDirection: 'row',
@@ -449,6 +659,60 @@ const styles = StyleSheet.create({
     fontSize: FontSize.lg,
     fontFamily: FontFamily.semibold,
   },
+  chartCard: {
+    padding: Spacing.md + 2,
+    gap: Spacing.md,
+    borderRadius: Radius.lg,
+  },
+  chartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
+  chartTitle: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.semibold,
+    color: Colors.text,
+  },
+  chartSub: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
+    color: Colors.textMuted,
+  },
+  barsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-around',
+    gap: Spacing.sm,
+    paddingTop: Spacing.xs,
+  },
+  barCol: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 6,
+  },
+  barCount: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.semibold,
+    color: Colors.text,
+  },
+  barTrack: {
+    width: 24,
+    height: 60,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.neutralSoft,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  barFill: {
+    width: '100%',
+    borderRadius: Radius.sm,
+  },
+  barLabel: {
+    fontSize: 11,
+    fontFamily: FontFamily.medium,
+    color: Colors.textMuted,
+  },
   section: {
     gap: Spacing.sm,
   },
@@ -463,12 +727,27 @@ const styles = StyleSheet.create({
   labStatusCard: {
     padding: Spacing.md,
     borderRadius: Radius.md,
-    gap: Spacing.xs + 2,
+    gap: Spacing.sm,
   },
   labStatusHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  labTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    flex: 1,
+  },
+  labIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.neutralSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   labNameCol: {
     flex: 1,
@@ -511,31 +790,83 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
   labStatusDetails: {
-    gap: 6,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
-    paddingTop: Spacing.sm,
-  },
-  labMetaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  labMetaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    paddingTop: Spacing.xs + 2,
     gap: 4,
   },
-  labDetailText: {
+  labDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  labDetailKey: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
+    color: Colors.textMuted,
+  },
+  labDetailVal: {
     fontSize: FontSize.xs,
     fontFamily: FontFamily.medium,
-    color: Colors.textMuted,
+    color: Colors.text,
   },
   subTabRow: {
     flexDirection: 'row',
     gap: Spacing.xs,
-    marginBottom: Spacing.xs,
+  },
+  timelineCard: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radius.lg,
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    gap: Spacing.sm + 2,
+  },
+  timelineRail: {
+    alignItems: 'center',
+    width: 14,
+    paddingTop: 14,
+  },
+  timelineDot: {
+    width: 9,
+    height: 9,
+    borderRadius: Radius.pill,
+    borderWidth: 2,
+    borderColor: Colors.accentBlue,
+    backgroundColor: Colors.surface,
+  },
+  timelineLine: {
+    width: 2,
+    flex: 1,
+    backgroundColor: Colors.border,
+    marginTop: 4,
+  },
+  timelineBody: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm + 2,
+    gap: Spacing.sm,
+  },
+  timelineBodyBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  timelineTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  timelineTimeCol: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  timelineTime: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.semibold,
+    color: Colors.text,
   },
   historyList: {
     gap: Spacing.xs + 2,
@@ -543,53 +874,54 @@ const styles = StyleSheet.create({
   historyItemCard: {
     padding: Spacing.md,
     borderRadius: Radius.md,
-    gap: 2,
+    gap: 4,
   },
   historyHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: Spacing.sm,
   },
   historyTopik: {
-    fontSize: FontSize.xs,
+    fontSize: FontSize.sm,
     fontFamily: FontFamily.semibold,
     color: Colors.text,
-    flex: 1,
   },
   historyDate: {
     fontSize: 10,
-    fontFamily: FontFamily.regular,
+    fontFamily: FontFamily.medium,
     color: Colors.textMuted,
   },
   historySub: {
-    fontSize: 10,
+    fontSize: FontSize.xs,
     fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },
   fineStudentInfo: {
     flex: 1,
+    gap: 2,
   },
   fineStudentName: {
-    fontSize: FontSize.xs,
+    fontSize: FontSize.sm,
     fontFamily: FontFamily.semibold,
     color: Colors.text,
   },
   fineTopik: {
-    fontSize: 10,
+    fontSize: FontSize.xs,
     fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },
   fineRightCol: {
     alignItems: 'flex-end',
-    gap: 2,
+    gap: 4,
   },
   fineAmount: {
-    fontSize: FontSize.xs,
+    fontSize: FontSize.sm,
     fontFamily: FontFamily.semibold,
     color: Colors.text,
   },
   fineStatusBadge: {
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: Radius.pill,
   },
@@ -606,7 +938,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.dangerSoft,
   },
   fineStatusText: {
-    fontSize: 9,
+    fontSize: 10,
     fontFamily: FontFamily.semibold,
   },
   fineStatusTextPaid: {
@@ -622,8 +954,9 @@ const styles = StyleSheet.create({
     color: Colors.danger,
   },
   fineDetailDate: {
-    fontSize: 9,
+    fontSize: 10,
     fontFamily: FontFamily.regular,
     color: Colors.textMuted,
+    marginTop: 2,
   },
 });

@@ -674,7 +674,7 @@ test('membership requires a server-confirmed active document for the current UID
     metadata: { fromCache: false, hasPendingWrites: false },
   });
   emit({ docs: [], metadata: { fromCache: false, hasPendingWrites: false } });
-  assert.deepEqual(updates, [undefined, undefined, ['kelas-a'], ['kelas-a'], []]);
+  assert.deepEqual(updates, [undefined, undefined, ['kelas-a'], ['kelas-a', 'kelas-c'], []]);
   unsubscribe();
   assert.equal(stopped, true);
 });

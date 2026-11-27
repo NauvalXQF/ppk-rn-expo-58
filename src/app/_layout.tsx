@@ -1,19 +1,19 @@
-import React, { useEffect } from 'react';
-import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import {
-  useFonts,
-  Outfit_400Regular,
-  Outfit_500Medium,
-  Outfit_600SemiBold,
-} from '@expo-google-fonts/outfit';
-import { AppProvider, useApp } from '@/store/app-context';
+import { Colors } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { NotificationProvider } from '@/hooks/useNotifications';
 import { kePenggunaAplikasi } from '@/services/authService';
-import { Colors } from '@/constants/theme';
+import { AppProvider, useApp } from '@/store/app-context';
+import {
+  Outfit_400Regular,
+  Outfit_500Medium,
+  Outfit_600SemiBold,
+  useFonts,
+} from '@expo-google-fonts/outfit';
+import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect } from 'react';
 
-SplashScreen.preventAutoHideAsync().catch(() => {});
+SplashScreen.preventAutoHideAsync().catch(() => { });
 
 /**
  * Menjembatani profil Firebase (AuthContext) ke state aplikasi Sprint 1,
@@ -21,16 +21,17 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
  * tanpa perlu diubah oleh modul lain.
  */
 function SinkronisasiProfil() {
-  const { pengguna } = useAuth();
+  const { status, pengguna } = useAuth();
   const { dispatch } = useApp();
 
   useEffect(() => {
-    if (pengguna) {
+    if (status === 'memuat') return;
+    if (status === 'masuk' && pengguna) {
       dispatch({ type: 'SET_PENGGUNA', pengguna: kePenggunaAplikasi(pengguna) });
-    } else {
+    } else if (status === 'keluar') {
       dispatch({ type: 'KELUAR' });
     }
-  }, [pengguna, dispatch]);
+  }, [status, pengguna, dispatch]);
 
   return null;
 }
@@ -44,7 +45,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync().catch(() => {});
+      SplashScreen.hideAsync().catch(() => { });
     }
   }, [fontsLoaded, fontError]);
 

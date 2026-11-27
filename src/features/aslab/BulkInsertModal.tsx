@@ -100,10 +100,29 @@ export function BulkInsertModal({
 
   const title =
     type === 'laboratorium'
-      ? `Bulk Laboratorium (${courseNama})`
+      ? 'Impor Data Laboratorium'
       : type === 'praktikan'
-        ? `Bulk Praktikan ke ${targetLabNama || 'Laboratorium'}`
-        : `Bulk Asprak ke ${targetLabNama || 'Laboratorium'}`;
+        ? 'Impor Daftar Praktikan'
+        : 'Impor Penugasan Asprak';
+
+  const subtitle =
+    type === 'laboratorium'
+      ? `Target: ${courseNama} · ${courseId}`
+      : `Target: ${targetLabNama || 'Laboratorium'} · ${courseNama}`;
+
+  const columnFormatHint =
+    type === 'laboratorium'
+      ? 'Format kolom: nama, kode, gedung, latitude, longitude, radiusMeters'
+      : type === 'praktikan'
+        ? 'Format kolom: nim, nama, email'
+        : 'Format kolom: nip, nama, email';
+
+  const sampleFilename =
+    type === 'laboratorium'
+      ? 'daftar-laboratorium.csv'
+      : type === 'praktikan'
+        ? 'daftar-praktikan.csv'
+        : 'daftar-asprak.csv';
 
   function handleReset() {
     setStep('upload');
@@ -245,7 +264,9 @@ export function BulkInsertModal({
         onSuccess(`${result.successCount} laboratorium berhasil dibuat di bawah mata kuliah ${courseNama}.`);
       } else if (type === 'praktikan') {
         if (!targetLabId) throw new Error('Laboratorium tujuan belum dipilih.');
-        const result = await commitBulkPraktikan(actor, targetLabId, praktikanRows);
+        const result = await commitBulkPraktikan(actor, targetLabId, praktikanRows, {
+          courseId,
+        });
         onSuccess(`${result.successCount} praktikan berhasil didaftarkan ke laboratorium.`);
       } else {
         if (!targetLabId) throw new Error('Laboratorium tujuan belum dipilih.');
@@ -270,32 +291,39 @@ export function BulkInsertModal({
           <View style={styles.header}>
             <View style={styles.handleBar} />
             <View style={styles.headerTitleRow}>
-              <Text style={styles.headerTitle}>{title}</Text>
+              <View style={styles.headerTextCol}>
+                <Text style={styles.headerTitle}>{title}</Text>
+                <Text style={styles.headerSub}>{subtitle}</Text>
+              </View>
               <TouchableOpacity onPress={handleClose} hitSlop={12} style={styles.closeBtn}>
                 <AppIcon name="x" size={20} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.headerSub}>
-              {step === 'upload'
-                ? 'Unduh template atau masukkan isi file CSV untuk memulai.'
-                : 'Periksa baris data, lakukan accept/deny, atau edit kolom sebelum menyimpan.'}
-            </Text>
           </View>
 
           {step === 'upload' ? (
             <ScrollView style={styles.uploadBody} contentContainerStyle={styles.uploadBodyContent}>
-              {/* Template Action Buttons */}
+              {/* Dashed Dropzone Card (FigCraft Screen/Aslab/ImporCSV) */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={handleLoadSample}
+                style={styles.dropzoneBox}
+              >
+                <AppIcon name="file-text" size={22} color={Colors.text} />
+                <Text style={styles.dropzoneTitle}>
+                  {csvInput.trim() ? sampleFilename : 'Tap untuk Muat Contoh CSV'}
+                </Text>
+                <Text style={styles.dropzoneSub}>
+                  {columnFormatHint} · Tap untuk isi template
+                </Text>
+              </TouchableOpacity>
+
               <View style={styles.templateActions}>
                 <AppButton
                   label="Unduh Template CSV"
                   variant="secondary"
+                  size="sm"
                   onPress={handleDownloadTemplate}
-                  style={styles.templateBtn}
-                />
-                <AppButton
-                  label="Gunakan Contoh Data"
-                  variant="ghost"
-                  onPress={handleLoadSample}
                   style={styles.templateBtn}
                 />
               </View>
@@ -310,7 +338,7 @@ export function BulkInsertModal({
 
               {/* Paste or Type CSV input area */}
               <View style={styles.csvInputSection}>
-                <Text style={styles.inputLabel}>Isi / Tempel Data CSV:</Text>
+                <Text style={styles.inputLabel}>Atau Tempel Data CSV</Text>
                 <TextInput
                   style={styles.csvTextInput}
                   multiline
@@ -323,13 +351,21 @@ export function BulkInsertModal({
                 />
               </View>
 
-              <AppButton
-                label="Proses & Pratinjau Baris Data"
-                variant="primary"
-                disabled={!csvInput.trim()}
-                onPress={handleParseCsv}
-                style={styles.primaryActionBtn}
-              />
+              <View style={styles.footerActions}>
+                <AppButton
+                  label="Proses & Pratinjau"
+                  variant="primary"
+                  disabled={!csvInput.trim()}
+                  onPress={handleParseCsv}
+                  style={styles.primaryActionBtn}
+                />
+                <AppButton
+                  label="Batal"
+                  variant="secondary"
+                  onPress={handleClose}
+                  style={styles.cancelActionBtn}
+                />
+              </View>
             </ScrollView>
           ) : (
             <View style={styles.previewContainer}>
@@ -414,13 +450,16 @@ const styles = StyleSheet.create({
   headerTitleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+  },
+  headerTextCol: {
+    flex: 1,
+    gap: 2,
   },
   headerTitle: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.lg,
     fontFamily: FontFamily.semibold,
     color: Colors.text,
-    flex: 1,
   },
   closeBtn: {
     padding: Spacing.xs,
@@ -429,7 +468,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     fontFamily: FontFamily.regular,
     color: Colors.textMuted,
-    marginTop: 2,
   },
   uploadBody: {
     flex: 1,
@@ -438,13 +476,34 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     gap: Spacing.md,
   },
+  dropzoneBox: {
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: Colors.accentBlue,
+    backgroundColor: Colors.unreadSurface,
+    borderRadius: Radius.md,
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.md,
+    alignItems: 'center',
+    gap: 6,
+  },
+  dropzoneTitle: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.semibold,
+    color: Colors.text,
+  },
+  dropzoneSub: {
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
   templateActions: {
     flexDirection: 'row',
     gap: Spacing.sm,
   },
   templateBtn: {
     flex: 1,
-    minHeight: 44,
   },
   csvInputSection: {
     gap: Spacing.xs,
@@ -463,10 +522,17 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     fontFamily: FontFamily.regular,
     color: Colors.text,
-    height: 180,
+    height: 150,
     textAlignVertical: 'top',
   },
+  footerActions: {
+    gap: Spacing.sm,
+  },
   primaryActionBtn: {
+    minHeight: 50,
+    borderRadius: Radius.pill,
+  },
+  cancelActionBtn: {
     minHeight: 48,
     borderRadius: Radius.pill,
   },
