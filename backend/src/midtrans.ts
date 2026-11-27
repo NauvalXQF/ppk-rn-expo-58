@@ -29,6 +29,10 @@ export function amountIdr(raw: unknown): number | null {
   return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
 }
 
+export function resolveWebhookKey(signatureSecret?: string, serverKey?: string) {
+  return signatureSecret?.trim() || serverKey?.trim() || undefined;
+}
+
 export function verifyWebhook(input: unknown, secret: string) {
   const { order_id, status_code, gross_amount, signature_key, transaction_id } = object(input);
   if (typeof order_id !== 'string' || !/^FINE-[a-f0-9-]{36}$/.test(order_id)

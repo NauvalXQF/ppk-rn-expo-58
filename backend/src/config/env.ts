@@ -32,5 +32,16 @@ export function parseEnv(env: NodeJS.ProcessEnv) {
     throw new InvalidEnvironmentError('MIDTRANS_IS_PRODUCTION');
   }
 
-  return { nodeEnv, host, port, firebaseProjectId };
+  const creationFlag = env.PROVISIONING_ALLOW_CREATE?.trim() ?? 'false';
+  if (creationFlag !== 'true' && creationFlag !== 'false') {
+    throw new InvalidEnvironmentError('PROVISIONING_ALLOW_CREATE');
+  }
+  const corsAllowedOrigins = env.CORS_ALLOWED_ORIGINS?.split(',').map((entry) => entry.trim()).filter(Boolean) ?? [];
+  for (const origin of corsAllowedOrigins) {
+    const url = URL.parse(origin);
+    if (!url || !['http:', 'https:'].includes(url.protocol) || origin !== url.origin) {
+      throw new InvalidEnvironmentError('CORS_ALLOWED_ORIGINS');
+    }
+  }
+  return { nodeEnv, host, port, firebaseProjectId, allowCreate: creationFlag === 'true', corsAllowedOrigins };
 }

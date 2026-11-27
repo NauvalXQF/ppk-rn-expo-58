@@ -2,9 +2,25 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { test } from 'node:test';
-import { verifyWebhook, sandboxGateway } from '../src/midtrans.ts';
+import { verifyWebhook, sandboxGateway, resolveWebhookKey } from '../src/midtrans.ts';
 import { createApp } from '../src/app.ts';
 import { registerPayments } from '../src/payments.ts';
+
+test('chooses one webhook key at startup and never retries a rejected signature with the API key', () => {
+  const apiKey = 'synthetic-api-key';
+  const secret = 'synthetic-signature-secret';
+  const order_id = 'FINE-9da389c4-5a8e-4b51-866f-ccfd24b5c1e0';
+  const sign = (key) => ({
+    order_id, status_code: '200', gross_amount: '10000.00', transaction_id: 'fixture',
+    signature_key: createHash('sha512').update(order_id + '20010000.00' + key).digest('hex'),
+  });
+  assert.equal(verifyWebhook(sign(secret), resolveWebhookKey(secret, apiKey)).amount, 10000);
+  assert.throws(() => verifyWebhook(sign(apiKey), resolveWebhookKey(secret, apiKey)), { code: 'FORBIDDEN' });
+  for (const missing of [undefined, '', '   ']) {
+    assert.equal(verifyWebhook(sign(apiKey), resolveWebhookKey(missing, apiKey)).amount, 10000);
+  }
+  assert.equal(resolveWebhookKey(), undefined);
+});
 
 test('preserves the signed amount, rejects a different digest and treats 404 as unknown', async () => {
   const secret = 'synthetic-signature-secret';
