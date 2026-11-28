@@ -50,6 +50,10 @@ export interface LeaveDecisionPatch {
  * Implementasi dapat berupa repository in-memory (pengembangan paralel/test)
  * maupun adapter Cloud Firestore (`firestorePermissionRepository`).
  */
+export function buildLeaveRequestId(sessionId: string, uid: string): string {
+  return `${sessionId.trim()}_${uid.trim()}`;
+}
+
 export interface PermissionRepository {
   createLeaveRequest(
     payload: Omit<LeaveRequest, 'id'>,
@@ -71,6 +75,7 @@ export interface PermissionRepository {
   subscribeAllForAsisten(
     onData: (requests: LeaveRequest[]) => void,
     onError?: (error: Error) => void,
+    options?: { classIds?: string[] },
   ): () => void;
 }
 
@@ -328,17 +333,23 @@ export function createInMemoryPermissionRepository(
     string,
     Set<(requests: LeaveRequest[]) => void>
   >();
-  const asistenListeners = new Set<(requests: LeaveRequest[]) => void>();
+  const asistenListeners = new Set<{
+    onData: (requests: LeaveRequest[]) => void;
+    classIds?: Set<string>;
+  }>();
+
+  const cloneFiltered = (items: LeaveRequest[], classIds?: Set<string>) =>
+    (classIds ? items.filter((item) => classIds.has(item.classId)) : items).map(
+      (item) => ({
+        ...item,
+        aiClassification: { ...item.aiClassification },
+      }),
+    );
 
   const notifyAll = () => {
     const sorted = sortLeaveRequestsNewestFirst(records);
     for (const listener of asistenListeners) {
-      listener(
-        sorted.map((item) => ({
-          ...item,
-          aiClassification: { ...item.aiClassification },
-        })),
-      );
+      listener.onData(cloneFiltered(sorted, listener.classIds));
     }
     for (const [uid, listeners] of praktikanListeners.entries()) {
       const filtered = sorted
@@ -355,9 +366,21 @@ export function createInMemoryPermissionRepository(
 
   return {
     async createLeaveRequest(payload) {
+      const deterministicId = buildLeaveRequestId(payload.sessionId, payload.uid);
+      if (
+        records.some(
+          (item) =>
+            item.id === deterministicId ||
+            (item.sessionId === payload.sessionId && item.uid === payload.uid),
+        )
+      ) {
+        throw new PermissionConflictError(
+          'Anda sudah mengajukan izin untuk sesi praktikum ini.',
+        );
+      }
       const created: LeaveRequest = {
         ...payload,
-        id: `leave-${nextSeq++}`,
+        id: deterministicId || `leave-${nextSeq++}`,
         aiClassification: { ...payload.aiClassification },
       };
       records = [created, ...records];
@@ -444,17 +467,16 @@ export function createInMemoryPermissionRepository(
       };
     },
 
-    subscribeAllForAsisten(onData) {
-      asistenListeners.add(onData);
-      onData(
-        sortLeaveRequestsNewestFirst(records).map((item) => ({
-          ...item,
-          aiClassification: { ...item.aiClassification },
-        })),
-      );
+    subscribeAllForAsisten(onData, _onError, options) {
+      const classIds = options?.classIds
+        ? new Set(options.classIds.map((id) => id.trim()).filter(Boolean))
+        : undefined;
+      const entry = { onData, classIds };
+      asistenListeners.add(entry);
+      onData(cloneFiltered(sortLeaveRequestsNewestFirst(records), classIds));
 
       return () => {
-        asistenListeners.delete(onData);
+        asistenListeners.delete(entry);
       };
     },
   };
@@ -633,6 +655,21 @@ export function subscribeAsistenLeaves(
       ),
     );
     return () => {};
+  }
+
+  if (actor.role === 'asprak') {
+    const classIds = Array.from(
+      new Set((actor.assignedLabIds ?? []).map((id) => id.trim()).filter(Boolean)),
+    );
+    if (classIds.length === 0) {
+      onData([]);
+      return () => {};
+    }
+    return repository.subscribeAllForAsisten(
+      (items) => onData(filterLeavesForActor(actor, items)),
+      onError,
+      { classIds },
+    );
   }
 
   return repository.subscribeAllForAsisten(

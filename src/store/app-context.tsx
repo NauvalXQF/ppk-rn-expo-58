@@ -50,7 +50,10 @@ import {
   notifySessionOpened,
 } from '@/services/notifications/notificationDispatcher';
 import { isPraktikanInClass } from '@/store/selectors';
-import type { GeoAttendancePayload } from '@/types/geoAttendance';
+import type {
+  GeoAttendancePayload,
+  LabGeofenceTarget,
+} from '@/types/geoAttendance';
 import {
   canManageClassesAndMembers,
   isStaffUser,
@@ -392,6 +395,7 @@ export interface AppContextValue {
     sesiId: string,
     catatan?: string,
     geo?: GeoAttendancePayload,
+    labTarget?: LabGeofenceTarget,
   ) => Promise<Presensi>;
   simpanKelas: (input: { id?: string; nama: string }) => Promise<Kelas>;
   hapusKelas: (kelasId: string) => Promise<void>;
@@ -561,6 +565,61 @@ export function AppProvider({ children }: PropsWithChildren) {
           decidedAt: r.decidedAt,
         }));
 
+    const handleLeaveError = (err: { message?: string }) => {
+      const detail = err?.message ? `: ${err.message}` : '';
+      setError(`Gagal memuat data izin disetujui${detail}`);
+    };
+
+    if (actor.role === 'asprak') {
+      const allowedLabIds = Array.from(
+        new Set(
+          (actor.assignedLabIds ?? [])
+            .map((id) => id.trim())
+            .filter(Boolean),
+        ),
+      );
+      if (allowedLabIds.length === 0) {
+        rawDispatch({
+          type: 'SYNC_FIRESTORE',
+          payload: { approvedLeaves: [] },
+        });
+        return;
+      }
+
+      const byLab = new Map<string, ReturnType<typeof fromFirestoreLeaveRequestDoc>[]>();
+      const emitMerged = () => {
+        const deduped = new Map<string, ReturnType<typeof fromFirestoreLeaveRequestDoc>>();
+        for (const items of byLab.values()) {
+          for (const item of items) {
+            deduped.set(item.id, item);
+          }
+        }
+        const scoped = filterLeavesForActor(actor, Array.from(deduped.values()));
+        rawDispatch({
+          type: 'SYNC_FIRESTORE',
+          payload: { approvedLeaves: toApprovedRefs(scoped) },
+        });
+      };
+
+      const unsubs = allowedLabIds.map((labId) =>
+        onSnapshot(
+          query(collection(db, 'leaveRequests'), where('classId', '==', labId)),
+          (snapshot) => {
+            const mapped = snapshot.docs.map((d) =>
+              fromFirestoreLeaveRequestDoc(d.id, d.data() as Record<string, unknown>),
+            );
+            byLab.set(labId, mapped);
+            emitMerged();
+          },
+          handleLeaveError,
+        ),
+      );
+
+      return () => {
+        for (const unsub of unsubs) unsub();
+      };
+    }
+
     const leaveQuery =
       actor.role === 'praktikan'
         ? query(collection(db, 'leaveRequests'), where('uid', '==', actor.uid))
@@ -581,7 +640,7 @@ export function AppProvider({ children }: PropsWithChildren) {
           payload: { approvedLeaves: toApprovedRefs(scoped) },
         });
       },
-      () => {},
+      handleLeaveError,
     );
   }, [isRemote, currentUserId, currentUserRole, assignedLabsKey]);
 
@@ -699,7 +758,12 @@ export function AppProvider({ children }: PropsWithChildren) {
   );
 
   const catatPresensi = useCallback(
-    async (sesiId: string, catatan?: string, geo?: GeoAttendancePayload) =>
+    async (
+      sesiId: string,
+      catatan?: string,
+      geo?: GeoAttendancePayload,
+      labTarget?: LabGeofenceTarget,
+    ) =>
       runAsync(async () => {
         if (!state.currentUser || state.currentUser.peran !== 'praktikan') {
           throw new Error('Hanya praktikan yang dapat melakukan presensi.');
@@ -708,7 +772,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         const alreadyAttendedLocally = state.presensi.some(
           (p) => p.sesiId === sesiId && p.praktikanId === state.currentUser?.id,
         );
-        const labTarget = resolveSessionLabTarget(localSesi);
+        const resolvedLabTarget = labTarget ?? resolveSessionLabTarget(localSesi);
         const record = await submitAttendanceToFirestore(state.currentUser, {
           sesiId,
           praktikanId: state.currentUser.id,
@@ -716,7 +780,7 @@ export function AppProvider({ children }: PropsWithChildren) {
           localSesi,
           alreadyAttendedLocally,
           geo,
-          labTarget,
+          labTarget: resolvedLabTarget,
         });
         rawDispatch({
           type: 'CATAT_PRESENSI',

@@ -110,6 +110,31 @@ export function subscribeActiveClassIds(
   );
 }
 
+export function subscribeAssignedLabIds(
+  uid: string,
+  onChange: (labIds: string[] | undefined) => void,
+  onError: (error: Error) => void,
+) {
+  return onSnapshot(
+    query(collection(getFirebaseDb(), 'labAssignments'), where('uid', '==', uid)),
+    { includeMetadataChanges: true },
+    (snapshot) => {
+      if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) {
+        onChange(undefined);
+        return;
+      }
+      const ids = snapshot.docs.flatMap((item) => {
+        const data = item.data();
+        const labId = documentId(data.labId ?? data.classId);
+        return labId && data.active === true && data.uid === uid && item.id === `${labId}_${uid}`
+          ? [labId] : [];
+      });
+      onChange([...new Set(ids)].sort());
+    },
+    onError,
+  );
+}
+
 interface ActivitySnapshot<T> {
   items: T[];
   fromCache: boolean;

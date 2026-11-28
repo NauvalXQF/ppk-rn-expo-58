@@ -297,26 +297,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: Spacing.xs,
   },
-  filterChip: {
-    paddingHorizontal: Spacing.sm + 4,
-    paddingVertical: Spacing.xs + 2,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surface,
-  },
-  filterChipSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primarySoft,
-  },
-  filterText: {
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    color: Colors.textMuted,
-  },
-  filterTextSelected: {
-    color: Colors.primary,
-  },
   loadingCard: {
     flexDirection: 'row',
     alignItems: 'center',

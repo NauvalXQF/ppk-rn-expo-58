@@ -161,7 +161,7 @@ export interface Presensi {
   longitude?: number;
   accuracy?: number;
   distanceMeters?: number;
-  geofenceStatus?: 'in_radius' | 'bypass_qr';
+  geofenceStatus?: 'in_radius';
   lateStatus?: LateStatus;
   lateMinutes?: number;
   graceDeadlineAt?: string;
@@ -212,7 +212,7 @@ export type AppAction =
     longitude?: number;
     accuracy?: number;
     distanceMeters?: number;
-    geofenceStatus?: 'in_radius' | 'bypass_qr';
+    geofenceStatus?: 'in_radius';
     lateStatus?: LateStatus;
     lateMinutes?: number;
     graceDeadlineAt?: string;

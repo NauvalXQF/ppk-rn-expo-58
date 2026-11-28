@@ -38,10 +38,40 @@ service cloud.firestore {
       return isAsprak() || isAslab();
     }
 
-    function isAssignedAsprak(labId) {
+    function isAssignedAsprak(targetId) {
+      let assignmentPath = /databases/$(database)/documents/labAssignments/$(targetId + '_' + request.auth.uid);
       return isAsprak()
-        && exists(/databases/$(database)/documents/labAssignments/$(labId + '_' + request.auth.uid))
-        && get(/databases/$(database)/documents/labAssignments/$(labId + '_' + request.auth.uid)).data.active == true;
+        && targetId is string
+        && targetId.size() > 0
+        && exists(assignmentPath)
+        && get(assignmentPath).data.active == true
+        && (!('uid' in get(assignmentPath).data) || get(assignmentPath).data.uid == request.auth.uid)
+        && (
+          (!('labId' in get(assignmentPath).data) && !('classId' in get(assignmentPath).data))
+          || get(assignmentPath).data.get('labId', '') == targetId
+          || get(assignmentPath).data.get('classId', '') == targetId
+        );
+    }
+
+    function jadwalMulaiWib(session) {
+      let tanggal = session.tanggal.split('-');
+      let jam = session.jamMulai.split(':');
+      return timestamp.date(int(tanggal[0]), int(tanggal[1]), int(tanggal[2]))
+        + duration.value(int(jam[0]) * 60 + int(jam[1]) - 420, 'm');
+    }
+
+    function lewatToleransi(session) {
+      let openedAt = session.get('openedAt', null);
+      let hasSchedule = session.get('tanggal', '') is string
+        && session.get('jamMulai', '') is string
+        && session.get('tanggal', '').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && session.get('jamMulai', '').matches('([01][0-9]|2[0-3]):[0-5][0-9]');
+      let grace = session.get('gracePeriodMinutes', 15);
+      let tolerance = duration.value(grace is number && grace >= 0 && grace <= 120 ? int(grace) : 15, 'm');
+      // Kedua batas harus lewat, setara dengan max(jadwal mulai, waktu buka) + toleransi.
+      return openedAt is timestamp
+        && request.time > openedAt + tolerance
+        && (!hasSchedule || request.time > jadwalMulaiWib(session) + tolerance);
     }
 
     function hanyaFieldBerubah(daftarField) {
@@ -315,8 +345,30 @@ service cloud.firestore {
 
     // ==================== Presensi berbasis lokasi (Sprint 3–4) ====================
     // ID dokumen = UID praktikan sehingga duplikasi tidak mungkin.
-    // Hanya create, hanya saat sesi "open", anggota aktif kelas, dan validasi geofence.
+    // Hanya create, hanya saat sesi "open", anggota aktif kelas, dan validasi geofence + jam server.
     match /sessions/{sessionId}/attendances/{uid} {
+      function statusKeterlambatanValid(session, attendance) {
+        let late = lewatToleransi(session);
+        let fineAmount = session.get('lateFineAmount', 10000);
+        let fineId = sessionId + '_' + uid;
+        let finePath = /databases/$(database)/documents/fines/$(fineId);
+        return (
+          !late
+          && attendance.lateStatus == 'on_time'
+          && attendance.lateMinutes == 0
+          && attendance.fineId == null
+        ) || (
+          late
+          && attendance.lateStatus == 'late'
+          && attendance.lateMinutes is int
+          && attendance.lateMinutes > 0
+          && (
+            (fineAmount > 0 && attendance.fineId == fineId && existsAfter(finePath))
+            || (fineAmount <= 0 && attendance.fineId == null)
+          )
+        );
+      }
+
       allow read: if isSignedIn()
         && (request.auth.uid == uid || isAslab() || isAssignedAsprak(sesi(sessionId).classId));
 
@@ -324,7 +376,9 @@ service cloud.firestore {
         && request.auth.uid == uid
         && request.resource.data.uid == uid
         && request.resource.data.sessionId == sessionId
+        && request.resource.data.classId == sesi(sessionId).classId
         && request.resource.data.status == 'hadir'
+        && request.resource.data.recordedAt == request.time
         && sesi(sessionId).status == 'open'
         && sesi(sessionId).get('archived', false) == false
         && isAnggotaKelas(sesi(sessionId).classId)
@@ -336,10 +390,9 @@ service cloud.firestore {
         && request.resource.data.longitude <= 180.0
         && request.resource.data.distanceMeters is number
         && request.resource.data.distanceMeters >= 0
-        && (
-          request.resource.data.distanceMeters <= sesi(sessionId).get('radiusMeters', 30)
-          || request.resource.data.geofenceStatus == 'bypass_qr'
-        );
+        && request.resource.data.distanceMeters <= sesi(sessionId).get('radiusMeters', 30)
+        && request.resource.data.geofenceStatus == 'in_radius'
+        && statusKeterlambatanValid(sesi(sessionId), request.resource.data);
 
       // Presensi tidak boleh diubah atau dihapus dari klien.
       allow update, delete: if false;
@@ -349,7 +402,14 @@ service cloud.firestore {
     // Field keputusan (status/reviewedBy/reviewedAt/reviewNote) hanya untuk Aslab/Asprak terkait.
     // Field ai ditulis pemohon sebagai hasil yang dilaporkan klien (informasi
     // pendukung), terpisah dari keputusan dan tidak pernah mengubah status otomatis.
+    // ID deterministik {sessionId}_{uid} mencegah duplikasi pengajuan untuk sesi yang sama.
     match /leaveRequests/{requestId} {
+      // Transaksi pembuatan izin mengecek keberadaan ID deterministik sebelum menulis.
+      allow get: if resource == null
+        && isPraktikan()
+        && request.auth.uid.matches('^[A-Za-z0-9_-]+$')
+        && requestId.matches('^.+_' + request.auth.uid + '$');
+
       allow read: if isSignedIn()
         && (
           resource.data.uid == request.auth.uid
@@ -359,12 +419,23 @@ service cloud.firestore {
 
       allow create: if isPraktikan()
         && request.resource.data.uid == request.auth.uid
+        && request.resource.data.sessionId is string
+        && request.resource.data.sessionId.size() > 0
+        && request.resource.data.classId is string
+        && request.resource.data.classId.size() > 0
+        && requestId == request.resource.data.sessionId + '_' + request.auth.uid
+        && exists(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId))
+        && sesi(request.resource.data.sessionId).get('archived', false) == false
+        && request.resource.data.classId == sesi(request.resource.data.sessionId).classId
+        && isAnggotaKelas(request.resource.data.classId)
         && request.resource.data.status == 'pending'
         && request.resource.data.alasan is string
         && request.resource.data.alasan.size() >= 1
         && request.resource.data.alasan.size() <= 1000
         && request.resource.data.reviewedBy == null
-        && request.resource.data.reviewedAt == null;
+        && request.resource.data.reviewedAt == null
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
 
       // Pemohon hanya boleh mengisi hasil klasifikasi AI pada pengajuannya sendiri,
       // tanpa menyentuh keputusan asisten maupun identitas pengajuan.
@@ -393,27 +464,6 @@ service cloud.firestore {
     // Dibuat 1x saat praktikan presensi terlambat (ID = {sessionId}_{uid}).
     // Status 'paid' TIDAK BOLEH ditulis dari klien; hanya Backend Admin SDK yang boleh melunasi.
     match /fines/{fineId} {
-      function jadwalMulaiWib(session) {
-        let tanggal = session.tanggal.split('-');
-        let jam = session.jamMulai.split(':');
-        return timestamp.date(int(tanggal[0]), int(tanggal[1]), int(tanggal[2]))
-          + duration.value(int(jam[0]) * 60 + int(jam[1]) - 420, 'm');
-      }
-
-      function lewatToleransi(session) {
-        let openedAt = session.get('openedAt', null);
-        let hasSchedule = session.get('tanggal', '') is string
-          && session.get('jamMulai', '') is string
-          && session.get('tanggal', '').matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
-          && session.get('jamMulai', '').matches('([01][0-9]|2[0-3]):[0-5][0-9]');
-        let grace = session.get('gracePeriodMinutes', 15);
-        let tolerance = duration.value(grace is number && grace >= 0 && grace <= 120 ? int(grace) : 15, 'm');
-        // Kedua batas harus lewat, setara dengan max(jadwal mulai, waktu buka) + toleransi.
-        return openedAt is timestamp
-          && request.time > openedAt + tolerance
-          && (!hasSchedule || request.time > jadwalMulaiWib(session) + tolerance);
-      }
-
       function dendaSesuaiPresensi(fine) {
         let session = sesi(fine.sessionId);
         let uid = request.auth.uid;
@@ -431,6 +481,7 @@ service cloud.firestore {
           && attendance.recordedAt == request.time
           && !exists(attendancePath)
           && attendance.fineId == fineId
+          && (!('classId' in fine) || fine.classId == session.classId)
           && fine.labId == (labId is string && labId != '' ? labId : session.classId)
           && fine.courseId == (courseId is string && courseId != '' ? courseId
             : praktikumId is string && praktikumId != '' ? praktikumId : 'praktikum-ppk')
@@ -451,7 +502,10 @@ service cloud.firestore {
 
       allow read: if isAslab()
         || (isPraktikan() && resource.data.uid == request.auth.uid)
-        || (isAsprak() && isAssignedAsprak(resource.data.labId));
+        || (isAsprak() && (
+          isAssignedAsprak(resource.data.get('classId', resource.data.labId))
+          || isAssignedAsprak(resource.data.labId)
+        ));
 
       allow create: if isPraktikan()
         && request.resource.data.uid == request.auth.uid
@@ -461,7 +515,11 @@ service cloud.firestore {
         && dendaSesuaiPresensi(request.resource.data);
 
       // Asprak/Aslab hanya boleh membebaskan tagihan ('waived') jika izin disetujui, tidak pernah 'paid'
-      allow update: if (isAslab() || isAssignedAsprak(resource.data.labId))
+      allow update: if (
+          isAslab()
+          || isAssignedAsprak(resource.data.get('classId', resource.data.labId))
+          || isAssignedAsprak(resource.data.labId)
+        )
         && resource.data.status == 'unpaid'
         && request.resource.data.status == 'waived'
         && hanyaFieldBerubah(['status', 'updatedAt']);

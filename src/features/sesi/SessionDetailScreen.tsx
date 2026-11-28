@@ -5,7 +5,11 @@ import { AppIcon, type AppIconName } from '@/components/ui/AppIcon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '@/store/app-context';
-import { isPraktikanInClass, selectDetailSesi } from '@/store/selectors';
+import {
+  isPraktikanInClass,
+  selectDetailSesi,
+  selectRekapSesiDetail,
+} from '@/store/selectors';
 import {
   Colors,
   FontFamily,
@@ -15,6 +19,12 @@ import {
   Shadow,
   Spacing,
 } from '@/constants/theme';
+import { formatRupiah } from '@/services/fines/fineCalculationService';
+import { DEFAULT_GEOFENCE_RADIUS_METERS } from '@/services/location/geofenceService';
+import {
+  DEFAULT_GRACE_PERIOD_MINUTES,
+  DEFAULT_LATE_FINE_AMOUNT,
+} from '@/types/fine';
 import { evaluateSessionScheduleWindow, formatJam, formatTanggal } from '@/utils/date';
 import { isStaffUser, LABEL_STATUS } from '@/types/models';
 import { AppButton } from '@/components/ui/AppButton';
@@ -71,8 +81,38 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
   }
 
   const { sesi, kelas, asisten, presensiSaya } = detail;
+
+  if (
+    user?.peran === 'asprak' &&
+    Array.isArray(user.assignedLabIds) &&
+    !user.assignedLabIds.includes(sesi.kelasId)
+  ) {
+    return (
+      <ScreenContainer hasTabBar={false}>
+        <EmptyState
+          title="Akses Terbatas"
+          description="Sesi praktikum ini bukan bagian dari kelas/laboratorium tanggung jawab Anda."
+          actionLabel="Kembali ke Jadwal"
+          onAction={() => router.replace('/jadwal')}
+        />
+      </ScreenContainer>
+    );
+  }
+
+  const rekapDetail = selectRekapSesiDetail(state, sesi.id);
   const formattedTanggal = formatTanggal(sesi.tanggal);
-  const formattedWaktu = `${formatJam(sesi.jamMulai)}–${formatJam(sesi.jamSelesai)}`;
+  const formattedWaktu = `${formatJam(sesi.jamMulai)}–${formatJam(sesi.jamSelesai)} WIB`;
+  const radiusMeters = Math.round(
+    sesi.radiusMeters ?? DEFAULT_GEOFENCE_RADIUS_METERS,
+  );
+  const graceMinutes =
+    typeof sesi.gracePeriodMinutes === 'number'
+      ? sesi.gracePeriodMinutes
+      : DEFAULT_GRACE_PERIOD_MINUTES;
+  const fineAmount =
+    typeof sesi.lateFineAmount === 'number'
+      ? sesi.lateFineAmount
+      : DEFAULT_LATE_FINE_AMOUNT;
   const isStaff = isStaffUser(user);
   const hasApprovedLeave = Boolean(
     user?.peran === 'praktikan' &&
@@ -140,7 +180,15 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
               <View style={styles.chip}>
                 <Text style={styles.chipText}>
                   {isStaff
-                    ? `${detail.rekap.jumlahHadir}/${detail.rekap.totalPraktikan} hadir`
+                    ? `${rekapDetail.jumlahHadir}/${rekapDetail.totalPraktikan} hadir${
+                        rekapDetail.jumlahTerlambat > 0
+                          ? ` · ${rekapDetail.jumlahTerlambat} telat`
+                          : ''
+                      }${
+                        rekapDetail.jumlahIzin > 0
+                          ? ` · ${rekapDetail.jumlahIzin} izin`
+                          : ''
+                      }`
                     : `${kelas.nama} · ${sesi.ruang}`}
                 </Text>
               </View>
@@ -161,6 +209,16 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
               icon="clock"
               label="Waktu & Ruang"
               value={`${formattedWaktu} · ${sesi.ruang}`}
+            />
+            <DetailInfoRow
+              icon="map-pin"
+              label="Radius Geofence"
+              value={`Maks. ${radiusMeters} meter`}
+            />
+            <DetailInfoRow
+              icon="alert-circle"
+              label="Toleransi & Denda"
+              value={`${graceMinutes} menit · ${fineAmount > 0 ? formatRupiah(fineAmount) : 'Tanpa denda'}`}
             />
             <DetailInfoRow
               icon="user"
@@ -291,6 +349,8 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
   detailValue: {
+    flex: 1,
+    textAlign: 'right',
     fontSize: FontSize.sm,
     fontFamily: FontFamily.medium,
     color: Colors.text,

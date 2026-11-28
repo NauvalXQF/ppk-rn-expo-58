@@ -101,6 +101,11 @@ export async function submitAttendanceToFirestore(
       'Verifikasi lokasi GPS wajib dilakukan sebelum mengirim presensi.',
     );
   }
+  if (input.geo.isMocked) {
+    throw new Error(
+      'Presensi ditolak: Lokasi palsu (Fake GPS / Mock Location) terdeteksi. Matikan lokasi palsu lalu coba lagi.',
+    );
+  }
   if (
     !isValidCoordinate({
       latitude: input.geo.latitude,
@@ -173,7 +178,8 @@ export async function submitAttendanceToFirestore(
     const attendanceRef = doc(db, 'sessions', sesiId, 'attendances', actor.id);
     const fineRef = doc(db, 'fines', deterministicFineId);
 
-    await runTransaction(db, async (tx) => {
+    try {
+      await runTransaction(db, async (tx) => {
       const [sessionSnap, attSnap, fineSnap] = await Promise.all([
         tx.get(sessionRef),
         tx.get(attendanceRef),
@@ -221,8 +227,44 @@ export async function submitAttendanceToFirestore(
         );
       }
 
+      const sessionLabId =
+        typeof sessionData.labId === 'string' && sessionData.labId.trim()
+          ? sessionData.labId.trim()
+          : '';
+      const masterLabSnap = sessionLabId
+        ? await tx.get(doc(db, 'laboratories', sessionLabId))
+        : null;
+      const masterLabData =
+        masterLabSnap?.exists() && masterLabSnap.data().aktif !== false
+          ? (masterLabSnap.data() as Record<string, unknown>)
+          : null;
+      const masterLabCoords = masterLabData
+        ? {
+            latitude: Number(masterLabData.latitude),
+            longitude: Number(masterLabData.longitude),
+          }
+        : undefined;
+      const effectiveSessionTargetData =
+        masterLabData && isValidCoordinate(masterLabCoords)
+          ? {
+              ...sessionData,
+              labCoordinates: masterLabCoords,
+              radiusMeters:
+                typeof masterLabData.radiusMeters === 'number' &&
+                Number.isFinite(masterLabData.radiusMeters) &&
+                masterLabData.radiusMeters > 0
+                  ? masterLabData.radiusMeters
+                  : sessionData.radiusMeters,
+              labNama:
+                typeof masterLabData.nama === 'string' &&
+                masterLabData.nama.trim()
+                  ? masterLabData.nama.trim()
+                  : sessionData.labNama,
+            }
+          : sessionData;
+
       const serverTarget = resolveTargetFromFirestoreSession(
-        sessionData,
+        effectiveSessionTargetData,
         fallbackTarget,
       );
       const serverVerification = evaluateGeofence(
@@ -279,10 +321,7 @@ export async function submitAttendanceToFirestore(
             : typeof sessionData.praktikumId === 'string' && sessionData.praktikumId.trim()
               ? sessionData.praktikumId.trim()
               : 'praktikum-ppk';
-        const labId =
-          typeof sessionData.labId === 'string' && sessionData.labId.trim()
-            ? sessionData.labId.trim()
-            : sessionClassId;
+        const labId = sessionLabId || sessionClassId;
         const labNama = serverTarget.labNama;
         const sessionTopik =
           typeof sessionData.topik === 'string' && sessionData.topik.trim()
@@ -299,6 +338,7 @@ export async function submitAttendanceToFirestore(
           praktikanNama: actor.nama,
           praktikanNim: actor.nim,
           courseId,
+          classId: sessionClassId,
           labId,
           labNama,
           sessionTopik,
@@ -324,7 +364,16 @@ export async function submitAttendanceToFirestore(
           amount: finalEvaluation.fineAmount,
         };
       }
-    });
+      });
+    } catch (err) {
+      const code = (err as { code?: string } | null)?.code;
+      if (code === 'permission-denied') {
+        throw new Error(
+          'Presensi ditolak oleh server. Pastikan Anda berada di dalam radius lab dan tanggal/waktu perangkat disinkronkan secara otomatis.',
+        );
+      }
+      throw err;
+    }
 
     if (createdFineNotification) {
       dispatchFineCreatedNotification(createdFineNotification).catch(() => {});
@@ -382,9 +431,7 @@ function mapAttendanceDoc(
     distanceMeters:
       typeof data.distanceMeters === 'number' ? data.distanceMeters : undefined,
     geofenceStatus:
-      data.geofenceStatus === 'in_radius' || data.geofenceStatus === 'bypass_qr'
-        ? data.geofenceStatus
-        : undefined,
+      data.geofenceStatus === 'in_radius' ? 'in_radius' : undefined,
     lateStatus:
       data.lateStatus === 'on_time' || data.lateStatus === 'late'
         ? data.lateStatus

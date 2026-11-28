@@ -30,7 +30,7 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
   const isAssistant = actor.role === 'asisten' || actor.role === 'asprak' || actor.role === 'aslab';
   const canManageLab = actor.role === 'aslab';
   const laboratories = useLaboratoryData(focused);
-  const activity = useMapsActivity(actor.uid, isAssistant, focused);
+  const activity = useMapsActivity(actor.uid, actor.role, focused);
   const { state: location, retry: retryLocation } = useUserLocation(focused);
   const point = focused && location.status === 'located' ? location.point : undefined;
   const [selectedId, setSelectedId] = useState<string>();

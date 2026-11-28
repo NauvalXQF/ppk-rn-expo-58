@@ -115,15 +115,21 @@ test('late attendance Firestore rules against the local emulator', {
     assert.equal((await getDocFromServer(doc(directWriter, finePath(id)))).data().amount, 10000);
   });
 
-  await t.test('late attendance and correct fine commit once, while on-time attendance writes no fine', async () => {
+  await t.test('late attendance and correct fine commit once, while clock-manipulated on_time is denied and valid on_time writes no fine', async () => {
     await submit(student, uid, true);
     assert.equal((await getDocFromServer(doc(student, attendancePath(uid)))).data().lateStatus, 'late');
     assert.equal((await getDocFromServer(doc(student, finePath(uid)))).data().amount, 10000);
     await assert.rejects(submit(student, uid, true), /duplicate attendance/);
     await assert.rejects(setDoc(doc(student, finePath(uid)), fine(uid, 10000)), { code: 'permission-denied' });
+    // Manipulasi jam perangkat: mengirim on_time saat server sudah melewati batas toleransi wajib ditolak.
+    await assert.rejects(submit(other, 'student-b', false), { code: 'permission-denied' });
+    assert.equal((await getDocFromServer(doc(admin, attendancePath('student-b')))).exists(), false);
+    // Saat sesi masih dalam masa toleransi server, on_time diterima tanpa menerbitkan denda.
+    await setDoc(doc(admin, sessionPath), { ...session, openedAt: new Date(Date.now() - 60_000) });
     await submit(other, 'student-b', false);
     assert.equal((await getDocFromServer(doc(other, attendancePath('student-b')))).data().lateStatus, 'on_time');
     assert.equal((await getDocFromServer(doc(admin, finePath('student-b')))).exists(), false);
+    await setDoc(doc(admin, sessionPath), session);
     await assert.rejects(getDocFromServer(doc(other, finePath(uid))), { code: 'permission-denied' });
     await assert.rejects(setDoc(doc(other, finePath(uid)), fine(uid)), { code: 'permission-denied' });
   });

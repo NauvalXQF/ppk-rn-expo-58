@@ -413,7 +413,8 @@ test('firestore.rules defines Sprint 3 rules for devices, laboratories, geofence
   assert.match(rulesText, /match \/laboratories\/\{labId\}/);
   assert.match(rulesText, /match \/notifications\/\{notificationId\}/);
   assert.match(rulesText, /request\.resource\.data\.distanceMeters/);
-  assert.match(rulesText, /bypass_qr/);
+  assert.match(rulesText, /geofenceStatus == 'in_radius'/);
+  assert.doesNotMatch(rulesText, /bypass_qr/);
   assert.match(
     rulesText,
     /allow read: if isSignedIn\(\)\s*&& \(resource\.data\.recipientUid == request\.auth\.uid \|\| isAsisten\(\)\);/,

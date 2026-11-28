@@ -40,7 +40,7 @@ export function KehadiranScreen() {
     .map((id) => state.kelas.find((k) => k.id === id)?.nama ?? id)
     .join(', ');
 
-  const activeSession = riwayat.find((r) => r.sesi.status === 'dibuka');
+  const activeSession = riwayat.find((r) => r.status === 'belum-presensi');
   const highlightSession = activeSession ?? riwayat[0];
 
   const getStatusInfo = (item: (typeof riwayat)[number]) => {
@@ -161,7 +161,7 @@ export function KehadiranScreen() {
       <AppButton
         label="Buka Pengajuan Izin"
         variant="secondary"
-        onPress={() => router.push('/(tabs)/izin')}
+        onPress={() => router.push('/(tabs)/izin' as Href)}
       />
 
       {/* Main Glass Stat + DotHeatmap */}
@@ -346,10 +346,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  tilesRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
   continueCard: {
     gap: 10,
   },
@@ -380,11 +376,13 @@ const styles = StyleSheet.create({
   historyTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: Spacing.sm,
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
   },
   topikText: {
     flex: 1,
+    minWidth: 140,
     fontSize: FontSize.md,
     fontFamily: FontFamily.medium,
     color: Colors.text,
@@ -398,6 +396,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: Radius.pill,
+    flexShrink: 0,
   },
   statusText: {
     fontSize: FontSize.xs,

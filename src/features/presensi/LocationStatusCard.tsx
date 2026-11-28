@@ -20,6 +20,7 @@ interface LocationStatusCardProps {
   verification: VerificationResult | null;
   permissionState: LocationPermissionState;
   gpsEnabled: boolean;
+  isMockedDetected?: boolean;
   loading: boolean;
   refreshing: boolean;
   errorMessage: string | null;
@@ -32,12 +33,34 @@ export function LocationStatusCard({
   verification,
   permissionState,
   gpsEnabled,
+  isMockedDetected = false,
   loading,
   refreshing,
   errorMessage,
   onRefresh,
   onOpenSettings,
 }: LocationStatusCardProps) {
+  if (isMockedDetected) {
+    return (
+      <AppCard style={styles.card}>
+        <SectionHeader title="Verifikasi Geofence" />
+        <InfoBanner
+          tone="danger"
+          message="Lokasi palsu (Fake GPS) terdeteksi."
+          description={
+            errorMessage ??
+            'Matikan aplikasi Fake GPS / Mock Location pada pengaturan pengembang perangkat Anda lalu segarkan lokasi.'
+          }
+        />
+        <AppButton
+          label="Segarkan Lokasi"
+          onPress={onRefresh}
+          loading={refreshing}
+          variant="secondary"
+        />
+      </AppCard>
+    );
+  }
   if (permissionState === 'denied') {
     return (
       <AppCard style={styles.card}>

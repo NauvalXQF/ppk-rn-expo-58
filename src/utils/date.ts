@@ -1,13 +1,51 @@
+export const WIB_TIME_ZONE = 'Asia/Jakarta';
+const WIB_OFFSET_MS = 7 * 60 * 60_000;
+
+export function parseWibDateTimeMs(
+  tanggal?: string,
+  jam?: string,
+): number | null {
+  const cleanTanggal = tanggal?.trim();
+  const cleanJam = jam?.trim();
+  if (!cleanTanggal || !cleanJam) return null;
+
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(cleanTanggal);
+  const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(cleanJam);
+  if (!dateMatch || !timeMatch) return null;
+
+  const year = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  const day = Number(dateMatch[3]);
+  const calendarCheck = new Date(Date.UTC(year, month - 1, day));
+  if (
+    calendarCheck.getUTCFullYear() !== year ||
+    calendarCheck.getUTCMonth() + 1 !== month ||
+    calendarCheck.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  const ms = Date.parse(`${cleanTanggal}T${cleanJam}:00+07:00`);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+export function getTodayWibDateString(now: Date = new Date()): string {
+  const shifted = new Date(now.getTime() + WIB_OFFSET_MS);
+  return shifted.toISOString().slice(0, 10);
+}
+
 export function formatTanggal(tanggal: string): string {
   const trimmed = tanggal?.trim();
   if (!trimmed) return '-';
-  const parsed = new Date(`${trimmed}T00:00:00`);
+  const parsedMs = parseWibDateTimeMs(trimmed, '00:00');
+  const parsed = parsedMs !== null ? new Date(parsedMs) : new Date(trimmed);
   if (Number.isNaN(parsed.getTime())) return trimmed;
   return new Intl.DateTimeFormat('id-ID', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
+    timeZone: WIB_TIME_ZONE,
   }).format(parsed);
 }
 
@@ -24,6 +62,7 @@ export function formatWaktuPresensi(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
+    timeZone: WIB_TIME_ZONE,
   })
     .format(parsed)
     .replace(':', '.');
@@ -47,14 +86,14 @@ export function evaluateSessionScheduleWindow(
     return { isWithinSchedule: true, status: 'INVALID' };
   }
 
-  const start = new Date(`${tanggal}T${jamMulai}:00`);
-  const end = new Date(`${tanggal}T${jamSelesai}:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+  const startMs = parseWibDateTimeMs(tanggal, jamMulai);
+  const endMs = parseWibDateTimeMs(tanggal, jamSelesai);
+  if (startMs === null || endMs === null || endMs <= startMs) {
     return { isWithinSchedule: true, status: 'INVALID' };
   }
 
   const nowMs = now.getTime();
-  if (nowMs < start.getTime()) {
+  if (nowMs < startMs) {
     return {
       isWithinSchedule: false,
       status: 'BEFORE_START',
@@ -62,7 +101,7 @@ export function evaluateSessionScheduleWindow(
     };
   }
 
-  if (nowMs > end.getTime()) {
+  if (nowMs > endMs) {
     return {
       isWithinSchedule: false,
       status: 'AFTER_END',

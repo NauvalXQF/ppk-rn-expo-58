@@ -207,7 +207,7 @@ const aslabUser = {
 };
 
 test('T-18: attendance at or before exact grace deadline is on_time with zero fine', async () => {
-  const scheduledStart = new Date('2026-11-25T10:00:00');
+  const scheduledStart = new Date('2026-11-25T10:00:00+07:00');
   const openedAt = new Date(scheduledStart.getTime() - 5 * 60_000).toISOString();
   const exactDeadline = new Date(scheduledStart.getTime() + 15 * 60_000).toISOString();
 
@@ -266,7 +266,7 @@ test('T-18: attendance at or before exact grace deadline is on_time with zero fi
 });
 
 test('T-19 & T-21: late attendance after grace deadline creates single deterministic fine linked to uid, sessionId, and attendanceId', async () => {
-  const scheduledStart = new Date('2026-11-25T10:00:00');
+  const scheduledStart = new Date('2026-11-25T10:00:00+07:00');
   const openedAt = scheduledStart.toISOString();
   const lateTime = new Date(scheduledStart.getTime() + 16 * 60_000 + 5_000).toISOString();
 
@@ -334,7 +334,7 @@ test('effectiveStart = max(scheduledStart, openedAt) uses openedAt when session 
   const { load } = setupFirestoreHarness();
   const { evaluateAttendanceLateness } = load('services/fines/fineCalculationService');
 
-  const scheduledStart = new Date('2026-11-25T10:00:00');
+  const scheduledStart = new Date('2026-11-25T10:00:00+07:00');
   const openedLate = new Date(scheduledStart.getTime() + 10 * 60_000).toISOString();
   const at1020 = new Date(scheduledStart.getTime() + 20 * 60_000);
   const at1026 = new Date(scheduledStart.getTime() + 26 * 60_000);
@@ -370,7 +370,7 @@ test('effectiveStart = max(scheduledStart, openedAt) uses openedAt when session 
 });
 
 test('T-20 & T-22: fine creation is idempotent and paid status leaves attendance record immutable', async () => {
-  const scheduledStart = new Date('2026-11-25T10:00:00');
+  const scheduledStart = new Date('2026-11-25T10:00:00+07:00');
   const lateTime = new Date(scheduledStart.getTime() + 20 * 60_000).toISOString();
   const fineKey = `fines/sesi-1_${praktikanB.id}`;
 
@@ -867,7 +867,12 @@ test('T-37: firestore.rules enforces 3-role RBAC, asprak scoping, deterministic 
   const rulesText = fs.readFileSync(path.resolve('firestore.rules'), 'utf8');
   assert.match(rulesText, /function isAsprak\(\)/);
   assert.match(rulesText, /function isAslab\(\)/);
-  assert.match(rulesText, /function isAssignedAsprak\(labId\)/);
+  assert.match(rulesText, /function isAssignedAsprak\((labId|targetId)\)/);
+  assert.match(rulesText, /function statusKeterlambatanValid/);
+  assert.match(rulesText, /request\.resource\.data\.geofenceStatus == 'in_radius'/);
+  assert.doesNotMatch(rulesText, /bypass_qr/);
+  assert.match(rulesText, /requestId == request\.resource\.data\.sessionId \+ '_' \+ request\.auth\.uid/);
+  assert.match(rulesText, /isAnggotaKelas\(request\.resource\.data\.classId\)/);
   assert.match(rulesText, /match \/labAssignments\/\{assignmentId\}/);
   assert.match(rulesText, /match \/classes\/\{classId\}[\s\S]*?allow create, update: if isAslab\(\)/);
   assert.match(rulesText, /match \/classMembers\/\{memberId\}[\s\S]*?allow create: if isAslab\(\)/);
@@ -879,4 +884,95 @@ test('T-37: firestore.rules enforces 3-role RBAC, asprak scoping, deterministic 
   assert.match(rulesText, /fine\.amount == session\.get\('lateFineAmount', 10000\)/);
   assert.match(rulesText, /request\.resource\.data\.status == 'waived'/);
   assert.match(rulesText, /match \/payments\/\{orderId\}[\s\S]*?allow create, update, delete: if false;/);
+});
+
+test('P1-1 & P1-3: WIB (+07:00) schedule parsing, mocked GPS blocking, and master lab sync', async () => {
+  const { docs, load } = setupFirestoreHarness({
+    'laboratories/lab-ppk-a': {
+      nama: 'Lab PPK A Baru',
+      latitude: -7.06,
+      longitude: 110.45,
+      radiusMeters: 40,
+      aktif: true,
+    },
+    'sessions/sesi-sync': {
+      classId: 'lab-ppk-a',
+      courseId: 'praktikum-ppk',
+      labId: 'lab-ppk-a',
+      labNama: 'Lab PPK A Lama',
+      labCoordinates: { latitude: -7.0518, longitude: 110.4404 },
+      radiusMeters: 30,
+      gracePeriodMinutes: 15,
+      lateFineAmount: 10000,
+      topik: 'Sync Lab Test',
+      ruang: 'Lab PPK A Lama',
+      tanggal: '2026-11-25',
+      jamMulai: '10:00',
+      jamSelesai: '12:00',
+      status: 'open',
+      openedAt: '2026-11-25T03:00:00.000Z',
+      closedAt: null,
+      archived: false,
+    },
+  });
+
+  const { parseScheduledStartMs } = load('services/fines/fineCalculationService');
+  const { evaluateSessionScheduleWindow, parseWibDateTimeMs } = load('utils/date');
+  const { submitAttendanceToFirestore } = load('services/attendanceService');
+
+  // 10:00 WIB harus identik dengan 03:00:00Z lintas timezone
+  const expectedUtcMs = Date.parse('2026-11-25T03:00:00.000Z');
+  assert.equal(parseWibDateTimeMs('2026-11-25', '10:00'), expectedUtcMs);
+  assert.equal(parseScheduledStartMs('2026-11-25', '10:00'), expectedUtcMs);
+  assert.equal(
+    evaluateSessionScheduleWindow(
+      { tanggal: '2026-11-25', jamMulai: '10:00', jamSelesai: '12:00' },
+      new Date('2026-11-25T03:05:00.000Z'),
+    ).isWithinSchedule,
+    true,
+  );
+  assert.equal(
+    evaluateSessionScheduleWindow(
+      { tanggal: '2026-11-25', jamMulai: '10:00', jamSelesai: '12:00' },
+      new Date('2026-11-25T02:59:00.000Z'),
+    ).status,
+    'BEFORE_START',
+  );
+
+  // Fake GPS (isMocked: true) wajib ditolak
+  await assert.rejects(
+    () =>
+      submitAttendanceToFirestore(praktikanA, {
+        sesiId: 'sesi-sync',
+        praktikanId: praktikanA.id,
+        waktuPresensi: '2026-11-25T03:05:00.000Z',
+        geo: { ...validGeo, latitude: -7.06, longitude: 110.45, isMocked: true },
+        labTarget: {
+          labId: 'lab-ppk-a',
+          labNama: 'Lab PPK A Baru',
+          coordinates: { latitude: -7.06, longitude: 110.45 },
+          radiusMeters: 40,
+          source: 'laboratory',
+        },
+      }),
+    /Fake GPS|Lokasi palsu/i,
+  );
+
+  // Koordinat master lab terbaru (-7.06, 110.45) dipakai meski snapshot sesi lama masih (-7.0518, 110.4404)
+  const saved = await submitAttendanceToFirestore(praktikanA, {
+    sesiId: 'sesi-sync',
+    praktikanId: praktikanA.id,
+    waktuPresensi: '2026-11-25T03:20:00.000Z',
+    geo: { ...validGeo, latitude: -7.06, longitude: 110.45, isMocked: false },
+    labTarget: {
+      labId: 'lab-ppk-a',
+      labNama: 'Lab PPK A Baru',
+      coordinates: { latitude: -7.06, longitude: 110.45 },
+      radiusMeters: 40,
+      source: 'laboratory',
+    },
+  });
+  assert.equal(saved.distanceMeters, 0);
+  assert.equal(saved.lateStatus, 'late');
+  assert.equal(docs.get(`fines/sesi-sync_${praktikanA.id}`).classId, 'lab-ppk-a');
 });

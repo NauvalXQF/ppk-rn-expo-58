@@ -1,5 +1,4 @@
 import {
-  addDoc,
   collection,
   doc,
   getDoc,
@@ -17,6 +16,7 @@ import type {
   LeaveRequest,
 } from '@/features/permissions/types';
 import {
+  buildLeaveRequestId,
   defaultPermissionRepository,
   fromFirestoreLeaveRequestDoc,
   PermissionAuthorizationError,
@@ -69,6 +69,8 @@ export const firestorePermissionRepository: PermissionRepository = {
   async createLeaveRequest(payload) {
     try {
       const db = getFirebaseDb();
+      const requestId = buildLeaveRequestId(payload.sessionId, payload.uid);
+      const docRef = doc(db, KOLEKSI_LEAVE_REQUESTS, requestId);
       const docPayload = {
         uid: payload.uid,
         sessionId: payload.sessionId,
@@ -88,14 +90,19 @@ export const firestorePermissionRepository: PermissionRepository = {
         updatedAt: serverTimestamp(),
       };
 
-      const docRef = await addDoc(
-        collection(db, KOLEKSI_LEAVE_REQUESTS),
-        docPayload,
-      );
+      await runTransaction(db, async (tx) => {
+        const existing = await tx.get(docRef);
+        if (existing.exists()) {
+          throw new PermissionConflictError(
+            'Anda sudah mengajukan izin untuk sesi praktikum ini.',
+          );
+        }
+        tx.set(docRef, docPayload);
+      });
 
       return {
         ...payload,
-        id: docRef.id,
+        id: requestId,
         aiClassification: { ...payload.aiClassification },
       };
     } catch (error) {
@@ -204,10 +211,54 @@ export const firestorePermissionRepository: PermissionRepository = {
     }
   },
 
-  subscribeAllForAsisten(onData, onError) {
+  subscribeAllForAsisten(onData, onError, options) {
     try {
       const db = getFirebaseDb();
       const colRef = collection(db, KOLEKSI_LEAVE_REQUESTS);
+
+      if (options?.classIds) {
+        const allowedClassIds = Array.from(
+          new Set(options.classIds.map((id) => id.trim()).filter(Boolean)),
+        );
+        if (allowedClassIds.length === 0) {
+          onData([]);
+          return () => {};
+        }
+
+        const byClass = new Map<string, LeaveRequest[]>();
+        const emitMerged = () => {
+          const deduped = new Map<string, LeaveRequest>();
+          for (const items of byClass.values()) {
+            for (const item of items) {
+              deduped.set(item.id, item);
+            }
+          }
+          onData(sortLeaveRequestsNewestFirst(Array.from(deduped.values())));
+        };
+
+        const unsubs = allowedClassIds.map((classId) =>
+          onSnapshot(
+            query(colRef, where('classId', '==', classId)),
+            (snapshot) => {
+              const list: LeaveRequest[] = snapshot.docs.map((docSnap) =>
+                fromFirestoreLeaveRequestDoc(
+                  docSnap.id,
+                  docSnap.data() as Record<string, unknown>,
+                ),
+              );
+              byClass.set(classId, list);
+              emitMerged();
+            },
+            (error) => {
+              onError?.(mapFirestorePermissionError(error));
+            },
+          ),
+        );
+
+        return () => {
+          for (const unsub of unsubs) unsub();
+        };
+      }
 
       return onSnapshot(
         colRef,
