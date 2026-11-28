@@ -266,7 +266,7 @@ service cloud.firestore {
 
     match /sessions/{sessionId} {
       function belumPernahDibuka() {
-        return resource.data.status == 'closed'
+        return resource.data.status in ['closed', 'scheduled', 'dijadwalkan']
           && resource.data.openedAt == null
           && resource.data.closedAt == null;
       }
@@ -274,6 +274,7 @@ service cloud.firestore {
       function transisiSesiValid() {
         return (
           hanyaFieldBerubah(['status', 'openedAt', 'updatedAt'])
+            && resource.data.status == 'closed'
             && belumPernahDibuka()
             && request.resource.data.status == 'open'
             && request.resource.data.openedAt == request.time
@@ -298,7 +299,8 @@ service cloud.firestore {
               'radiusMeters', 'gracePeriodMinutes', 'lateFineAmount', 'updatedAt'
             ])
             || (
-              belumPernahDibuka()
+              resource.data.status == 'closed'
+              && belumPernahDibuka()
               && hanyaFieldBerubah([
                 'topik', 'ruang', 'courseId', 'labId', 'labNama', 'labCoordinates',
                 'radiusMeters', 'gracePeriodMinutes', 'lateFineAmount',
@@ -333,10 +335,11 @@ service cloud.firestore {
           || (
             hanyaFieldBerubah(['archived', 'updatedAt'])
             && request.resource.data.archived == true
-            && resource.data.status == 'closed'
-            && resource.data.openedAt is timestamp
-            && resource.data.closedAt is timestamp
-            && resource.data.openedAt <= resource.data.closedAt
+            && (belumPernahDibuka()
+              || (resource.data.status == 'closed'
+                && resource.data.openedAt is timestamp
+                && resource.data.closedAt is timestamp
+                && resource.data.openedAt <= resource.data.closedAt))
           )
         );
 
@@ -447,6 +450,7 @@ service cloud.firestore {
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.sessionId == resource.data.sessionId
         && request.resource.data.alasan == resource.data.alasan
+        && request.resource.data.updatedAt == request.time
         && hanyaFieldBerubah(['ai', 'updatedAt']);
 
       allow update: if (isAslab() || isAssignedAsprak(resource.data.classId))
@@ -455,6 +459,9 @@ service cloud.firestore {
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.sessionId == resource.data.sessionId
         && request.resource.data.alasan == resource.data.alasan
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time
+        && request.resource.data.updatedAt == request.time
         && hanyaFieldBerubah(['status', 'reviewedBy', 'reviewedAt', 'reviewNote', 'updatedAt']);
 
       allow delete: if false;
