@@ -320,6 +320,7 @@ export default function KelolaLabScreen() {
           actor={pengguna}
           laboratories={laboratories}
           initialLabId={editingLabId}
+          initialCourseId={selectedCourse.id}
           writable={true}
           onClose={() => setSingleLabModalVisible(false)}
         />

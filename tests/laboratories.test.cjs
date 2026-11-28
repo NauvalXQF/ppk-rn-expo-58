@@ -725,13 +725,16 @@ test('lab CRUD persists the master schema and waits for acknowledgements or erro
       collection: (_db, name) => name,
       doc: (ref, ...path) => ({ id: path.at(-1) ?? 'generated-id', collection: typeof ref === 'string' ? ref : path[0] }),
       serverTimestamp: () => 'server-time',
-      setDoc: write('create'),
+      writeBatch: () => ({
+        set: (ref, payload) => writes.push({ method: 'create', ref, payload }),
+        commit: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+      }),
       updateDoc: write('update'),
     },
     '@/config/firebase': { getFirebaseDb: () => ({}) },
     './laboratories': laboratories,
   });
-  const actor = { uid: 'assistant', role: 'asisten' };
+  const actor = { uid: 'assistant', role: 'aslab', managedCourseIds: ['course-a'] };
   const student = { uid: 'student', role: 'praktikan' };
   await assert.rejects(saveLaboratory(student, lab), /Hanya asisten/);
   await assert.rejects(archiveLaboratory(student, lab.id), /Hanya asisten/);
@@ -744,7 +747,13 @@ test('lab CRUD persists the master schema and waits for acknowledgements or erro
   assert.equal(confirmed, false);
   assert.deepEqual(writes[0], {
     method: 'create', ref: { collection: 'laboratories', id: 'generated-id' },
-    payload: { ...lab, id: 'generated-id', updatedAt: 'server-time', createdBy: actor.uid, createdAt: 'server-time' },
+    payload: { ...lab, courseId: 'course-a', id: 'generated-id', updatedBy: actor.uid,
+      updatedAt: 'server-time', createdBy: actor.uid, createdAt: 'server-time' },
+  });
+  assert.deepEqual(writes[1], {
+    method: 'create', ref: { collection: 'classes', id: 'generated-id' },
+    payload: { id: 'generated-id', nama: 'Lab A', praktikumId: 'course-a', labId: 'generated-id',
+      aktif: true, createdAt: 'server-time', updatedAt: 'server-time' },
   });
   pending[0].resolve();
   await creating;
@@ -752,20 +761,20 @@ test('lab CRUD persists the master schema and waits for acknowledgements or erro
 
   const updated = { ...lab, latitude: -7.06, longitude: 110.45, radiusMeters: 50 };
   const updating = saveLaboratory(actor, updated, lab.id);
-  assert.deepEqual(writes[1], {
+  assert.deepEqual(writes[2], {
     method: 'update', ref: { collection: 'laboratories', id: lab.id },
     payload: {
       nama: lab.nama, kode: lab.kode, gedung: lab.gedung, kapasitas: lab.kapasitas,
-      latitude: -7.06, longitude: 110.45, radiusMeters: 50, updatedAt: 'server-time',
+      latitude: -7.06, longitude: 110.45, radiusMeters: 50, updatedAt: 'server-time', updatedBy: actor.uid,
     },
   });
   pending[1].reject(Object.assign(new Error('offline'), { code: 'unavailable' }));
   await assert.rejects(updating, { code: 'unavailable' });
 
   const archiving = archiveLaboratory(actor, lab.id);
-  assert.deepEqual(writes[2], {
+  assert.deepEqual(writes[3], {
     method: 'update', ref: { collection: 'laboratories', id: lab.id },
-    payload: { aktif: false, updatedAt: 'server-time' },
+    payload: { aktif: false, updatedAt: 'server-time', updatedBy: actor.uid },
   });
   pending[2].resolve();
   await archiving;

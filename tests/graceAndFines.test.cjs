@@ -874,7 +874,10 @@ test('T-37: firestore.rules enforces 3-role RBAC, asprak scoping, deterministic 
   assert.match(rulesText, /requestId == request\.resource\.data\.sessionId \+ '_' \+ request\.auth\.uid/);
   assert.match(rulesText, /isAnggotaKelas\(request\.resource\.data\.classId\)/);
   assert.match(rulesText, /match \/labAssignments\/\{assignmentId\}/);
-  assert.match(rulesText, /match \/classes\/\{classId\}[\s\S]*?allow create, update: if isAslab\(\)/);
+  const classRules = rulesText.slice(rulesText.indexOf('match /classes/'), rulesText.indexOf('match /classMembers/'));
+  assert.match(classRules, /allow create: if validClass\(request\.resource\.data\)/);
+  assert.match(classRules, /allow update: if managesCourse\(resource\.data\.get\('praktikumId', null\)\)/);
+  assert.match(classRules, /managesCourse\(data\.praktikumId\)/);
   assert.match(rulesText, /match \/classMembers\/\{memberId\}[\s\S]*?allow create: if isAslab\(\)/);
   assert.match(rulesText, /match \/fines\/\{fineId\}/);
   assert.match(rulesText, /fineId == request\.resource\.data\.sessionId \+ '_' \+ request\.auth\.uid/);

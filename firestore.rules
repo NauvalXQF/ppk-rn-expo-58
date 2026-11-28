@@ -29,9 +29,39 @@ service cloud.firestore {
 
     function managesCourse(courseId) {
       return isAslab()
-        && courseId is string
-        && courseId.size() > 0
+        && isDocumentId(courseId)
         && profilSaya().get('managedCourseIds', []).hasAny([courseId]);
+    }
+
+    function isDocumentId(id) {
+      return id is string && id.size() > 0 && id.size() <= 512
+        && id.matches('[^/]+') && !(id in ['.', '..']) && !id.matches('__.*__');
+    }
+
+    function validCourse(courseId) {
+      return isDocumentId(courseId)
+        && existsAfter(/databases/$(database)/documents/courses/$(courseId));
+    }
+
+    function classAfter(classId) {
+      return getAfter(/databases/$(database)/documents/classes/$(classId)).data;
+    }
+
+    function labMatchesCourse(labId, courseId) {
+      return isDocumentId(labId)
+        && getAfter(/databases/$(database)/documents/laboratories/$(labId)).data.courseId == courseId;
+    }
+
+    function consistentLab(data, kelas, courseId) {
+      return (!('labId' in kelas) || data.get('labId', kelas.labId) == kelas.labId)
+        && (!('labId' in data) || labMatchesCourse(data.labId, courseId));
+    }
+
+    function validTimeRange(data) {
+      return data.jamMulai is string && data.jamSelesai is string
+        && data.jamMulai.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
+        && data.jamSelesai.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
+        && data.jamMulai < data.jamSelesai;
     }
 
     function isAsisten() {
@@ -143,10 +173,18 @@ service cloud.firestore {
 
     // ==================== Data laboratorium (Sprint 3–4) ====================
     match /laboratories/{labId} {
+      function consistentClass(courseId) {
+        return !existsAfter(/databases/$(database)/documents/classes/$(labId))
+          || (classAfter(labId).praktikumId == courseId
+            && classAfter(labId).get('labId', labId) == labId);
+      }
+
       allow read: if isSignedIn();
 
       allow create: if isAslab()
-        && (!('courseId' in request.resource.data) || managesCourse(request.resource.data.courseId))
+        && managesCourse(request.resource.data.get('courseId', null))
+        && validCourse(request.resource.data.courseId)
+        && consistentClass(request.resource.data.courseId)
         && request.resource.data.nama is string
         && request.resource.data.nama.size() > 0
         && request.resource.data.latitude is number
@@ -167,7 +205,10 @@ service cloud.firestore {
             && request.resource.data.lateFineAmount >= 0));
 
       allow update: if isAslab()
-        && (!('courseId' in request.resource.data) || managesCourse(request.resource.data.courseId))
+        && managesCourse(resource.data.get('courseId', null))
+        && request.resource.data.courseId == resource.data.courseId
+        && validCourse(request.resource.data.courseId)
+        && consistentClass(request.resource.data.courseId)
         && request.resource.data.nama is string
         && request.resource.data.nama.size() > 0
         && request.resource.data.latitude is number
@@ -193,17 +234,58 @@ service cloud.firestore {
 
     // ==================== Distribusi Asprak ke Lab (Sprint 4) ====================
     match /labAssignments/{assignmentId} {
+      function assignmentLabId(data) {
+        return data.get('labId', data.get('classId', null));
+      }
+
+      function validAssignment(data) {
+        let labId = assignmentLabId(data);
+        return managesCourse(data.get('courseId', null))
+          && isDocumentId(labId) && isDocumentId(data.uid)
+          && assignmentId == labId + '_' + data.uid
+          && data.get('classId', labId) == labId
+          && labMatchesCourse(labId, data.courseId)
+          && classAfter(labId).praktikumId == data.courseId
+          && classAfter(labId).get('labId', labId) == labId;
+      }
+
       allow read: if isAslab()
         || (isAsprak() && resource.data.uid == request.auth.uid);
-      allow create, update: if isAslab();
+      allow create: if validAssignment(request.resource.data);
+      allow update: if managesCourse(resource.data.get('courseId', null))
+        && request.resource.data.courseId == resource.data.courseId
+        && request.resource.data.uid == resource.data.uid
+        && assignmentLabId(request.resource.data) == assignmentLabId(resource.data)
+        && validAssignment(request.resource.data);
       allow delete: if false;
     }
 
     // ==================== Data praktikum (P2 & Aslab) ====================
     // Baca: Aslab melihat semua; Asprak hanya lab yang ditugaskan; praktikan hanya kelasnya.
     match /classes/{classId} {
+      function validClass(data) {
+        return data.keys().hasAll(['nama', 'praktikumId'])
+          && data.keys().hasOnly([
+            'id', 'nama', 'praktikumId', 'praktikumNama', 'praktikumKode', 'labId', 'aktif',
+            'archived', 'createdBy', 'createdAt', 'updatedAt'
+          ])
+          && data.nama is string && data.nama.size() > 0
+          && data.get('id', classId) == classId
+          && managesCourse(data.praktikumId)
+          && validCourse(data.praktikumId)
+          && (!existsAfter(/databases/$(database)/documents/laboratories/$(classId))
+            || labMatchesCourse(classId, data.praktikumId))
+          && (!('labId' in data)
+            || (data.labId == classId
+              && existsAfter(/databases/$(database)/documents/laboratories/$(classId))));
+      }
+
       allow read: if isAslab() || isAssignedAsprak(classId) || isAnggotaKelas(classId);
-      allow create, update: if isAslab();
+      allow create: if validClass(request.resource.data);
+      allow update: if managesCourse(resource.data.get('praktikumId', null))
+        && request.resource.data.praktikumId == resource.data.praktikumId
+        && (!('labId' in resource.data) || request.resource.data.labId == resource.data.labId)
+        && validClass(request.resource.data);
       allow delete: if false;
     }
 
@@ -254,17 +336,65 @@ service cloud.firestore {
     }
 
     match /schedules/{scheduleId} {
+      function validSchedule(data) {
+        let kelas = classAfter(data.classId);
+        return data.keys().hasAll(['classId', 'praktikumId', 'hari', 'jamMulai', 'jamSelesai', 'ruang', 'topik'])
+          && data.keys().hasOnly([
+            'classId', 'praktikumId', 'hari', 'jamMulai', 'jamSelesai', 'startAt', 'endAt',
+            'ruang', 'labId', 'topik', 'archived', 'createdBy', 'createdAt', 'updatedAt'
+          ])
+          && isDocumentId(data.classId) && isDocumentId(data.praktikumId)
+          && data.praktikumId == kelas.praktikumId
+          && consistentLab(data, kelas, data.praktikumId)
+          && (managesCourse(data.praktikumId) || isAssignedAsprak(data.classId))
+          && validTimeRange(data)
+          && data.get('startAt', data.jamMulai) == data.jamMulai
+          && data.get('endAt', data.jamSelesai) == data.jamSelesai;
+      }
+
       allow read: if isAslab()
         || isAssignedAsprak(resource.data.classId)
         || (isPraktikan() && isAnggotaKelas(resource.data.classId));
-      allow create: if isAslab() || isAssignedAsprak(request.resource.data.classId);
-      allow update: if isAslab()
-        || (isAssignedAsprak(resource.data.classId)
-          && request.resource.data.classId == resource.data.classId);
+      allow create: if validSchedule(request.resource.data);
+      allow update: if request.resource.data.classId == resource.data.classId
+        && request.resource.data.praktikumId == resource.data.get('praktikumId', request.resource.data.praktikumId)
+        && validSchedule(request.resource.data);
       allow delete: if false;
     }
 
     match /sessions/{sessionId} {
+      function sessionScope(data, kelas) {
+        return isDocumentId(kelas.praktikumId)
+          && (managesCourse(kelas.praktikumId) || isAssignedAsprak(data.classId))
+          && data.get('praktikumId', kelas.praktikumId) == kelas.praktikumId
+          && data.get('courseId', kelas.praktikumId) == kelas.praktikumId;
+      }
+
+      function matchesScheduleLab(data, kelas, jadwal) {
+        return !('labId' in jadwal) || data.get('labId', kelas.get('labId', null)) == jadwal.labId;
+      }
+
+      function validSessionCreate(data) {
+        let kelas = classAfter(data.classId);
+        let jadwal = getAfter(/databases/$(database)/documents/schedules/$(data.scheduleId)).data;
+        return sessionScope(data, kelas)
+          && kelas.get('archived', false) == false && kelas.get('aktif', true) == true
+          && jadwal.classId == data.classId && jadwal.get('archived', false) == false
+          && jadwal.get('praktikumId', kelas.praktikumId) == kelas.praktikumId
+          && matchesScheduleLab(data, kelas, jadwal)
+          && consistentLab(data, kelas, kelas.praktikumId)
+          && validSessionTime(data)
+          && data.createdAt == request.time && data.updatedAt == request.time;
+      }
+
+      function validSessionTime(data) {
+        return data.tanggal is string && data.tanggal.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          && validTimeRange(data)
+          && data.startAt == data.tanggal + 'T' + data.jamMulai + ':00'
+          && data.endAt == data.tanggal + 'T' + data.jamSelesai + ':00';
+      }
+
+      // 'closed' dengan kedua timestamp null adalah format penyimpanan sesi terjadwal saat ini.
       function belumPernahDibuka() {
         return resource.data.status in ['closed', 'scheduled', 'dijadwalkan']
           && resource.data.openedAt == null
@@ -291,8 +421,14 @@ service cloud.firestore {
 
       function editSesiValid() {
         let data = request.resource.data;
+        let kelas = classAfter(data.classId);
         return data.topik is string && data.topik.size() > 0
           && data.ruang is string && data.ruang.size() > 0
+          && (!data.diff(resource.data).affectedKeys().hasAny(['labId', 'courseId'])
+            || (consistentLab(data, kelas, kelas.praktikumId)
+              && (!('scheduleId' in data)
+                || matchesScheduleLab(data, kelas,
+                  getAfter(/databases/$(database)/documents/schedules/$(data.scheduleId)).data))))
           && (
             hanyaFieldBerubah([
               'topik', 'ruang', 'courseId', 'labId', 'labNama', 'labCoordinates',
@@ -306,12 +442,7 @@ service cloud.firestore {
                 'radiusMeters', 'gracePeriodMinutes', 'lateFineAmount',
                 'tanggal', 'jamMulai', 'jamSelesai', 'startAt', 'endAt', 'updatedAt'
               ])
-              && data.tanggal.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
-              && data.jamMulai.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
-              && data.jamSelesai.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
-              && data.jamMulai < data.jamSelesai
-              && data.startAt == data.tanggal + 'T' + data.jamMulai + ':00'
-              && data.endAt == data.tanggal + 'T' + data.jamSelesai + ':00'
+              && validSessionTime(data)
             )
           );
       }
@@ -320,13 +451,15 @@ service cloud.firestore {
         || isAssignedAsprak(resource.data.classId)
         || (isPraktikan() && isAnggotaKelas(resource.data.classId));
 
-      allow create: if (isAslab() || isAssignedAsprak(request.resource.data.classId))
+      allow create: if isDocumentId(request.resource.data.classId)
+        && isDocumentId(request.resource.data.scheduleId)
+        && validSessionCreate(request.resource.data)
         && request.resource.data.status == 'closed'
         && request.resource.data.openedAt == null
         && request.resource.data.closedAt == null
         && request.resource.data.get('archived', false) == false;
 
-      allow update: if (isAslab() || isAssignedAsprak(resource.data.classId))
+      allow update: if sessionScope(request.resource.data, classAfter(resource.data.classId))
         && resource.data.get('archived', false) == false
         && request.resource.data.updatedAt == request.time
         && (
@@ -335,6 +468,7 @@ service cloud.firestore {
           || (
             hanyaFieldBerubah(['archived', 'updatedAt'])
             && request.resource.data.archived == true
+            && consistentLab(resource.data, classAfter(resource.data.classId), classAfter(resource.data.classId).praktikumId)
             && (belumPernahDibuka()
               || (resource.data.status == 'closed'
                 && resource.data.openedAt is timestamp
@@ -382,6 +516,8 @@ service cloud.firestore {
         && request.resource.data.classId == sesi(sessionId).classId
         && request.resource.data.status == 'hadir'
         && request.resource.data.recordedAt == request.time
+        && (request.resource.data.get('catatan', null) == null
+          || (request.resource.data.catatan is string && request.resource.data.catatan.size() <= 120))
         && sesi(sessionId).status == 'open'
         && sesi(sessionId).get('archived', false) == false
         && isAnggotaKelas(sesi(sessionId).classId)

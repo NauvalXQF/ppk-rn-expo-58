@@ -397,7 +397,7 @@ export interface AppContextValue {
     geo?: GeoAttendancePayload,
     labTarget?: LabGeofenceTarget,
   ) => Promise<Presensi>;
-  simpanKelas: (input: { id?: string; nama: string }) => Promise<Kelas>;
+  simpanKelas: (input: { id?: string; nama: string; praktikumId?: string }) => Promise<Kelas>;
   hapusKelas: (kelasId: string) => Promise<void>;
   simpanPeserta: (input: {
     id?: string;
@@ -804,16 +804,19 @@ export function AppProvider({ children }: PropsWithChildren) {
   );
 
   const simpanKelas = useCallback(
-    async (input: { id?: string; nama: string }) =>
+    async (input: { id?: string; nama: string; praktikumId?: string }) =>
       runAsync(async () => {
-        const saved = await saveClassToFirestore(state.currentUser, input);
+        const existing = state.kelas.find((kelas) => kelas.id === input.id);
+        const managed = state.currentUser?.peran === 'aslab' ? state.currentUser.managedCourseIds : undefined;
+        const praktikumId = existing?.praktikumId ?? input.praktikumId ?? (managed?.length === 1 ? managed[0] : undefined);
+        const saved = await saveClassToFirestore(state.currentUser, { ...input, praktikumId });
         rawDispatch({
           type: input.id ? 'UBAH_KELAS' : 'TAMBAH_KELAS',
           kelas: saved,
         });
         return saved;
       }),
-    [runAsync, state.currentUser],
+    [runAsync, state.currentUser, state.kelas],
   );
 
   const hapusKelas = useCallback(
@@ -863,7 +866,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     }) =>
       runAsync(async () => {
         const isUpdate = Boolean(input.id?.trim());
-        const saved = await saveScheduleToFirestore(state.currentUser, input);
+        const praktikumId = state.kelas.find((kelas) => kelas.id === input.kelasId)?.praktikumId;
+        const saved = await saveScheduleToFirestore(state.currentUser, { ...input, praktikumId });
         rawDispatch({
           type: isUpdate ? 'UBAH_JADWAL' : 'TAMBAH_JADWAL',
           jadwal: saved,
@@ -885,7 +889,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         }
         return saved;
       }),
-    [runAsync, state.currentUser, state.pengguna],
+    [runAsync, state.currentUser, state.kelas, state.pengguna],
   );
 
   const hapusJadwal = useCallback(
@@ -921,7 +925,8 @@ export function AppProvider({ children }: PropsWithChildren) {
         const previousSesi = isUpdate
           ? state.sesi.find((s) => s.id === input.id)
           : undefined;
-        const saved = await saveSessionToFirestore(state.currentUser, input);
+        const praktikumId = state.kelas.find((kelas) => kelas.id === input.kelasId)?.praktikumId;
+        const saved = await saveSessionToFirestore(state.currentUser, { ...input, praktikumId });
         if (!isRemote) {
           rawDispatch({ type: isUpdate ? 'UBAH_SESI' : 'TAMBAH_SESI', sesi: saved });
         }
@@ -951,7 +956,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         }
         return saved;
       }),
-    [isRemote, runAsync, state.currentUser, state.pengguna, state.sesi],
+    [isRemote, runAsync, state.currentUser, state.kelas, state.pengguna, state.sesi],
   );
 
   const hapusSesi = useCallback(

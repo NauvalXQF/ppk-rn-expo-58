@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const { initializeApp, deleteApp } = require('firebase/app');
 const {
   connectFirestoreEmulator, doc, getDocFromServer, getFirestore, runTransaction,
-  serverTimestamp, setDoc, terminate, writeBatch,
+  serverTimestamp, setDoc, terminate, updateDoc, writeBatch,
 } = require('firebase/firestore');
 
 const port = Number(process.env.PPK_RULES_EMULATOR_PORT);
@@ -200,5 +200,209 @@ test('late attendance Firestore rules against the local emulator', {
     });
     await submit(wibStudent, 'student-f', true);
     assert.equal((await getDocFromServer(doc(wibStudent, finePath('student-f')))).data().amount, 10000);
+  });
+});
+
+test('scoped Firestore writes against the local emulator', {
+  skip: !port && 'Set PPK_RULES_EMULATOR_PORT to a loopback emulator running firestore.rules',
+}, async (t) => {
+  const namespace = randomUUID();
+  function client(token) {
+    const app = initializeApp({ projectId: 'demo-ppk-rules' }, randomUUID());
+    const db = getFirestore(app);
+    connectFirestoreEmulator(db, '127.0.0.1', port, { mockUserToken: token });
+    t.after(async () => { await terminate(db); await deleteApp(app); });
+    return db;
+  }
+  const aslabUid = namespace + '-aslab';
+  const asprakUid = namespace + '-asprak';
+  const studentUid = namespace + '-student';
+  const otherUid = namespace + '-other';
+  const admin = client('owner');
+  const aslab = client({ sub: aslabUid });
+  const asprak = client({ sub: asprakUid });
+  const student = client({ sub: studentUid });
+  const other = client({ sub: otherUid });
+  const courseId = namespace + '-course-a';
+  const foreignCourse = namespace + '-course-b';
+  const classId = namespace + '-lab-a';
+  const foreignClass = namespace + '-lab-b';
+  const scheduleId = namespace + '-schedule';
+  const lab = { nama: 'Lab', courseId, latitude: -7.95, longitude: 112.61, radiusMeters: 30, aktif: true };
+  const kelas = { nama: 'Kelas', praktikumId: courseId, labId: classId, aktif: true };
+  const waktu = { jamMulai: '08:00', jamSelesai: '10:00' };
+  const schedule = { classId, praktikumId: courseId, hari: 'Senin', ruang: 'Lab', topik: 'Topik', ...waktu };
+  const timestamps = () => ({ createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  const session = {
+    classId, labId: classId, courseId, praktikumId: courseId, scheduleId, status: 'closed',
+    openedAt: null, closedAt: null, archived: false, topik: 'Topik', ruang: 'Lab', ...waktu,
+    tanggal: '2026-11-28', startAt: '2026-11-28T08:00:00', endAt: '2026-11-28T10:00:00',
+  };
+  const sessionPath = (key) => 'sessions/' + namespace + '-' + key;
+  const assignmentId = classId + '_' + asprakUid;
+  const assignment = { uid: asprakUid, labId: classId, courseId, active: true };
+  const denied = (work) => assert.rejects(work, { code: 'permission-denied' });
+  const batch = writeBatch(admin);
+  for (const [path, data] of Object.entries({
+    ['users/' + aslabUid]: { role: 'aslab', managedCourseIds: [courseId] },
+    ['users/' + asprakUid]: { role: 'asprak' },
+    ['users/' + studentUid]: { role: 'praktikan' },
+    ['users/' + otherUid]: { role: 'praktikan' },
+    ['courses/' + courseId]: { aktif: true },
+    ['courses/' + foreignCourse]: { aktif: true },
+    ['laboratories/' + foreignClass]: { ...lab, courseId: foreignCourse },
+    ['classes/' + foreignClass]: { ...kelas, praktikumId: foreignCourse, labId: foreignClass },
+    ['laboratories/' + namespace + '-legacy']: { ...lab, courseId: null },
+    ['classMembers/' + classId + '_' + studentUid]: { classId, uid: studentUid, active: true },
+  })) {
+    batch.set(doc(admin, path), data);
+  }
+  await batch.commit();
+
+  await t.test('bulk lab and class creation is atomic with immutable course scope', async () => {
+    const bulk = writeBatch(aslab);
+    bulk.set(doc(aslab, 'laboratories', classId), { ...lab, ...timestamps() });
+    bulk.set(doc(aslab, 'classes', classId), { ...kelas, id: classId, ...timestamps() });
+    await bulk.commit();
+    await updateDoc(doc(aslab, 'laboratories', classId), { nama: 'Lab baru' });
+    await updateDoc(doc(aslab, 'classes', classId), { archived: false });
+    await denied(updateDoc(doc(aslab, 'laboratories', foreignClass), { nama: 'Tidak boleh' }));
+    await denied(updateDoc(doc(aslab, 'laboratories', foreignClass), { courseId }));
+    await denied(updateDoc(doc(aslab, 'laboratories', classId), { courseId: foreignCourse }));
+    await denied(updateDoc(doc(aslab, 'classes', foreignClass), { praktikumId: courseId }));
+    await denied(updateDoc(doc(aslab, 'classes', classId), { praktikumId: foreignCourse }));
+    await denied(updateDoc(doc(aslab, 'classes', classId), { unexpected: true }));
+    const unscopedLab = { ...lab };
+    delete unscopedLab.courseId;
+    await denied(setDoc(doc(aslab, 'laboratories', namespace + '-unscoped'), unscopedLab));
+    await denied(setDoc(doc(aslab, 'classes', namespace + '-unscoped'), { nama: 'Unscoped' }));
+    await denied(setDoc(doc(aslab, 'classes', namespace + '-foreign-link'), { ...kelas, labId: foreignClass }));
+    const foreignLabWithoutClass = namespace + '-other-foreign-lab';
+    await setDoc(doc(admin, 'laboratories', foreignLabWithoutClass), { ...lab, courseId: foreignCourse });
+    await denied(setDoc(doc(aslab, 'classes', foreignLabWithoutClass), { nama: 'Kelas', praktikumId: courseId }));
+    await denied(updateDoc(doc(aslab, 'laboratories', namespace + '-legacy'), { courseId }));
+    // Existing catalog reads are intentionally available to signed-in users.
+    assert.equal((await getDocFromServer(doc(aslab, 'laboratories', foreignClass))).exists(), true);
+    await denied(updateDoc(doc(student, 'classes', classId), { nama: 'Tidak boleh' }));
+  });
+
+  await t.test('assignments use matching lab, class, course and deterministic ID', async () => {
+    await setDoc(doc(aslab, 'labAssignments', assignmentId), assignment);
+    await updateDoc(doc(aslab, 'labAssignments', assignmentId), { active: false });
+    await updateDoc(doc(aslab, 'labAssignments', assignmentId), { active: true });
+    await denied(updateDoc(doc(aslab, 'labAssignments', assignmentId), { courseId: foreignCourse }));
+    await denied(updateDoc(doc(aslab, 'labAssignments', assignmentId), { classId: foreignClass }));
+    await denied(setDoc(doc(aslab, 'labAssignments', foreignClass + '_' + asprakUid), { ...assignment, labId: foreignClass }));
+    await denied(setDoc(doc(aslab, 'labAssignments', classId + '_' + otherUid), { labId: classId, uid: otherUid, active: true }));
+    await denied(updateDoc(doc(asprak, 'labAssignments', assignmentId), { active: false }));
+  });
+
+  await t.test('schedules require known fields and ordered HH:mm times', async () => {
+    await setDoc(doc(asprak, 'schedules', scheduleId), {
+      ...schedule, startAt: '08:00', endAt: '10:00', ...timestamps(),
+    });
+    await updateDoc(doc(aslab, 'schedules', scheduleId), { topik: 'Topik baru', updatedAt: serverTimestamp() });
+    for (const patch of [
+      { jamMulai: '8:00' }, { jamMulai: '10:00' }, { jamMulai: '11:00' },
+      { startAt: '09:00' }, { extra: true }, { classId: foreignClass }, { labId: foreignClass },
+    ]) {
+      await denied(updateDoc(doc(aslab, 'schedules', scheduleId), patch));
+    }
+    await denied(setDoc(doc(student, 'schedules', scheduleId + '-student'), schedule));
+  });
+
+  await t.test('session creation requires an active class, matching references and server timestamps', async () => {
+    await setDoc(doc(asprak, sessionPath('scheduled')), { ...session, ...timestamps() });
+    await setDoc(doc(aslab, sessionPath('aslab')), { ...session, ...timestamps() });
+    const forged = new Date('2020-01-01T00:00:00Z');
+    for (const patch of [
+      { classId: 'missing' }, { classId: foreignClass }, { scheduleId: 'missing' }, { labId: foreignClass },
+      { courseId: foreignCourse }, { createdAt: forged }, { updatedAt: forged }, { jamSelesai: '07:30' },
+      { tanggal: '28-11-2026' }, { startAt: '2026-11-28T06:00:00' }, { endAt: null },
+    ]) {
+      await denied(setDoc(doc(aslab, sessionPath('unavailable')), { ...session, ...timestamps(), ...patch }));
+    }
+    await denied(setDoc(doc(student, sessionPath('student')), { ...session, ...timestamps() }));
+    const standaloneClassId = namespace + '-standalone';
+    const standaloneScheduleId = scheduleId + '-standalone';
+    const secondLabId = namespace + '-second-lab';
+    await setDoc(doc(aslab, 'classes', standaloneClassId), { nama: 'Kelas', praktikumId: courseId });
+    await setDoc(doc(aslab, 'laboratories', secondLabId), lab);
+    await setDoc(doc(aslab, 'schedules', standaloneScheduleId), {
+      ...schedule, classId: standaloneClassId, labId: classId,
+    });
+    const standalone = { ...session, classId: standaloneClassId, scheduleId: standaloneScheduleId };
+    await denied(setDoc(doc(aslab, sessionPath('different-lab')), { ...standalone, labId: secondLabId, ...timestamps() }));
+    await setDoc(doc(aslab, sessionPath('matching-lab')), { ...standalone, ...timestamps() });
+    await denied(updateDoc(doc(aslab, sessionPath('matching-lab')), { labId: secondLabId, updatedAt: serverTimestamp() }));
+  });
+
+  await t.test('only authorized Aslab or Asprak can archive unopened or closed sessions', async () => {
+    const archive = { archived: true, updatedAt: serverTimestamp() };
+    const openedAt = new Date(Date.now() - 60_000);
+    await setDoc(doc(admin, sessionPath('open')), { ...session, status: 'open', openedAt });
+    await setDoc(doc(admin, sessionPath('completed')), { ...session, openedAt, closedAt: new Date() });
+    await setDoc(doc(admin, sessionPath('legacy-scheduled')), { ...session, status: 'scheduled' });
+    await setDoc(doc(admin, sessionPath('foreign')), {
+      ...session, classId: foreignClass, courseId: foreignCourse, praktikumId: foreignCourse, labId: foreignClass,
+    });
+    await denied(updateDoc(doc(aslab, sessionPath('foreign')), archive));
+    await denied(updateDoc(doc(asprak, sessionPath('foreign')), archive));
+    await denied(updateDoc(doc(asprak, sessionPath('open')), archive));
+    await denied(updateDoc(doc(student, sessionPath('scheduled')), archive));
+    await denied(updateDoc(doc(asprak, sessionPath('scheduled')), { ...archive, topik: 'Tidak boleh' }));
+    await updateDoc(doc(asprak, sessionPath('scheduled')), archive);
+    await updateDoc(doc(aslab, sessionPath('completed')), archive);
+    await updateDoc(doc(aslab, sessionPath('legacy-scheduled')), archive);
+    const archived = (await getDocFromServer(doc(asprak, sessionPath('scheduled')))).data();
+    assert.equal(archived.archived, true);
+    assert.equal(archived.status, 'closed');
+    assert.equal(archived.openedAt, null);
+  });
+
+  await t.test('leave review and AI updates enforce role, reviewer, timestamp and decision isolation', async () => {
+    const leaveSession = namespace + '-aslab';
+    const requestPath = 'leaveRequests/' + leaveSession + '_' + studentUid;
+    await setDoc(doc(student, requestPath), {
+      uid: studentUid, sessionId: leaveSession, classId, alasan: 'Sakit',
+      status: 'pending', reviewedBy: null, reviewedAt: null, ...timestamps(),
+    });
+    const decision = { status: 'approved', reviewedBy: asprakUid, reviewedAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    const forged = new Date('2020-01-01T00:00:00Z');
+    for (const patch of [{ reviewedBy: aslabUid }, { reviewedAt: forged }, { updatedAt: forged }]) {
+      await denied(updateDoc(doc(asprak, requestPath), { ...decision, ...patch }));
+    }
+    const ai = { ai: { label: 'sakit' }, updatedAt: serverTimestamp() };
+    await denied(updateDoc(doc(student, requestPath), { ...ai, updatedAt: forged }));
+    await denied(updateDoc(doc(student, requestPath), { ...ai, status: 'approved' }));
+    await denied(updateDoc(doc(other, requestPath), ai));
+    await updateDoc(doc(student, requestPath), ai);
+    await updateDoc(doc(asprak, requestPath), decision);
+    assert.equal((await getDocFromServer(doc(student, requestPath))).data().status, 'approved');
+    await denied(updateDoc(doc(student, requestPath), ai));
+    await denied(updateDoc(doc(asprak, requestPath), { ...decision, status: 'rejected' }));
+    const rejectedPath = requestPath + '-second';
+    await setDoc(doc(admin, rejectedPath), { uid: studentUid, sessionId: leaveSession, classId, alasan: 'Sakit', status: 'pending' });
+    await updateDoc(doc(asprak, rejectedPath), { ...decision, status: 'rejected' });
+  });
+
+  await t.test('attendance notes accept up to 120 characters and payments stay server-only', async () => {
+    const id = namespace + '-open';
+    const path = sessionPath('open') + '/attendances/' + studentUid;
+    const attendance = {
+      uid: studentUid, sessionId: id, classId, status: 'hadir', recordedAt: serverTimestamp(),
+      latitude: -7.95, longitude: 112.61, distanceMeters: 5, geofenceStatus: 'in_radius',
+      lateStatus: 'on_time', lateMinutes: 0, fineId: null,
+    };
+    await updateDoc(doc(admin, sessionPath('open')), { openedAt: new Date(Date.now() - 5_000) });
+    await denied(setDoc(doc(student, path), { ...attendance, catatan: 'a'.repeat(121) }));
+    await denied(setDoc(doc(student, path), { ...attendance, catatan: 121 }));
+    await setDoc(doc(student, path), { ...attendance, catatan: 'a'.repeat(120) });
+    const payment = 'payments/' + id;
+    await setDoc(doc(admin, payment), { uid: studentUid, status: 'pending' });
+    assert.equal((await getDocFromServer(doc(student, payment))).data().status, 'pending');
+    await denied(getDocFromServer(doc(other, payment)));
+    await denied(updateDoc(doc(student, payment), { status: 'success' }));
+    await denied(updateDoc(doc(aslab, payment), { status: 'success' }));
   });
 });
