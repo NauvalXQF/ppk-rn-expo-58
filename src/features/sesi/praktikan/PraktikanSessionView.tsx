@@ -25,16 +25,19 @@ export function PraktikanSessionView({
 
   const { sesi, presensiSaya } = detail;
   const isEligibleKelas = isPraktikanInClass(praktikan, sesi.kelasId);
+  const myLeave = !presensiSaya
+    ? state.leaveRequests?.find(
+        (leave) => leave.sessionId === sesi.id && leave.uid === praktikan.id,
+      )
+    : undefined;
   const hasApprovedLeave = Boolean(
     !presensiSaya &&
-      state.approvedLeaves?.some(
-        (leave) => leave.sessionId === sesi.id && leave.uid === praktikan.id,
-      ),
+      (myLeave?.status === 'approved' ||
+        state.approvedLeaves?.some(
+          (leave) => leave.sessionId === sesi.id && leave.uid === praktikan.id,
+        )),
   );
-
-  const openGeoAttendance = () => {
-    router.push(`/presensi/${sesi.id}` as Href);
-  };
+  const canRequestLeave = isEligibleKelas && !presensiSaya && !myLeave && !hasApprovedLeave && sesi.status !== 'ditutup';
 
   return (
     <View style={styles.container}>
@@ -55,19 +58,44 @@ export function PraktikanSessionView({
         />
       ) : null}
 
+      {isEligibleKelas && myLeave?.status === 'pending' ? (
+        <InfoBanner
+          tone="warning"
+          message="Pengajuan Izin Menunggu Keputusan"
+          description="Permohonan izin Anda untuk sesi ini sedang ditinjau oleh asisten."
+        />
+      ) : null}
+
+      {isEligibleKelas && myLeave?.status === 'rejected' ? (
+        <InfoBanner
+          tone="danger"
+          message="Pengajuan Izin Ditolak"
+          description={
+            myLeave.decisionNote
+              ? `Catatan asisten: ${myLeave.decisionNote}`
+              : 'Pengajuan izin Anda ditolak oleh asisten. Silakan lakukan presensi jika sesi masih dibuka.'
+          }
+        />
+      ) : null}
+
       {isEligibleKelas && !hasApprovedLeave && sesi.status === 'dijadwalkan' && (
         <View style={styles.section}>
           <InfoBanner
             tone="info"
-            message="Sesi belum dibuka. Kamu bisa melakukan presensi setelah asisten membuka sesi."
-          />
-          <AppButton
-            label="Lihat Halaman Presensi"
-            variant="secondary"
-            onPress={openGeoAttendance}
+            message="Sesi belum dibuka. Anda dapat melakukan presensi setelah asisten membuka sesi."
           />
         </View>
       )}
+
+      {canRequestLeave ? (
+        <AppButton
+          label="Ajukan Izin"
+          variant="secondary"
+          onPress={() =>
+            router.push(`/(tabs)/izin?sesiId=${encodeURIComponent(sesi.id)}` as Href)
+          }
+        />
+      ) : null}
 
       {isEligibleKelas && !hasApprovedLeave && sesi.status === 'dibuka' && !presensiSaya && (
         <View style={styles.section}>

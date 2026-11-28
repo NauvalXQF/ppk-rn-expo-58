@@ -68,7 +68,9 @@ export function RekapScreen() {
                 {user.peran === 'aslab'
                   ? 'Asisten Laboratorium'
                   : 'Asisten Praktikum'}
-                {isStaffUser(user) ? ` · NIP ${user.nip}` : ''}
+                {isStaffUser(user) && user.nip && user.nip !== '-'
+                  ? ` · NIP ${user.nip}`
+                  : ''}
               </AppText>
             </View>
           </View>

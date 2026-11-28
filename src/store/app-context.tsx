@@ -11,13 +11,6 @@ import {
   type PropsWithChildren,
 } from 'react';
 
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-} from 'firebase/firestore';
-
 import { initialState } from '@/data/dummy';
 import {
   subscribeAttendancesRealtime,
@@ -29,7 +22,6 @@ import {
   deleteClassMemberFromFirestore,
   deleteScheduleFromFirestore,
   deleteSessionFromFirestore,
-  getDb,
   isFirebaseConfigured,
   saveClassMemberToFirestore,
   saveClassToFirestore,
@@ -41,9 +33,11 @@ import {
 } from '@/services/practicumService';
 import { resolveSessionLabTarget } from '@/services/location/geofenceService';
 import {
-  filterLeavesForActor,
-  fromFirestoreLeaveRequestDoc,
+  subscribeAsistenLeaves,
+  subscribePraktikanLeaves,
 } from '@/services/permissionService';
+import { getActivePermissionRepository } from '@/services/firestorePermissionRepository';
+import type { LeaveRequest } from '@/features/permissions/types';
 import { mapPenggunaToPermissionActor } from '@/features/permissions/adapters';
 import {
   notifyScheduleChanged,
@@ -160,13 +154,14 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         currentUser: incoming,
+        ...(state.currentUser?.id !== incoming.id ? { approvedLeaves: [], leaveRequests: undefined } : {}),
         pengguna: sudahAda
           ? state.pengguna.map((u) => (u.id === incoming.id ? incoming : u))
           : [...state.pengguna, incoming],
       };
     }
     case 'KELUAR':
-      return state.currentUser === null ? state : { ...state, currentUser: null };
+      return state.currentUser === null ? state : { ...state, currentUser: null, approvedLeaves: [], leaveRequests: undefined };
     case 'BUKA_SESI':
     case 'TUTUP_SESI': {
       const sesi = state.sesi.find((s) => s.id === action.sesiId);
@@ -540,109 +535,38 @@ export function AppProvider({ children }: PropsWithChildren) {
     return unsub;
   }, [isRemote, currentUserId, currentUserRole]);
 
+  const managedLeaveClassesKey = state.currentUser?.peran === 'aslab'
+    ? JSON.stringify(state.kelas
+      .filter((kelas) => state.currentUser?.peran === 'aslab'
+        && state.currentUser.managedCourseIds?.includes(kelas.praktikumId))
+      .map((kelas) => kelas.id).sort())
+    : '[]';
+
   useEffect(() => {
     const activeUser = currentUserRef.current;
-    const db = getDb();
-    if (!isRemote || !db || !activeUser || !currentUserId || !currentUserRole) {
-      return;
-    }
+    if (!isRemote || !activeUser || activeUser.id !== currentUserId) return;
     const actor = mapPenggunaToPermissionActor(activeUser);
     if (!actor) return;
+    if (actor.role === 'aslab') actor.classIds = JSON.parse(managedLeaveClassesKey) as string[];
+    if (actor.role === 'asprak') actor.assignedLabIds = assignedLabsKey.split(',').filter(Boolean);
+    rawDispatch({ type: 'SYNC_FIRESTORE', payload: { approvedLeaves: [], leaveRequests: undefined } });
 
-    const toApprovedRefs = (
-      requests: ReturnType<typeof fromFirestoreLeaveRequestDoc>[],
-    ): ApprovedLeaveRef[] =>
-      requests
-        .filter((r) => r.status === 'approved')
-        .map((r) => ({
-          id: r.id,
-          uid: r.uid,
-          sessionId: r.sessionId,
-          classId: r.classId,
-          praktikanName: r.praktikanName,
-          praktikanNim: r.praktikanNim,
-          reason: r.reason,
-          decidedAt: r.decidedAt,
+    const onData = (requests: LeaveRequest[]) => {
+      const approvedLeaves: ApprovedLeaveRef[] = requests
+        .filter((request) => request.status === 'approved')
+        .map(({ id, uid, sessionId, classId, praktikanName, praktikanNim, reason, decidedAt }) => ({
+          id, uid, sessionId, classId, praktikanName, praktikanNim, reason, decidedAt,
         }));
-
-    const handleLeaveError = (err: { message?: string }) => {
-      const detail = err?.message ? `: ${err.message}` : '';
-      setError(`Gagal memuat data izin disetujui${detail}`);
+      rawDispatch({ type: 'SYNC_FIRESTORE', payload: { approvedLeaves, leaveRequests: requests } });
     };
-
-    if (actor.role === 'asprak') {
-      const allowedLabIds = Array.from(
-        new Set(
-          (actor.assignedLabIds ?? [])
-            .map((id) => id.trim())
-            .filter(Boolean),
-        ),
-      );
-      if (allowedLabIds.length === 0) {
-        rawDispatch({
-          type: 'SYNC_FIRESTORE',
-          payload: { approvedLeaves: [] },
-        });
-        return;
-      }
-
-      const byLab = new Map<string, ReturnType<typeof fromFirestoreLeaveRequestDoc>[]>();
-      const emitMerged = () => {
-        const deduped = new Map<string, ReturnType<typeof fromFirestoreLeaveRequestDoc>>();
-        for (const items of byLab.values()) {
-          for (const item of items) {
-            deduped.set(item.id, item);
-          }
-        }
-        const scoped = filterLeavesForActor(actor, Array.from(deduped.values()));
-        rawDispatch({
-          type: 'SYNC_FIRESTORE',
-          payload: { approvedLeaves: toApprovedRefs(scoped) },
-        });
-      };
-
-      const unsubs = allowedLabIds.map((labId) =>
-        onSnapshot(
-          query(collection(db, 'leaveRequests'), where('classId', '==', labId)),
-          (snapshot) => {
-            const mapped = snapshot.docs.map((d) =>
-              fromFirestoreLeaveRequestDoc(d.id, d.data() as Record<string, unknown>),
-            );
-            byLab.set(labId, mapped);
-            emitMerged();
-          },
-          handleLeaveError,
-        ),
-      );
-
-      return () => {
-        for (const unsub of unsubs) unsub();
-      };
-    }
-
-    const leaveQuery =
-      actor.role === 'praktikan'
-        ? query(collection(db, 'leaveRequests'), where('uid', '==', actor.uid))
-        : collection(db, 'leaveRequests');
-
-    return onSnapshot(
-      leaveQuery,
-      (snapshot) => {
-        const mapped = snapshot.docs.map((d) =>
-          fromFirestoreLeaveRequestDoc(d.id, d.data() as Record<string, unknown>),
-        );
-        const scoped =
-          actor.role === 'praktikan'
-            ? mapped
-            : filterLeavesForActor(actor, mapped);
-        rawDispatch({
-          type: 'SYNC_FIRESTORE',
-          payload: { approvedLeaves: toApprovedRefs(scoped) },
-        });
-      },
-      handleLeaveError,
-    );
-  }, [isRemote, currentUserId, currentUserRole, assignedLabsKey]);
+    const onError = (error: Error) => {
+      onData([]);
+      setError('Gagal memuat data izin: ' + error.message);
+    };
+    const repository = getActivePermissionRepository();
+    const subscribe = actor.role === 'praktikan' ? subscribePraktikanLeaves : subscribeAsistenLeaves;
+    return subscribe(actor, onData, onError, repository);
+  }, [isRemote, currentUserId, currentUserRole, assignedLabsKey, managedLeaveClassesKey]);
 
   useEffect(() => {
     const actor = currentUserRef.current;

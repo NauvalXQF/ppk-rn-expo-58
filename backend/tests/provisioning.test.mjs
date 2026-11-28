@@ -26,7 +26,11 @@ test('uses Auth UID, reports conflicting rows and resumes a partial creation', a
       if (++activations === 1) throw new Error('temporary Auth outage');
       account.disabled = false;
     },
-    async completeActivation() { delete profile.provisioningActivationPending; },
+    async completeActivation() {
+      if (!profile.provisioningActivationPending) return false;
+      delete profile.provisioningActivationPending;
+      return true;
+    },
   };
   assert.deepEqual(await provisionUsers(actor, { ...request, users: [row] }, adapter),
     [{ rowId: 'a', outcome: 'error', code: 'ACCOUNT_CREATION_DISABLED' }]);

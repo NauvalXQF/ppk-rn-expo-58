@@ -3,6 +3,7 @@ import { Redirect } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -24,7 +25,6 @@ import {
   FontSize,
   Gradients,
   Radius,
-  Shadow,
   Spacing,
 } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
@@ -38,8 +38,10 @@ export default function IndexRoute() {
 
   const [mode, setMode] = useState<Mode>('masuk');
   const [nama, setNama] = useState('');
+  const [nim, setNim] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [forgotNotice, setForgotNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -105,11 +107,15 @@ export default function IndexRoute() {
       setError('Password minimal 6 karakter.');
       return;
     }
+    if (mode === 'daftar' && password !== confirmPassword) {
+      setError('Konfirmasi password tidak cocok.');
+      return;
+    }
 
     setLoading(true);
     try {
       if (mode === 'daftar') {
-        await daftar({ nama, email, password });
+        await daftar({ nama, nim: nim.trim() || undefined, email, password });
       } else {
         await masuk({ email, password });
       }
@@ -146,9 +152,12 @@ export default function IndexRoute() {
           >
             <View style={styles.container}>
               <View style={styles.header}>
-                <View style={styles.logo}>
-                  <Text style={styles.logoText}>PPK</Text>
-                </View>
+                <Image
+                  source={require('../../assets/images/app-logo.png')}
+                  style={styles.logoImage}
+                  resizeMode="contain"
+                  accessibilityLabel="Logo Presensi Praktikum"
+                />
                 <Text style={styles.title}>Presensi Praktikum</Text>
                 <Text style={styles.subtitle}>
                   Masuk untuk mengelola jadwal, presensi GPS, dan rekap
@@ -201,13 +210,22 @@ export default function IndexRoute() {
                 </View>
 
                 {mode === 'daftar' ? (
-                  <FormField
-                    label="Nama Lengkap"
-                    value={nama}
-                    onChangeText={setNama}
-                    placeholder="Contoh: Budi Santoso"
-                    autoCapitalize="words"
-                  />
+                  <>
+                    <FormField
+                      label="Nama Lengkap"
+                      value={nama}
+                      onChangeText={setNama}
+                      placeholder="Contoh: Budi Santoso"
+                      autoCapitalize="words"
+                    />
+                    <FormField
+                      label="NIM (Opsional)"
+                      value={nim}
+                      onChangeText={setNim}
+                      placeholder="Contoh: 24060122140001"
+                      autoCapitalize="none"
+                    />
+                  </>
                 ) : null}
 
                 <FormField
@@ -243,6 +261,17 @@ export default function IndexRoute() {
                     </Pressable>
                   }
                 />
+
+                {mode === 'daftar' ? (
+                  <FormField
+                    label="Konfirmasi Password"
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="Ulangi password"
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                  />
+                ) : null}
 
                 {mode === 'masuk' ? (
                   <View style={styles.forgotRow}>
@@ -343,7 +372,7 @@ const styles = StyleSheet.create({
   forgotText: {
     fontSize: FontSize.xs,
     fontFamily: FontFamily.medium,
-    color: '#2563EB',
+    color: Colors.accentBlue,
   },
   decoTopRight: {
     position: 'absolute',
@@ -366,20 +395,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.xs + 2,
   },
-  logo: {
-    width: 64,
-    height: 64,
-    borderRadius: Radius.lg - 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.primary,
+  logoImage: {
+    width: 72,
+    height: 72,
+    borderRadius: Radius.lg,
     marginBottom: Spacing.xs,
-    ...Shadow.card,
-  },
-  logoText: {
-    fontSize: FontSize.lg,
-    fontFamily: FontFamily.semibold,
-    color: Colors.textOnDark,
   },
   title: {
     fontSize: FontSize.xl,

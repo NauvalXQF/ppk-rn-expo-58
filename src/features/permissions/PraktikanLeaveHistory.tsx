@@ -24,17 +24,20 @@ export interface PraktikanLeaveHistoryProps {
   actor: PermissionActor;
   repository?: PermissionRepository;
   serviceOptions?: PermissionServiceOptions;
+  live?: { requests: LeaveRequest[]; loading: boolean };
 }
 
 export function PraktikanLeaveHistory({
   actor,
   repository = defaultPermissionRepository,
   serviceOptions,
+  live,
 }: PraktikanLeaveHistoryProps) {
   const { requests, loading, error } = useLeaveSubscription(
     'praktikan',
     actor,
     repository,
+    live,
   );
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);

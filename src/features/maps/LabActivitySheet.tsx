@@ -1,4 +1,3 @@
-import { StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { Colors, FontSize, Radius, Spacing } from '@/constants/theme';
@@ -6,6 +5,7 @@ import type { LabActivity, ScheduledActivity } from '@/services/maps/labActivity
 import type { LabClass } from '@/services/maps/labActivityService';
 import type { Laboratory } from '@/types/laboratory';
 import { LABEL_STATUS } from '@/types/models';
+import { StyleSheet, Text, View } from 'react-native';
 import { MapSheet } from './MapSheet';
 
 const dateFormat = new Intl.DateTimeFormat('id-ID', {
@@ -29,7 +29,7 @@ function ActivityDetails({ activity, labClass }: { activity: ScheduledActivity; 
 }
 
 export function LabActivitySheet({
-  lab, activity, classes, simulated, loading, error, cached, onRetry, onClose, onAttendance,
+  lab, activity, classes, simulated, loading, error, cached, viewerRole, onRetry, onClose, onAttendance,
 }: {
   lab: Laboratory;
   activity?: LabActivity;
@@ -38,6 +38,7 @@ export function LabActivitySheet({
   loading: boolean;
   error?: string;
   cached?: boolean;
+  viewerRole?: string;
   onRetry: () => void;
   onClose: () => void;
   onAttendance?: () => void;
@@ -89,7 +90,13 @@ export function LabActivitySheet({
             </View>
           )) : (
             <Text style={styles.text}>
-              {loading ? 'Memuat jadwal…' : error ? 'Data jadwal belum tersedia.' : 'Tidak ada jadwal lagi hari ini atau besok.'}
+              {loading
+                ? 'Memuat jadwal…'
+                : error
+                  ? 'Data jadwal belum tersedia.'
+                  : viewerRole === 'praktikan'
+                    ? 'Tidak ada jadwal praktikum Anda di lab ini.'
+                    : 'Tidak ada jadwal lagi hari ini atau besok.'}
             </Text>
           )}
         </>

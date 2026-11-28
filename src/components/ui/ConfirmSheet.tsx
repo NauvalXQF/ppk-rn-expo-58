@@ -11,7 +11,8 @@ export interface ConfirmSheetProps {
   confirmLabel: string;
   cancelLabel?: string;
   tone?: 'primary' | 'danger';
-  onConfirm: () => void;
+  children?: React.ReactNode;
+  onConfirm: () => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -22,9 +23,23 @@ export function ConfirmSheet({
   confirmLabel,
   cancelLabel = 'Batal',
   tone = 'primary',
+  children,
   onConfirm,
   onClose,
 }: ConfirmSheetProps) {
+  const [submitting, setSubmitting] = React.useState(false);
+
+  const handleConfirm = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await onConfirm();
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <Modal
       visible={visible}
@@ -33,8 +48,8 @@ export function ConfirmSheet({
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.sheetContainer}>
+        <Pressable style={styles.backdrop} onPress={submitting ? undefined : onClose} />
+        <View style={styles.sheetContainer} accessibilityViewIsModal>
           <SafeAreaView edges={['bottom']} style={styles.safeArea}>
             <View style={styles.content}>
               <View style={styles.dragHandle} />
@@ -42,12 +57,14 @@ export function ConfirmSheet({
               {description ? (
                 <Text style={styles.description}>{description}</Text>
               ) : null}
+              {children}
 
               <View style={styles.actionRow}>
                 <View style={styles.buttonWrapper}>
                   <AppButton
                     label={cancelLabel}
                     variant="secondary"
+                    disabled={submitting}
                     onPress={onClose}
                   />
                 </View>
@@ -55,10 +72,9 @@ export function ConfirmSheet({
                   <AppButton
                     label={confirmLabel}
                     variant={tone === 'danger' ? 'danger' : 'primary'}
-                    onPress={() => {
-                      onConfirm();
-                      onClose();
-                    }}
+                    loading={submitting}
+                    disabled={submitting}
+                    onPress={handleConfirm}
                   />
                 </View>
               </View>

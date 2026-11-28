@@ -24,7 +24,9 @@ function loadSource(name, overrides = {}) {
 }
 
 const { initialState } = loadSource('data/dummy');
-const { appReducer } = loadSource('store/app-context');
+const { appReducer } = loadSource('store/app-context', {
+  '@/services/firestorePermissionRepository': { getActivePermissionRepository: () => null },
+});
 const selectors = loadSource('store/selectors');
 const { formatTanggal, formatJam, formatWaktuPresensi } = loadSource('utils/date');
 const fresh = () => structuredClone(initialState);

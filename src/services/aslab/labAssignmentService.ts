@@ -3,6 +3,7 @@ import {
   arrayUnion,
   collection,
   doc,
+  getDoc,
   getDocs,
   query,
   runTransaction,
@@ -64,11 +65,53 @@ export type ProvisionUsersFn = (input: {
   users: ProvisionUserInput[];
 }) => Promise<ProvisionUserResult[]>;
 
+const MAX_PROVISION_BATCH_ROWS = 100;
+const MAX_PROVISION_BODY_BYTES = 14_000;
+
+function utf8Length(text: string): number {
+  let bytes = 0;
+  for (const character of text) {
+    const code = character.codePointAt(0)!;
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+function chunkProvisionUsers(
+  users: ProvisionUserInput[],
+  courseId: string,
+  labId: string,
+): ProvisionUserInput[][] {
+  const chunks: ProvisionUserInput[][] = [];
+  let current: ProvisionUserInput[] = [];
+
+  for (const user of users) {
+    const candidate = [...current, user];
+    const byteLength = utf8Length(JSON.stringify({ courseId, labId, users: candidate }));
+    if (
+      current.length > 0 &&
+      (candidate.length > MAX_PROVISION_BATCH_ROWS || byteLength >= MAX_PROVISION_BODY_BYTES)
+    ) {
+      chunks.push(current);
+      current = [user];
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.length > 0) {
+    chunks.push(current);
+  }
+  return chunks;
+}
+
 export async function provisionBulkUsersViaBackend(input: {
   courseId: string;
   labId: string;
   users: ProvisionUserInput[];
 }): Promise<ProvisionUserResult[]> {
+  if (!input.labId.trim() || !input.courseId.trim()) {
+    throw new Error('Mata kuliah dan laboratorium tujuan wajib dipilih.');
+  }
   const user = getFirebaseAuth().currentUser;
   if (!user) {
     throw new Error('Sesi login tidak aktif. Silakan masuk kembali.');
@@ -76,36 +119,65 @@ export async function provisionBulkUsersViaBackend(input: {
   const base = process.env.EXPO_PUBLIC_API_BASE_URL?.trim() ||
     process.env.EXPO_PUBLIC_PAYMENT_API_URL?.trim();
   if (!base) {
-    throw new Error('Alamat backend provisioning belum diatur.');
+    throw new Error('Alamat backend belum diatur (EXPO_PUBLIC_API_BASE_URL).');
   }
   const origin = resolvePaymentApiOrigin(base, typeof __DEV__ !== 'undefined' ? __DEV__ : true);
   if (!origin) {
     throw new Error('Gunakan HTTPS atau alamat loopback pada development build.');
   }
   const idToken = await user.getIdToken();
-  const response = await fetch(`${origin}/api/admin/provisioning/users`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify(input),
+  const allResults: ProvisionUserResult[] = [];
+  const seen = new Set<string>();
+  const unique = input.users.filter((row) => {
+    const email = row.email.trim().toLowerCase();
+    const identity = (row.role === 'praktikan' ? row.nim : row.nip)?.trim();
+    const identityKey = `${row.role}:${identity}`;
+    if (seen.has(email) || (identity && seen.has(identityKey))) {
+      allResults.push({ rowId: row.rowId, outcome: 'conflict', code: 'DUPLICATE_ROW' });
+      return false;
+    }
+    seen.add(email);
+    if (identity) seen.add(identityKey);
+    return true;
   });
+  const chunks = chunkProvisionUsers(unique, input.courseId, input.labId);
+  let completedChunks = 0;
 
-  const payload = (await response.json().catch(() => ({}))) as {
-    results?: ProvisionUserResult[];
-    error?: { message?: string };
-    message?: string;
-  };
-  if (!response.ok || !Array.isArray(payload.results)) {
-    throw new Error(
-      payload.error?.message ||
-        payload.message ||
-        'Gagal memproses provisioning akun di backend.',
-    );
+  for (const [index, chunk] of chunks.entries()) {
+    const body = JSON.stringify({ courseId: input.courseId, labId: input.labId, users: chunk });
+    if (utf8Length(body) >= MAX_PROVISION_BODY_BYTES) {
+      allResults.push(...chunk.map(({ rowId }) => ({ rowId, outcome: 'error' as const, code: 'INVALID_ROW' })));
+      continue;
+    }
+    try {
+      const response = await fetch(`${origin}/api/admin/provisioning/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body,
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        results?: ProvisionUserResult[];
+        error?: { message?: string };
+        message?: string;
+      };
+      if (!response.ok || !Array.isArray(payload.results)) {
+        throw new Error(payload.error?.message || payload.message || 'Gagal memproses provisioning akun di backend.');
+      }
+      allResults.push(...payload.results);
+      completedChunks++;
+    } catch (error) {
+      if (!completedChunks) throw error;
+      allResults.push(...chunks.slice(index).flat().map(({ rowId }) => ({
+        rowId, outcome: 'error' as const, code: 'PROVISIONING_RETRY',
+      })));
+      break;
+    }
   }
   const emails = new Map(input.users.map(({ rowId, email }) => [rowId, email]));
-  const created = payload.results.filter((result) => result.outcome === 'created' && result.uid);
+  const created = allResults.filter((result) => result.outcome === 'created' && result.uid);
   for (let start = 0; start < created.length; start += 4) {
     await Promise.all(created.slice(start, start + 4).map(async (result) => {
       const email = emails.get(result.rowId);
@@ -117,7 +189,8 @@ export async function provisionBulkUsersViaBackend(input: {
       }
     }));
   }
-  return payload.results;
+  const byRowId = new Map(allResults.map((result) => [result.rowId, result]));
+  return input.users.map(({ rowId }) => byRowId.get(rowId) ?? { rowId, outcome: 'error', code: 'PROVISIONING_RETRY' });
 }
 
 function parseFiniteOrDefault(raw: unknown, fallback: number): number {
@@ -416,27 +489,20 @@ export async function transferPraktikan(
   }
 
   const db = getFirebaseDb();
-  const batch = writeBatch(db);
-
-  // Deaktivasi keanggotaan lama hanya menyentuh ['active', 'updatedAt'] sesuai firestore.rules
   const oldRef = doc(db, 'classMembers', `${fromLabId}_${uid}`);
-  batch.update(oldRef, {
-    active: false,
-    updatedAt: serverTimestamp(),
-  });
-
   const newRef = doc(db, 'classMembers', `${toLabId}_${uid}`);
-  batch.set(newRef, {
-    classId: toLabId,
-    uid,
-    nama: member.nama,
-    nim: member.nim,
-    active: true,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+  await runTransaction(db, async (tx) => {
+    const existingDest = await tx.get(newRef);
+    tx.update(oldRef, { active: false, updatedAt: serverTimestamp() });
+    const fields = {
+      nama: member.nama,
+      nim: member.nim,
+      active: true,
+      updatedAt: serverTimestamp(),
+    };
+    if (existingDest.exists()) tx.update(newRef, fields);
+    else tx.set(newRef, { ...fields, classId: toLabId, uid, createdAt: serverTimestamp() });
   });
-
-  await batch.commit();
 }
 
 /**
@@ -543,4 +609,112 @@ export async function fetchLabAspraks(labId: string): Promise<LabAssignment[]> {
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => d.data() as LabAssignment);
+}
+
+export interface AvailableAsprak {
+  uid: string;
+  nama: string;
+  email: string;
+  nip: string;
+  role: string;
+}
+
+export async function fetchAvailableAspraks(): Promise<AvailableAsprak[]> {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, 'users'),
+    where('role', 'in', ['asprak', 'asisten']),
+  );
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => {
+      const data = d.data() as Record<string, unknown>;
+      return {
+        uid: String(data.uid ?? d.id),
+        nama: String(data.nama ?? 'Tanpa Nama'),
+        email: String(data.email ?? ''),
+        nip: String(data.nip ?? data.nim ?? ''),
+        role: String(data.role ?? 'asprak'),
+      };
+    })
+    .sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+}
+
+export async function assignSingleAsprakToLab(
+  actor: ProfilPengguna,
+  labId: string,
+  courseId: string,
+  asprak: { uid: string; nama: string; email: string; nip?: string },
+): Promise<void> {
+  if (actor.role !== 'aslab') {
+    throw new Error('Hanya Aslab yang berwenang menugaskan Asprak ke lab.');
+  }
+  if (!labId.trim() || !courseId.trim()) throw new Error('Pilih laboratorium dalam mata kuliah yang dikelola.');
+  const db = getFirebaseDb();
+  const batch = writeBatch(db);
+  const assignmentId = `${labId}_${asprak.uid}`;
+  const assignRef = doc(db, 'labAssignments', assignmentId);
+  const existing = await getDoc(assignRef);
+
+  if (existing.exists()) {
+    batch.update(assignRef, {
+      nama: asprak.nama.trim(),
+      email: asprak.email.trim().toLowerCase(),
+      nip: (asprak.nip ?? '').trim(),
+      courseId,
+      active: true,
+      assignedBy: actor.uid,
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    batch.set(assignRef, {
+      id: assignmentId,
+      labId,
+      courseId,
+      uid: asprak.uid,
+      nip: (asprak.nip ?? '').trim(),
+      nama: asprak.nama.trim(),
+      email: asprak.email.trim().toLowerCase(),
+      active: true,
+      assignedBy: actor.uid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  const labRef = doc(db, 'laboratories', labId);
+  batch.update(labRef, {
+    asprakUids: arrayUnion(asprak.uid),
+    updatedAt: serverTimestamp(),
+    updatedBy: actor.uid,
+  });
+
+  await batch.commit();
+}
+
+export async function unassignAsprakFromLab(
+  actor: ProfilPengguna,
+  labId: string,
+  asprakUid: string,
+): Promise<void> {
+  if (actor.role !== 'aslab') {
+    throw new Error('Hanya Aslab yang berwenang mencopot Asprak dari lab.');
+  }
+  const db = getFirebaseDb();
+  const batch = writeBatch(db);
+  const assignRef = doc(db, 'labAssignments', `${labId}_${asprakUid}`);
+  batch.update(assignRef, {
+    active: false,
+    updatedAt: serverTimestamp(),
+    updatedBy: actor.uid,
+  });
+
+  const labRef = doc(db, 'laboratories', labId);
+  batch.update(labRef, {
+    asprakUids: arrayRemove(asprakUid),
+    updatedAt: serverTimestamp(),
+    updatedBy: actor.uid,
+  });
+
+  await batch.commit();
 }

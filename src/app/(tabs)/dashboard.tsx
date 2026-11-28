@@ -38,16 +38,38 @@ export default function AslabDashboardScreen() {
     return <Redirect href="/jadwal" />;
   }
 
+  const managedCourseIds = new Set(pengguna.managedCourseIds ?? []);
+  const scopedClassIds = new Set(state.kelas
+    .filter((kelas) => managedCourseIds.has(kelas.praktikumId))
+    .map((kelas) => kelas.id));
+  const scopedLaboratories = laboratories.filter((lab) =>
+    lab.courseId ? managedCourseIds.has(lab.courseId) : scopedClassIds.has(lab.id),
+  );
+  const scopedLabIds = new Set(scopedLaboratories.map((l) => l.id));
+
+  const scopedSessions = (state.sesi ?? []).filter((s) =>
+    scopedClassIds.has(s.kelasId) && (!s.labId || scopedLabIds.has(s.labId)),
+  );
+  const scopedSchedules = (state.jadwal ?? []).filter((j) =>
+    scopedClassIds.has(j.kelasId) && (!j.labId || scopedLabIds.has(j.labId)),
+  );
+  const scopedFines = fines.filter((f) => scopedLabIds.has(f.labId) || scopedClassIds.has(f.labId));
+
   const classMembers = (state.pengguna ?? [])
     .filter((u): u is Praktikan => u.peran === 'praktikan')
-    .map((p) => ({ classId: p.kelasId, active: true }));
+    .flatMap((p) => {
+      const ids = p.kelasIds && p.kelasIds.length > 0 ? p.kelasIds : [p.kelasId];
+      return ids
+        .filter((id) => scopedClassIds.has(id))
+        .map((classId) => ({ classId, active: true }));
+    });
 
   const metrics = calculateDashboardMetrics({
-    laboratories,
-    sessions: state.sesi ?? [],
-    schedules: state.jadwal ?? [],
+    laboratories: scopedLaboratories,
+    sessions: scopedSessions,
+    schedules: scopedSchedules,
     classMembers,
-    fines,
+    fines: scopedFines,
     filter: period,
   });
 

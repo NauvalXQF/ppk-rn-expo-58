@@ -399,9 +399,6 @@ export async function submitAttendanceToFirestore(
 }
 
 function parseTimestampToIso(rawRecordedAt: unknown, fallbackIso?: unknown): string {
-  if (typeof fallbackIso === 'string' && fallbackIso.length > 0) {
-    return fallbackIso;
-  }
   if (
     rawRecordedAt &&
     typeof rawRecordedAt === 'object' &&
@@ -409,6 +406,9 @@ function parseTimestampToIso(rawRecordedAt: unknown, fallbackIso?: unknown): str
     typeof (rawRecordedAt as { toDate: () => Date }).toDate === 'function'
   ) {
     return (rawRecordedAt as { toDate: () => Date }).toDate().toISOString();
+  }
+  if (typeof fallbackIso === 'string' && fallbackIso.length > 0) {
+    return fallbackIso;
   }
   return new Date().toISOString();
 }

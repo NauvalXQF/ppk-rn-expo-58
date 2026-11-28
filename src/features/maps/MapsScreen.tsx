@@ -162,6 +162,7 @@ export function MapsScreen({ actor }: { actor: ProfilPengguna }) {
           loading={activity.loading}
           error={activity.error}
           cached={activity.cached}
+          viewerRole={actor.role}
           onRetry={activity.retry}
           onClose={() => setSelectedId(undefined)}
           onAttendance={attendance ? () => {

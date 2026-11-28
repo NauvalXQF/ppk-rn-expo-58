@@ -43,8 +43,8 @@ export function subscribeLaboratories(
 }
 
 function requireAssistant(actor: ProfilPengguna | null): asserts actor is ProfilPengguna {
-  if (!actor?.uid || (actor.role !== 'asisten' && actor.role !== 'aslab' && actor.role !== 'asprak')) {
-    throw new Error('Hanya asisten atau aslab yang dapat mengelola laboratorium.');
+  if (!actor?.uid || actor.role !== 'aslab') {
+    throw new Error('Hanya aslab yang dapat mengelola laboratorium.');
   }
 }
 

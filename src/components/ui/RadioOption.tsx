@@ -6,6 +6,7 @@ interface RadioOptionProps {
   selected: boolean;
   title: string;
   subtitle?: string;
+  disabled?: boolean;
   onPress: () => void;
 }
 
@@ -13,15 +14,20 @@ export function RadioOption({
   selected,
   title,
   subtitle,
+  disabled = false,
   onPress,
 }: RadioOptionProps) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
+      accessibilityRole="radio"
+      accessibilityState={{ selected, disabled }}
       style={({ pressed }) => [
         styles.container,
         selected && styles.containerSelected,
-        pressed && styles.pressed,
+        disabled && { opacity: 0.55 },
+        pressed && !disabled && styles.pressed,
       ]}
     >
       <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>

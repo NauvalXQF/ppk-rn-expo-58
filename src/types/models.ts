@@ -188,6 +188,7 @@ export interface AppState {
   presensi: Presensi[];
   jadwal?: Jadwal[];
   approvedLeaves?: ApprovedLeaveRef[];
+  leaveRequests?: LeaveRequest[];
 }
 
 export const LABEL_STATUS: Record<StatusSesi, string> = {
@@ -243,6 +244,7 @@ export type AppAction =
         | 'jadwal'
         | 'currentUser'
         | 'approvedLeaves'
+        | 'leaveRequests'
       >
     >;
   }
@@ -296,3 +298,4 @@ export interface DetailSesi {
   presensiSaya: Presensi | null;
   rekap: RekapSesi;
 }
+import type { LeaveRequest } from '@/features/permissions/types';

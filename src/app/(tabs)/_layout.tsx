@@ -26,6 +26,7 @@ const TAB_LABELS: Record<string, string> = {
   jadwal: 'Jadwal',
   peta: 'Peta',
   kehadiran: 'Kehadiran',
+  denda: 'Denda',
   rekap: 'Rekap',
   izin: 'Izin',
   profil: 'Profil',

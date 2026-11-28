@@ -3,7 +3,7 @@ const { randomUUID } = require('node:crypto');
 const { test } = require('node:test');
 const { initializeApp, deleteApp } = require('firebase/app');
 const {
-  connectFirestoreEmulator, doc, getDocFromServer, getFirestore, runTransaction,
+  collection, connectFirestoreEmulator, doc, getDocFromServer, getDocsFromServer, getFirestore, query, runTransaction, where,
   serverTimestamp, setDoc, terminate, updateDoc, writeBatch,
 } = require('firebase/firestore');
 
@@ -384,6 +384,32 @@ test('scoped Firestore writes against the local emulator', {
     const rejectedPath = requestPath + '-second';
     await setDoc(doc(admin, rejectedPath), { uid: studentUid, sessionId: leaveSession, classId, alasan: 'Sakit', status: 'pending' });
     await updateDoc(doc(asprak, rejectedPath), { ...decision, status: 'rejected' });
+    const scopedPath = requestPath + '-aslab-scope';
+    const foreignPath = requestPath + '-foreign-scope';
+    const review = { uid: studentUid, sessionId: leaveSession, classId, alasan: 'Sakit', status: 'pending' };
+    await setDoc(doc(admin, scopedPath), review);
+    await setDoc(doc(admin, foreignPath), { ...review, classId: foreignClass });
+    const scoped = getDocsFromServer(query(collection(aslab, 'leaveRequests'), where('classId', '==', classId)));
+    assert.ok((await scoped).docs.some((snapshot) => snapshot.ref.path === scopedPath));
+    await denied(getDocsFromServer(collection(aslab, 'leaveRequests')));
+    await denied(getDocFromServer(doc(aslab, foreignPath)));
+    await denied(updateDoc(doc(aslab, foreignPath), { ...decision, reviewedBy: aslabUid }));
+    await updateDoc(doc(aslab, scopedPath), { ...decision, reviewedBy: aslabUid, reviewNote: 'Disetujui' });
+  });
+
+  await t.test('self-service profile changes keep academic identity immutable and membership writes require scope', async () => {
+    const newcomer = namespace + '-new-student';
+    const newcomerDb = client({ sub: newcomer });
+    const profile = { uid: newcomer, role: 'praktikan', nama: 'Nama Uji', nim: '001234', ...timestamps() };
+    const ref = doc(newcomerDb, 'users', newcomer);
+    await denied(setDoc(ref, { ...profile, managedCourseIds: [courseId] }));
+    await setDoc(ref, profile);
+    await denied(updateDoc(ref, { nim: '1234', updatedAt: serverTimestamp() }));
+    await denied(updateDoc(ref, { role: 'aslab', updatedAt: serverTimestamp() }));
+    await updateDoc(ref, { nama: 'Nama Baru', updatedAt: serverTimestamp() });
+    const member = { uid: newcomer, nama: 'Nama Baru', nim: '001234', active: true, ...timestamps() };
+    await setDoc(doc(aslab, 'classMembers', classId + '_' + newcomer), { ...member, classId });
+    await denied(setDoc(doc(aslab, 'classMembers', foreignClass + '_' + newcomer), { ...member, classId: foreignClass }));
   });
 
   await t.test('attendance notes accept up to 120 characters and payments stay server-only', async () => {

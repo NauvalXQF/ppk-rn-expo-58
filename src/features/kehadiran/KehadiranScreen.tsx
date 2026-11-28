@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, View, StyleSheet, Text } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { AppIcon } from '@/components/ui/AppIcon';
 import { useApp } from '@/store/app-context';
@@ -32,8 +32,17 @@ export function KehadiranScreen() {
   const izinCount = riwayat.filter((r) => r.status === 'izin').length;
   const totalSesi = riwayat.length;
   const rate = totalSesi > 0 ? Math.round((hadirCount / totalSesi) * 100) : 0;
-  const totalJam = hadirCount * 2;
-  const filledDots = Math.min(35, Math.max(hadirCount * 4, rate > 0 ? 12 : 0));
+  const totalMinutes = riwayat
+    .filter((r) => r.status === 'hadir')
+    .reduce((sum, r) => {
+      const [sh, sm] = r.sesi.jamMulai.split(':').map(Number);
+      const [eh, em] = r.sesi.jamSelesai.split(':').map(Number);
+      const mins = (eh * 60 + em) - (sh * 60 + sm);
+      return sum + (Number.isFinite(mins) && mins > 0 ? mins : 120);
+    }, 0);
+  const totalJam = Math.floor(totalMinutes / 60);
+  const sisaMenit = totalMinutes % 60;
+  const filledDots = Math.round((rate / 100) * 35);
 
   const kelasIds = getPraktikanClassIds(user);
   const kelasNames = kelasIds
@@ -43,7 +52,14 @@ export function KehadiranScreen() {
   const activeSession = riwayat.find((r) => r.status === 'belum-presensi');
   const highlightSession = activeSession ?? riwayat[0];
 
+  const leaveBySessionId = new Map(
+    (state.leaveRequests ?? [])
+      .filter((l) => l.uid === user.id)
+      .map((l) => [l.sessionId, l]),
+  );
+
   const getStatusInfo = (item: (typeof riwayat)[number]) => {
+    const leave = leaveBySessionId.get(item.sesi.id);
     switch (item.status) {
       case 'hadir':
         if (item.presensi?.lateStatus === 'late') {
@@ -64,23 +80,65 @@ export function KehadiranScreen() {
         };
       case 'izin':
         return {
-          label: 'Izin (Excused)',
+          label: 'Izin (Disetujui)',
           bg: Colors.unreadSurface,
           color: Colors.accentBlue,
         };
       case 'belum-presensi':
+        if (leave?.status === 'pending') {
+          return {
+            label: 'Izin Menunggu',
+            bg: Colors.warningSoft,
+            color: Colors.warning,
+          };
+        }
+        if (leave?.status === 'rejected') {
+          return {
+            label: 'Izin Ditolak · Belum presensi',
+            bg: Colors.dangerSoft,
+            color: Colors.danger,
+          };
+        }
         return {
           label: 'Belum presensi',
           bg: Colors.warningSoft,
           color: Colors.warning,
         };
       case 'belum-berlangsung':
+        if (leave?.status === 'pending') {
+          return {
+            label: 'Izin Menunggu',
+            bg: Colors.warningSoft,
+            color: Colors.warning,
+          };
+        }
+        if (leave?.status === 'rejected') {
+          return {
+            label: 'Izin Ditolak',
+            bg: Colors.dangerSoft,
+            color: Colors.danger,
+          };
+        }
         return {
           label: 'Belum berlangsung',
           bg: Colors.neutralSoft,
           color: Colors.textMuted,
         };
       case 'tidak-hadir':
+        if (leave?.status === 'pending') {
+          return {
+            label: 'Izin Menunggu',
+            bg: Colors.warningSoft,
+            color: Colors.warning,
+          };
+        }
+        if (leave?.status === 'rejected') {
+          return {
+            label: 'Izin Ditolak',
+            bg: Colors.dangerSoft,
+            color: Colors.danger,
+          };
+        }
         return {
           label: 'Tidak hadir',
           bg: Colors.dangerSoft,
@@ -174,7 +232,7 @@ export function KehadiranScreen() {
             </AppText>
           </View>
           <AppText variant="stat" color={Colors.text}>
-            {totalJam}j 00m
+            {totalJam}j {String(sisaMenit).padStart(2, '0')}m
           </AppText>
         </View>
         <DotHeatmap filledCount={filledDots} />
@@ -235,15 +293,18 @@ export function KehadiranScreen() {
           description="Kamu belum memiliki catatan kehadiran."
         />
       ) : (
-        <View style={styles.list}>
-          {riwayat.map((item) => {
+        <FlatList
+          data={riwayat}
+          keyExtractor={(item) => item.sesi.id}
+          scrollEnabled={false}
+          contentContainerStyle={styles.list}
+          renderItem={({ item }) => {
             const kelas = state.kelas.find((k) => k.id === item.sesi.kelasId);
             const statusInfo = getStatusInfo(item);
             const formattedDate = formatTanggal(item.sesi.tanggal);
 
             return (
               <AppCard
-                key={item.sesi.id}
                 onPress={() => router.push(`/sesi/${item.sesi.id}`)}
                 style={styles.historyCard}
               >
@@ -268,8 +329,8 @@ export function KehadiranScreen() {
                 </Text>
               </AppCard>
             );
-          })}
-        </View>
+          }}
+        />
       )}
     </ScreenContainer>
   );

@@ -17,12 +17,15 @@ export function useLeaveSubscription(
   mode: 'praktikan' | 'asisten',
   actor: PermissionActor,
   repository: PermissionRepository = defaultPermissionRepository,
+  live?: { requests: LeaveRequest[]; loading: boolean },
 ) {
   const assignedLabsKey = (actor.assignedLabIds ?? [])
     .slice()
     .sort()
     .join(',');
   const currentKey = `${mode}:${actor.role}:${actor.uid}:${assignedLabsKey}`;
+  const classIdsKey = JSON.stringify(actor.classIds ?? []);
+  const subscribeLocally = live === undefined;
   const [state, setState] = useState<SubscriptionState | null>(null);
 
   // Stabilkan objek aktor berdasarkan nilai primitif agar listener tidak re-subscribe saat parent re-render.
@@ -31,16 +34,18 @@ export function useLeaveSubscription(
       uid: actor.uid,
       role: actor.role,
       displayName: actor.displayName,
+      classIds: JSON.parse(classIdsKey) as string[],
       ...(assignedLabsKey
         ? { assignedLabIds: assignedLabsKey.split(',').filter(Boolean) }
         : actor.role === 'asprak'
           ? { assignedLabIds: [] }
           : {}),
     }),
-    [actor.uid, actor.role, actor.displayName, assignedLabsKey],
+    [actor.uid, actor.role, actor.displayName, assignedLabsKey, classIdsKey],
   );
 
   useEffect(() => {
+    if (!subscribeLocally) return;
     let active = true;
 
     const subscribe =
@@ -63,11 +68,11 @@ export function useLeaveSubscription(
       active = false;
       unsubscribe();
     };
-  }, [currentKey, mode, repository, subscriptionActor]);
+  }, [currentKey, mode, repository, subscriptionActor, subscribeLocally]);
 
   const isCurrent = state !== null && state.key === currentKey;
 
-  return {
+  return live ? { ...live, error: null } : {
     requests: isCurrent ? state.items : [],
     loading: !isCurrent,
     error: isCurrent ? state.error : null,

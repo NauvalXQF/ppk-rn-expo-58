@@ -274,6 +274,16 @@ test('registration and auth observer converge on the real UID without enrolling 
   assert.deepEqual([...docs.keys()], ['users/' + user.uid]);
 });
 
+test('registration retains leading-zero NIM and ignores subsequent attempts to replace it', async () => {
+  const { docs, user, load } = setup();
+  const { daftarPraktikan, pastikanProfil } = load('services/authService');
+  await daftarPraktikan({ nama: 'Nama Registrasi', nim: '001245', email: user.email, password: 'password-uji' });
+  await pastikanProfil(user, 'Nama Baru', '009999');
+  const profile = docs.get('users/' + user.uid);
+  assert.equal(profile.nim, '001245');
+  assert.equal(profile.nama, 'Nama Baru');
+});
+
 test('assistant session lifecycle preserves relations, audit history and archived data', async () => {
   const { docs, service } = setup({
     'classes/kelas-a': { archived: false },

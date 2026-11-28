@@ -1,5 +1,5 @@
 import React, { type ReactNode } from 'react';
-import { View, StyleSheet, ScrollView, type ViewStyle } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View, type ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Gradients, Spacing } from '@/constants/theme';
@@ -55,7 +55,12 @@ export function ScreenContainer({
         style={styles.flex}
       >
         <SafeAreaView style={styles.flex} edges={['top', 'left', 'right']}>
-          {inner}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.flex}
+          >
+            {inner}
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </LinearGradient>
     );
@@ -72,7 +77,12 @@ export function ScreenContainer({
       ]}
       edges={['top', 'left', 'right']}
     >
-      {inner}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.flex}
+      >
+        {inner}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

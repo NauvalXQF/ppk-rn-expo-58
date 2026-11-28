@@ -736,8 +736,8 @@ test('lab CRUD persists the master schema and waits for acknowledgements or erro
   });
   const actor = { uid: 'assistant', role: 'aslab', managedCourseIds: ['course-a'] };
   const student = { uid: 'student', role: 'praktikan' };
-  await assert.rejects(saveLaboratory(student, lab), /Hanya asisten/);
-  await assert.rejects(archiveLaboratory(student, lab.id), /Hanya asisten/);
+  await assert.rejects(saveLaboratory(student, lab), /Hanya aslab/);
+  await assert.rejects(archiveLaboratory(student, lab.id), /Hanya aslab/);
   await assert.rejects(saveLaboratory(actor, { ...lab, radiusMeters: 5 }), /Radius/);
   assert.deepEqual(writes, []);
 
@@ -805,6 +805,7 @@ test('the maps screen closes an archived marker selection and preserves the atte
     'react-native-safe-area-context': { SafeAreaView: 'safe-area' },
     '@/components/ui/AppButton': { AppButton: 'button' },
     '@/components/ui/InfoBanner': { InfoBanner: 'banner' },
+    'expo-location': {},
     '@/constants/theme': loadMapsSource('constants/theme'),
     '@/services/maps/laboratories': laboratories,
     './LabActivitySheet': { LabActivitySheet: 'activity' },
@@ -868,6 +869,7 @@ test('lab form confirms writes, prevents double-submit, and keeps the draft on f
     '@/components/ui/AppButton': { AppButton: 'button' },
     '@/components/ui/FormField': { FormField: 'field' },
     '@/components/ui/InfoBanner': { InfoBanner: 'banner' },
+    'expo-location': {},
     '@/constants/theme': { Colors: {}, FontSize: {}, Spacing: {} },
     '@/services/maps/laboratoryService': {
       saveLaboratory: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
@@ -879,7 +881,7 @@ test('lab form confirms writes, prevents double-submit, and keeps the draft on f
   function elements() {
     cursor = 0;
     const tree = LabManagementModal({
-      visible: true, actor: { role: 'asisten' }, laboratories: [lab], writable: true,
+      visible: true, actor: { role: 'aslab' }, laboratories: [lab], writable: true,
     });
     return jsxElements(tree);
   }
@@ -1138,6 +1140,7 @@ test('confirming the picker changes only the form draft until Save and cancel re
     '@/components/ui/AppButton': { AppButton: 'button' },
     '@/components/ui/FormField': { FormField: 'field' },
     '@/components/ui/InfoBanner': { InfoBanner: 'banner' },
+    'expo-location': {},
     '@/constants/theme': { Colors: {}, FontSize: {}, Spacing: {} },
     '@/services/maps/laboratoryService': { saveLaboratory: async (...args) => { writes.push(args); } },
     '@/services/maps/laboratories': laboratories,
@@ -1147,7 +1150,7 @@ test('confirming the picker changes only the form draft until Save and cancel re
   function elements() {
     cursor = 0;
     return jsxElements(LabManagementModal({
-      visible: true, actor: { role: 'asisten' }, laboratories: [lab], location, writable: true,
+      visible: true, actor: { role: 'aslab' }, laboratories: [lab], location, writable: true,
     }));
   }
   const button = (label) => elements().find((item) => item.type === 'button' && item.props.label === label).props;

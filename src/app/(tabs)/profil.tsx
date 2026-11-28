@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { Modal, Platform, Pressable, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/store/app-context';
 import { getPraktikanClassIds } from '@/store/selectors';
 import { useAuth } from '@/contexts/AuthContext';
+import { updateProfilSaya } from '@/services/authService';
 import { isStaffUser } from '@/types/models';
 import {
   Colors,
@@ -17,6 +18,7 @@ import { ScreenContainer } from '@/components/ui/ScreenContainer';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
+import { FormField } from '@/components/ui/FormField';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { NotificationPrompt } from '@/features/notifications/NotificationPrompt';
 
@@ -48,6 +50,11 @@ export default function ProfilRoute() {
   const [confirmGantiVisible, setConfirmGantiVisible] = useState(false);
   const [loadingKeluar, setLoadingKeluar] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [profileFeedback, setProfileFeedback] = useState<string | null>(null);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editNama, setEditNama] = useState(user?.nama ?? '');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   if (!user) {
     return null;
@@ -70,6 +77,41 @@ export default function ProfilRoute() {
             .join(', ');
         })()
       : null;
+
+  const handleCopyUid = async () => {
+    try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(user.id);
+        setProfileFeedback('UID disalin ke clipboard.');
+        return;
+      }
+      await Share.share({ message: user.id });
+    } catch {
+      setProfileFeedback(`UID Anda: ${user.id}`);
+    }
+  };
+
+  const handleOpenEdit = () => {
+    setEditNama(user.nama);
+    setEditError(null);
+    setEditModalVisible(true);
+  };
+
+  const handleSaveProfile = async () => {
+    setEditError(null);
+    setSavingProfile(true);
+    try {
+      await updateProfilSaya(user.id, {
+        nama: editNama,
+      });
+      setEditModalVisible(false);
+      setProfileFeedback('Profil berhasil diperbarui.');
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Gagal memperbarui profil.');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const handleGantiPengguna = async () => {
     setLoadingKeluar(true);
@@ -121,12 +163,26 @@ export default function ProfilRoute() {
         {!isStaff ? (
           <InfoRow label="Kelas Aktif" value={kelasLabel ?? '-'} />
         ) : null}
-        <InfoRow
-          label="Peran"
-          value={roleDisplayLabel}
-          last
-        />
+        <InfoRow label="Peran" value={roleDisplayLabel} />
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => void handleCopyUid()}
+          style={styles.infoRow}
+        >
+          <Text style={styles.infoLabel}>UID (Ketuk untuk salin)</Text>
+          <Text style={styles.infoValue} numberOfLines={1}>
+            {user.id}
+          </Text>
+        </TouchableOpacity>
       </AppCard>
+
+      {profileFeedback ? <InfoBanner tone="success" message={profileFeedback} /> : null}
+
+      <AppButton
+        label="Edit Profil"
+        variant="secondary"
+        onPress={handleOpenEdit}
+      />
 
       <NotificationPrompt />
 
@@ -152,6 +208,43 @@ export default function ProfilRoute() {
         onConfirm={handleGantiPengguna}
         onClose={() => setConfirmGantiVisible(false)}
       />
+
+      <Modal
+        visible={editModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setEditModalVisible(false)} />
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Edit Profil</Text>
+            <FormField
+              label="Nama Lengkap"
+              value={editNama}
+              onChangeText={setEditNama}
+              placeholder="Masukkan nama lengkap"
+            />
+            {editError ? <InfoBanner tone="danger" message={editError} /> : null}
+            <View style={styles.modalActions}>
+              <AppButton
+                label="Batal"
+                variant="secondary"
+                disabled={savingProfile}
+                onPress={() => setEditModalVisible(false)}
+                style={{ flex: 1 }}
+              />
+              <AppButton
+                label={savingProfile ? 'Menyimpan...' : 'Simpan'}
+                loading={savingProfile}
+                disabled={savingProfile}
+                onPress={() => void handleSaveProfile()}
+                style={{ flex: 1 }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -247,5 +340,26 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     fontFamily: FontFamily.regular,
     color: Colors.textMuted,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: Colors.backdrop,
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    padding: Spacing.lg,
+    gap: Spacing.md,
+  },
+  modalTitle: {
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.semibold,
+    color: Colors.text,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
   },
 });

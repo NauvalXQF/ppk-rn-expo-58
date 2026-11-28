@@ -22,7 +22,7 @@ interface ProvisioningStore {
   createAccount(uid: string, row: Row): Promise<Account>;
   createProfile(uid: string, profile: Profile): Promise<void>;
   enableAccount(uid: string): Promise<void>;
-  completeActivation(uid: string): Promise<void>;
+  completeActivation(uid: string): Promise<boolean>;
 }
 
 export function object(value: unknown): Record<string, unknown> {
@@ -88,8 +88,8 @@ async function provisionRow(row: Row, store: ProvisioningStore, allowCreate: boo
   if (!profile) await store.createProfile(uid, { uid, role, email, nama, [field]: identity,
     provisioningActivationPending: true });
   if (created.disabled) await store.enableAccount(uid);
-  await store.completeActivation(uid);
-  return { rowId, outcome: 'created', uid };
+  const activated = await store.completeActivation(uid);
+  return { rowId, outcome: activated ? 'created' : 'existing', uid };
 }
 
 export async function provisionUsers(actor: AuthenticatedUser, input: unknown, store: ProvisioningStore, allowCreate = false) {
@@ -181,8 +181,13 @@ export function firebaseProvisioningStore(auth: Auth, db: Firestore): Provisioni
     },
     async enableAccount(uid) { await auth.updateUser(uid, { disabled: false }); },
     async completeActivation(uid) {
-      await db.doc('users/' + uid).update({ provisioningActivationPending: FieldValue.delete(),
-        updatedAt: FieldValue.serverTimestamp() });
+      const ref = db.doc('users/' + uid);
+      return db.runTransaction(async (tx) => {
+        const profile = await tx.get(ref);
+        if (profile.get('provisioningActivationPending') !== true) return false;
+        tx.update(ref, { provisioningActivationPending: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() });
+        return true;
+      });
     },
     async createProfile(uid, profile) {
       const ref = db.doc('users/' + uid);

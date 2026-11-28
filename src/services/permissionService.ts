@@ -139,9 +139,9 @@ export function filterLeavesForActor(
   actor: PermissionActor,
   requests: LeaveRequest[],
 ): LeaveRequest[] {
-  if (actor.role !== 'asprak') return requests;
+  if (actor.role !== 'asprak' && actor.role !== 'aslab') return requests;
   const allowedLabIds = new Set(
-    (actor.assignedLabIds ?? []).map((id) => id.trim()).filter(Boolean),
+    ((actor.role === 'aslab' ? actor.classIds : actor.assignedLabIds) ?? []).map((id) => id.trim()).filter(Boolean),
   );
   if (allowedLabIds.size === 0) return [];
   return requests.filter((item) => allowedLabIds.has(item.classId));
@@ -657,9 +657,9 @@ export function subscribeAsistenLeaves(
     return () => {};
   }
 
-  if (actor.role === 'asprak') {
+  if (actor.role === 'asprak' || actor.role === 'aslab') {
     const classIds = Array.from(
-      new Set((actor.assignedLabIds ?? []).map((id) => id.trim()).filter(Boolean)),
+      new Set(((actor.role === 'aslab' ? actor.classIds : actor.assignedLabIds) ?? []).map((id) => id.trim()).filter(Boolean)),
     );
     if (classIds.length === 0) {
       onData([]);

@@ -783,6 +783,9 @@ export async function deleteSessionFromFirestore(
         await assertAsprakAssignedToLab(db, actor, String(data.classId ?? ''), tx);
       }
       if (data.archived === true) return;
+      if (data.status === 'open' || (data.openedAt != null && data.closedAt == null)) {
+        throw new Error('Tutup sesi yang sudah dibuka sebelum mengarsipkannya.');
+      }
       const belumDibuka = ['closed', 'scheduled', 'dijadwalkan'].includes(data.status) &&
         data.openedAt === null && data.closedAt === null;
       const sudahDitutup = data.status === 'closed' && data.openedAt != null && data.closedAt != null;

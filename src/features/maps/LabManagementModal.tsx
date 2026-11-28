@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import * as Location from 'expo-location';
 import { Keyboard, StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { FormField } from '@/components/ui/FormField';
@@ -60,7 +61,7 @@ function draftForLab(lab?: Laboratory): Draft {
 }
 
 export function LabManagementModal({
-  visible, actor, laboratories, location, writable, initialLabId, initialCourseId, onClose,
+  visible, actor, laboratories, location, writable, initialLabId, initialCourseId, courseNama, onClose,
 }: {
   visible: boolean;
   actor: ProfilPengguna;
@@ -69,6 +70,7 @@ export function LabManagementModal({
   writable: boolean;
   initialLabId?: string | null;
   initialCourseId?: string;
+  courseNama?: string;
   onClose: () => void;
 }) {
   const [editor, setEditor] = useState<{ id?: string; draft: Draft } | undefined>(() => {
@@ -80,6 +82,7 @@ export function LabManagementModal({
   const [success, setSuccess] = useState<string>();
   const [selectedCourseId, setSelectedCourseId] = useState(initialCourseId);
   const [busy, setBusy] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [picker, setPicker] = useState<{ center: LaboratoryCoordinates | null; point: LaboratoryCoordinates | null }>();
   const inFlight = useRef(false);
@@ -136,7 +139,7 @@ export function LabManagementModal({
     }
   }
 
-  if (!visible || (actor.role !== 'asisten' && actor.role !== 'aslab')) return null;
+  if (!visible || actor.role !== 'aslab') return null;
   const draft = editor?.draft;
   const currentLab = laboratories.find((lab) => lab.id === editor?.id);
   const managedCourses = actor.managedCourseIds ?? [];
@@ -252,12 +255,37 @@ export function LabManagementModal({
               <AppButton label="Pilih Lokasi di Peta" variant="secondary" size="sm" disabled={busy} onPress={openPicker} />
             </View>
             <View style={styles.quickLocCol}>
-              <AppButton label="Gunakan lokasi saat ini" variant="secondary" size="sm" disabled={!location || busy}
-                onPress={() => {
-                  if (!location) return;
-                  change('latitude', String(location.latitude));
-                  change('longitude', String(location.longitude));
-                }} />
+              <AppButton
+                label={locating ? 'Mencari GPS...' : 'Gunakan lokasi saat ini'}
+                variant="secondary"
+                size="sm"
+                disabled={busy || locating}
+                onPress={async () => {
+                  if (location && validCoordinates(location.latitude, location.longitude)) {
+                    change('latitude', String(location.latitude));
+                    change('longitude', String(location.longitude));
+                    return;
+                  }
+                  setLocating(true);
+                  setError(undefined);
+                  try {
+                    const perm = await Location.requestForegroundPermissionsAsync();
+                    if (perm.status !== 'granted') {
+                      setError('Izin lokasi ditolak. Aktifkan izin lokasi untuk mengambil koordinat.');
+                      return;
+                    }
+                    const pos = await Location.getCurrentPositionAsync({
+                      accuracy: Location.Accuracy.Balanced,
+                    });
+                    change('latitude', pos.coords.latitude.toFixed(COORDINATE_DECIMALS));
+                    change('longitude', pos.coords.longitude.toFixed(COORDINATE_DECIMALS));
+                  } catch {
+                    setError('Gagal mengambil lokasi GPS saat ini.');
+                  } finally {
+                    if (mounted.current) setLocating(false);
+                  }
+                }}
+              />
             </View>
           </View>
           {validCoordinates(latitude, longitude) && validRadius(radiusMeters) ? (
@@ -282,10 +310,13 @@ export function LabManagementModal({
               const parsedFine = decimal(draft.lateFineAmount);
               void write(() => saveLaboratory(actor, {
                 nama: draft.nama, kode: draft.kode, gedung: draft.gedung, latitude, longitude,
-                ...(!editor.id && courseId ? { courseId } : {}),
                 radiusMeters, kapasitas: decimal(draft.kapasitas),
                 gracePeriodMinutes: Number.isFinite(parsedGrace) ? parsedGrace : DEFAULT_GRACE_PERIOD_MINUTES,
                 lateFineAmount: Number.isFinite(parsedFine) ? parsedFine : DEFAULT_LATE_FINE_AMOUNT,
+                ...(!editor.id && courseId ? {
+                  courseId,
+                  ...(courseId === initialCourseId ? { courseNama } : {}),
+                } : {}),
               }, editor.id), 'Laboratorium berhasil disimpan.');
             }}
           />
