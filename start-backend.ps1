@@ -83,7 +83,7 @@ import { parseEnv } from './src/config/env.ts';
 try {
     const { host, port } = parseEnv(process.env);
     if (process.argv[2] !== 'none' &&
-        (!process.env.MIDTRANS_SERVER_KEY?.trim() || !process.env.MIDTRANS_SIGNATURE_SECRET_KEY?.trim())) {
+        !process.env.MIDTRANS_SERVER_KEY?.trim()) {
         throw new Error();
     }
     console.log(JSON.stringify({ host, port }));

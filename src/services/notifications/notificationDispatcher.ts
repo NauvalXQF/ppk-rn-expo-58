@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 
 import { getDb } from '@/services/practicumService';
+import { resolvePaymentNotificationRoute } from '@/services/payments/paymentData';
 import { registerFineCreatedNotifier } from '@/services/fines/fineCalculationService';
 import {
   getUsersDeviceTokens,
@@ -190,6 +191,10 @@ export function resolveNotificationRoute(
   data: Partial<NotificationDataPayload> | Record<string, unknown> | null | undefined,
 ): string | null {
   if (!data || typeof data !== 'object') return null;
+
+  const paymentRoute = resolvePaymentNotificationRoute(data);
+  if (paymentRoute) return paymentRoute;
+  if (data.screen === 'denda') return null;
 
   const screen = typeof data.screen === 'string' ? data.screen.trim() : '';
   const type = typeof data.type === 'string' ? data.type.trim() : '';

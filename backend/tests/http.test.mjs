@@ -33,7 +33,7 @@ before(async () => {
     router.get('/fixture/identity', verifyFirebaseToken(fakeIdentity), (_req, res) => res.json(res.locals.auth));
     router.post('/fixture/body', (req, res) => res.json(req.body));
     router.get('/fixture/failure', async () => { throw new Error(fixtureInternalError); });
-  });
+  }, ['http://localhost:8081']);
   server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   baseUrl = 'http://127.0.0.1:' + server.address().port;
@@ -60,6 +60,27 @@ function identityRequest(authorization) {
   const headers = authorization === undefined ? {} : { authorization };
   return fetch(baseUrl + '/api/fixture/identity', { headers });
 }
+
+test('CORS allows an exact Expo Web origin, safe preflight and originless requests', async () => {
+  const url = baseUrl + '/api/health';
+  const origin = 'http://localhost:8081';
+  const preflight = { Origin: origin, 'Access-Control-Request-Method': 'POST',
+    'Access-Control-Request-Headers': 'Authorization, Content-Type' };
+  const allowed = await fetch(url, { method: 'OPTIONS', headers: preflight });
+  assert.equal(allowed.status, 204);
+  assert.equal(allowed.headers.get('access-control-allow-origin'), origin);
+  assert.match(allowed.headers.get('access-control-allow-headers'), /Authorization, Content-Type/i);
+  const denied = await fetch(url, { method: 'OPTIONS', headers: { ...preflight, Origin: 'https://other.example.test' } });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.headers.get('access-control-allow-origin'), null);
+  const badHeader = await fetch(url, { method: 'OPTIONS', headers: { ...preflight, 'Access-Control-Request-Headers': 'X-Private' } });
+  assert.equal(badHeader.status, 403);
+  const same = await fetch(url, { headers: { Origin: origin } });
+  assert.equal(same.headers.get('access-control-allow-origin'), origin);
+  const native = await fetch(url);
+  assert.equal(native.status, 200);
+  assert.equal(native.headers.get('access-control-allow-origin'), null);
+});
 
 test('health gives only a liveness status and a server-generated request ID', async () => {
   const url = baseUrl + '/api/health';

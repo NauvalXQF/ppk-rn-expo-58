@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
+const path = require('node:path');
 const { test } = require('node:test');
 const ts = require('typescript');
 const moduleFixture = { exports: {} };
@@ -7,7 +8,7 @@ const { outputText } = ts.transpileModule(readFileSync('src/services/payments/pa
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 });
 new Function('exports', outputText)(moduleFixture.exports);
-const { isSandboxCheckout, isPaymentId, resolvePaymentApiOrigin, resolvePaymentNotificationRoute, toIso } = moduleFixture.exports;
+const { isSandboxCheckout, isSandboxCheckoutNavigation, isPaymentId, resolvePaymentApiOrigin, resolvePaymentNotificationRoute, toIso } = moduleFixture.exports;
 
 test('P3 checkout trusts the exact Sandbox host and HTTPS only', () => {
   assert.equal(isSandboxCheckout('https://app.sandbox.midtrans.com/snap/v2/checkout'), true);
@@ -15,6 +16,40 @@ test('P3 checkout trusts the exact Sandbox host and HTTPS only', () => {
   assert.equal(isSandboxCheckout('http://app.sandbox.midtrans.com/snap/checkout'), false);
   assert.equal(isSandboxCheckout('https://app.midtrans.com/snap/checkout'), false);
   assert.equal(isSandboxCheckout('javascript:fixture'), false);
+});
+
+test('P3 allows only exact HTTPS Sandbox redirect origins and keeps the initial Snap URL strict', () => {
+  for (const host of ['api.sandbox.midtrans.com', 'card.sandbox.midtrans.com', 'api.sandbox.veritrans.co.id',
+    'simulator.sandbox.midtrans.com', 'simulator.midtrans.com']) {
+    assert.equal(isSandboxCheckoutNavigation('https://' + host + '/fixture'), true);
+    assert.equal(isSandboxCheckout('https://' + host + '/snap/fixture'), false);
+    assert.equal(isSandboxCheckoutNavigation('https://' + host + '.example.test/fixture'), false);
+  }
+  for (const url of ['https://card.midtrans.com/3ds', 'https://simulator.midtrans.com:8443/',
+    'https://user:pass@simulator.midtrans.com/', 'http://simulator.midtrans.com/', 'file:///tmp/fixture']) {
+    assert.equal(isSandboxCheckoutNavigation(url), false);
+  }
+});
+
+test('P3 FCM config is optional and preserves the team Android and Expo settings', () => {
+  const source = readFileSync('app.config.js', 'utf8');
+  const app = JSON.parse(readFileSync('app.json', 'utf8')).expo;
+  for (const present of [false, true]) {
+    const configModule = { exports: {} };
+    const mocks = {
+      'node:fs': { existsSync: (location) => {
+        assert.equal(location, path.join(process.cwd(), 'google-services.json'));
+        return present;
+      } },
+      'node:path': path,
+    };
+    new Function('require', 'module', '__dirname', source)((id) => mocks[id], configModule, process.cwd());
+    const config = configModule.exports({ config: app });
+    assert.equal(config.android.googleServicesFile, present ? './google-services.json' : undefined);
+    assert.equal(config.android.package, app.android.package);
+    assert.equal(config.owner, app.owner);
+    assert.equal(config.extra.eas.projectId, app.extra.eas.projectId);
+  }
 });
 
 test('P3 payment notification screen targets are fixed and IDs cannot inject routes', () => {

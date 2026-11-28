@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import type { Auth } from 'firebase-admin/auth';
 import type { Router } from 'express';
@@ -8,7 +8,8 @@ import type { FirebaseIdentityAdapter } from './config/firebaseAdmin.ts';
 
 type Row = { rowId: string; role: 'praktikan' | 'asprak'; email: string; nama: string; identity: string };
 type Account = { uid: string; email?: string; disabled?: boolean };
-type Profile = { uid: string; role: string; email: string; nama: string; nim?: string; nip?: string };
+type Profile = { uid: string; role: string; email: string; nama: string; nim?: string; nip?: string;
+  provisioningActivationPending?: boolean };
 type Result = { rowId: string; outcome: 'created' | 'existing' | 'conflict' | 'error'; uid?: string; code?: string };
 interface ProvisioningStore {
   validLab(courseId: string, labId: string): Promise<boolean>;
@@ -18,6 +19,8 @@ interface ProvisioningStore {
   reserve(row: Row, existingUid?: string): Promise<string | undefined>;
   createAccount(uid: string, row: Row): Promise<Account>;
   createProfile(uid: string, profile: Profile): Promise<void>;
+  enableAccount(uid: string): Promise<void>;
+  completeActivation(uid: string): Promise<void>;
 }
 
 export function object(value: unknown): Record<string, unknown> {
@@ -48,12 +51,16 @@ async function provisionRow(row: Row, store: ProvisioningStore, allowCreate: boo
   const profile = account && await store.readProfile(account.uid);
   if (account && profile) {
     const compatibleRole = profile.role === role || (profile.role === 'asisten' && role === 'asprak');
-    if (account.disabled || !compatibleRole || profile.uid !== account.uid
+    if (!compatibleRole || profile.uid !== account.uid
       || account.email?.toLowerCase() !== email || profile.email?.toLowerCase() !== email || profile[field] !== identity
       || await store.identityInUse(row, account.uid)) {
       return { rowId, outcome: 'conflict', code: 'ACCOUNT_PROFILE_CONFLICT' };
     }
-    return { rowId, outcome: 'existing', uid: account.uid };
+    if (profile.provisioningActivationPending !== true) {
+      return account.disabled
+        ? { rowId, outcome: 'conflict', code: 'ACCOUNT_PROFILE_CONFLICT' }
+        : { rowId, outcome: 'existing', uid: account.uid };
+    }
   }
   if (!allowCreate) return { rowId, outcome: 'error', code: account ? 'PROFILE_REVIEW_REQUIRED' : 'ACCOUNT_CREATION_DISABLED' };
   if (await store.identityInUse(row, account?.uid)) return { rowId, outcome: 'conflict', code: 'IDENTITY_IN_USE' };
@@ -65,7 +72,10 @@ async function provisionRow(row: Row, store: ProvisioningStore, allowCreate: boo
   if (created.uid !== uid || created.email?.toLowerCase() !== email) {
     return { rowId, outcome: 'conflict', code: 'ACCOUNT_RESERVATION_CONFLICT' };
   }
-  await store.createProfile(uid, { uid, role, email, nama, [field]: identity });
+  if (!profile) await store.createProfile(uid, { uid, role, email, nama, [field]: identity,
+    provisioningActivationPending: true });
+  if (created.disabled) await store.enableAccount(uid);
+  await store.completeActivation(uid);
   return { rowId, outcome: 'created', uid };
 }
 
@@ -145,7 +155,15 @@ export function firebaseProvisioningStore(auth: Auth, db: Firestore): Provisioni
         return uid;
       });
     },
-    async createAccount(uid, row) { return auth.createUser({ uid, email: row.email, displayName: row.nama, disabled: true }); },
+    async createAccount(uid, row) {
+      return auth.createUser({ uid, email: row.email, displayName: row.nama,
+        password: randomBytes(32).toString('base64url'), disabled: true });
+    },
+    async enableAccount(uid) { await auth.updateUser(uid, { disabled: false }); },
+    async completeActivation(uid) {
+      await db.doc('users/' + uid).update({ provisioningActivationPending: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp() });
+    },
     async createProfile(uid, profile) {
       const ref = db.doc('users/' + uid);
       await db.runTransaction(async (tx) => {
@@ -161,8 +179,8 @@ export function firebaseProvisioningStore(auth: Auth, db: Firestore): Provisioni
   };
 }
 
-export function registerProvisioning(router: Router, identity: FirebaseIdentityAdapter, store: ProvisioningStore) {
+export function registerProvisioning(router: Router, identity: FirebaseIdentityAdapter, store: ProvisioningStore, allowCreate = false) {
   router.post('/admin/provisioning/users', verifyFirebaseToken(identity), async (req, res) => {
-    res.set('Cache-Control', 'no-store').json({ results: await provisionUsers(res.locals.auth, req.body, store) });
+    res.set('Cache-Control', 'no-store').json({ results: await provisionUsers(res.locals.auth, req.body, store, allowCreate) });
   });
 }

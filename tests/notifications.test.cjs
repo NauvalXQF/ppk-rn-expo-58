@@ -41,6 +41,54 @@ const dispatcherModule = loadSource(
   'services/notifications/notificationDispatcher',
 );
 
+test('dispatcher routes only recognized payment events to the correct Denda tab', () => {
+  for (const [type, tab] of [['fine_created', 'aktif'], ['payment_success', 'riwayat'], ['payment_failed', 'riwayat']]) {
+    assert.equal(dispatcherModule.resolveNotificationRoute({ type, screen: 'presensi', tab: 'attacker' }), '/denda?tab=' + tab);
+  }
+  assert.equal(dispatcherModule.resolveNotificationRoute({ type: 'invalid', screen: 'denda' }), null);
+  assert.equal(dispatcherModule.resolveNotificationRoute({ type: 'leave_decided' }), '/(tabs)/izin');
+});
+
+test('frontend audit subscription presents legacy notifications but never publishes payment alerts', () => {
+  const effects = [];
+  let snapshot;
+  const presented = [];
+  const routes = [];
+  const provider = loadSource('hooks/useNotifications', {
+    react: {
+      createContext: () => ({ Provider: 'provider' }),
+      createElement: (_type, props) => props.value,
+      useCallback: (fn) => fn, useEffect: (fn) => effects.push(fn), useMemo: (fn) => fn(),
+      useRef: (current) => ({ current }), useState: (value) => [value, () => {}],
+    },
+    'react-native': { Platform: { OS: 'web' } },
+    'expo-notifications': {},
+    'expo-router': { useRouter: () => ({ push: (route) => routes.push(route) }) },
+    '@/contexts/AuthContext': { useAuth: () => ({ status: 'masuk', pengguna: { uid: 'student', role: 'praktikan' } }) },
+    '@/services/notifications/notificationDispatcher': {
+      resolveNotificationRoute: dispatcherModule.resolveNotificationRoute,
+      subscribeUserNotifications: (_uid, onSnapshot) => { snapshot = onSnapshot; return () => {}; },
+    },
+    '@/services/notifications/notificationService': {
+      configureNotificationHandler() {},
+      setupAndroidNotificationChannel: async () => {},
+      getNotificationPermissionStatus: async () => ({}),
+      registerUserDeviceForNotifications: async () => ({}),
+      presentLocalNotification: async ({ data }) => presented.push(data.notificationId),
+    },
+  }).NotificationProvider({});
+  for (const effect of effects) effect();
+  snapshot([]);
+  const fixtures = ['fine_created', 'payment_success', 'payment_failed', 'leave_decided']
+    .map((type) => ({ type, id: type, data: { type }, status: 'sent' }));
+  snapshot(fixtures);
+  snapshot(fixtures);
+  assert.deepEqual(presented, ['leave_decided']);
+  assert.equal(provider.navigateFromNotification({ type: 'fine_created', recipientUid: 'other' }), false);
+  assert.equal(provider.navigateFromNotification({ type: 'fine_created', recipientUid: 'student' }), true);
+  assert.deepEqual(routes, ['/denda?tab=aktif']);
+});
+
 const {
   createInMemoryTokenRegistry,
   encodeDeviceTokenDocId,

@@ -14,6 +14,22 @@ export function isSandboxCheckout(url: unknown): url is string {
   }
 }
 
+export function isSandboxCheckoutNavigation(url: string): boolean {
+  if (isSandboxCheckout(url)) return true;
+  try {
+    const parsed = new URL(url);
+    return !parsed.username && !parsed.password && [
+      'https://api.sandbox.midtrans.com',
+      'https://card.sandbox.midtrans.com',
+      'https://api.sandbox.veritrans.co.id',
+      'https://simulator.sandbox.midtrans.com',
+      'https://simulator.midtrans.com',
+    ].includes(parsed.origin);
+  } catch {
+    return false;
+  }
+}
+
 export function resolvePaymentApiOrigin(value: string, allowLocalHttp: boolean): string | null {
   try {
     const url = new URL(value);
