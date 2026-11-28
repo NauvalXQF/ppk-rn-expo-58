@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, StyleSheet, TextInput } from 'react-native';
+import { FlatList, StyleSheet, TextInput, View } from 'react-native';
 import type { RekapSesi, RekapSesiDetail } from '@/types/models';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '@/constants/theme';
 import { AppIcon } from '@/components/ui/AppIcon';
@@ -79,25 +79,29 @@ export function RekapSummary({
         />
       ) : (
         <View style={styles.list}>
-          {filteredBaris.map((item) => {
-            const isLate = item.presensi.lateStatus === 'late';
-            const badgeLabel = isLate
-              ? `Terlambat +${item.presensi.lateMinutes ?? 1}m`
-              : item.presensi.lateStatus === 'on_time'
-                ? 'Tepat Waktu'
-                : 'Hadir';
-            return (
-              <AttendanceRow
-                key={item.presensi.id}
-                nama={item.praktikan.nama}
-                nim={item.praktikan.nim}
-                waktu={formatWaktuPresensi(item.presensi.waktuPresensi)}
-                catatan={item.presensi.catatan}
-                badgeLabel={badgeLabel}
-                badgeTone={isLate ? 'warning' : 'success'}
-              />
-            );
-          })}
+          <FlatList
+            data={filteredBaris}
+            keyExtractor={(item) => item.presensi.id}
+            scrollEnabled={false}
+            renderItem={({ item }) => {
+              const isLate = item.presensi.lateStatus === 'late';
+              const badgeLabel = isLate
+                ? `Terlambat +${item.presensi.lateMinutes ?? 1}m`
+                : item.presensi.lateStatus === 'on_time'
+                  ? 'Tepat Waktu'
+                  : 'Hadir';
+              return (
+                <AttendanceRow
+                  nama={item.praktikan.nama}
+                  nim={item.praktikan.nim}
+                  waktu={formatWaktuPresensi(item.presensi.waktuPresensi)}
+                  catatan={item.presensi.catatan}
+                  badgeLabel={badgeLabel}
+                  badgeTone={isLate ? 'warning' : 'success'}
+                />
+              );
+            }}
+          />
 
           {filteredIzin.length > 0 ? (
             <View style={styles.izinSection}>

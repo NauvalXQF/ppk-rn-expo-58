@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import * as DocumentPicker from 'expo-document-picker';
 import {
   Modal,
   ScrollView,
@@ -97,6 +98,7 @@ export function BulkInsertModal({
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [pickedFileName, setPickedFileName] = useState<string | null>(null);
 
   const title =
     type === 'laboratorium'
@@ -148,7 +150,28 @@ export function BulkInsertModal({
   }
 
   function handleLoadSample() {
+    setPickedFileName(null);
     setCsvInput(getBulkCsvTemplate(type));
+  }
+
+  async function handlePickCsvFile() {
+    setSaveError(null);
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ['text/csv', 'text/comma-separated-values', 'application/csv', 'text/plain'],
+        copyToCacheDirectory: true,
+      });
+      if (res.canceled || !res.assets?.length) return;
+      const asset = res.assets[0];
+      const text =
+        asset.file && typeof asset.file.text === 'function'
+          ? await asset.file.text()
+          : await (await fetch(asset.uri)).text();
+      setCsvInput(text);
+      setPickedFileName(asset.name ?? sampleFilename);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Gagal membaca file CSV.');
+    }
   }
 
   function handleParseCsv() {
@@ -259,20 +282,41 @@ export function BulkInsertModal({
     setSaveError(null);
 
     try {
+      let successCount = 0;
+      let errors: string[] = [];
+      let successMsg = '';
+
       if (type === 'laboratorium') {
         const result = await commitBulkLaboratorium(actor, courseId, courseNama, labRows);
-        onSuccess(`${result.successCount} laboratorium berhasil dibuat di bawah mata kuliah ${courseNama}.`);
+        successCount = result.successCount;
+        errors = result.errors;
+        successMsg = `${successCount} laboratorium berhasil dibuat di bawah mata kuliah ${courseNama}.`;
       } else if (type === 'praktikan') {
         if (!targetLabId) throw new Error('Laboratorium tujuan belum dipilih.');
         const result = await commitBulkPraktikan(actor, targetLabId, praktikanRows, {
           courseId,
         });
-        onSuccess(`${result.successCount} praktikan berhasil didaftarkan ke laboratorium.`);
+        successCount = result.successCount;
+        errors = result.errors;
+        successMsg = `${successCount} praktikan berhasil didaftarkan ke laboratorium.`;
       } else {
         if (!targetLabId) throw new Error('Laboratorium tujuan belum dipilih.');
         const result = await commitBulkAsprak(actor, targetLabId, courseId, asprakRows);
-        onSuccess(`${result.successCount} asprak berhasil ditugaskan ke laboratorium.`);
+        successCount = result.successCount;
+        errors = result.errors;
+        successMsg = `${successCount} asprak berhasil ditugaskan ke laboratorium.`;
       }
+
+      if (errors.length > 0) {
+        const summary =
+          successCount > 0
+            ? `${successCount} baris berhasil disimpan, tetapi ${errors.length} baris gagal:\n• ${errors.join('\n• ')}`
+            : `Penyimpanan gagal (${errors.length} baris):\n• ${errors.join('\n• ')}`;
+        setSaveError(summary);
+        return;
+      }
+
+      onSuccess(successMsg);
       handleClose();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Penyimpanan data bulk gagal.');
@@ -303,18 +347,25 @@ export function BulkInsertModal({
 
           {step === 'upload' ? (
             <ScrollView style={styles.uploadBody} contentContainerStyle={styles.uploadBodyContent}>
+              {type !== 'laboratorium' && !targetLabId ? (
+                <InfoBanner
+                  tone="warning"
+                  message="Belum ada laboratorium aktif untuk dipilih. Tambahkan atau pilih laboratorium terlebih dahulu."
+                />
+              ) : null}
+
               {/* Dashed Dropzone Card (FigCraft Screen/Aslab/ImporCSV) */}
               <TouchableOpacity
                 activeOpacity={0.8}
-                onPress={handleLoadSample}
+                onPress={() => void handlePickCsvFile()}
                 style={styles.dropzoneBox}
               >
                 <AppIcon name="file-text" size={22} color={Colors.text} />
                 <Text style={styles.dropzoneTitle}>
-                  {csvInput.trim() ? sampleFilename : 'Tap untuk Muat Contoh CSV'}
+                  {pickedFileName || (csvInput.trim() ? sampleFilename : 'Pilih File .csv dari Perangkat')}
                 </Text>
                 <Text style={styles.dropzoneSub}>
-                  {columnFormatHint} · Tap untuk isi template
+                  {columnFormatHint} · Tap untuk memilih file .csv
                 </Text>
               </TouchableOpacity>
 
@@ -324,6 +375,13 @@ export function BulkInsertModal({
                   variant="secondary"
                   size="sm"
                   onPress={handleDownloadTemplate}
+                  style={styles.templateBtn}
+                />
+                <AppButton
+                  label="Muat Contoh Data"
+                  variant="ghost"
+                  size="sm"
+                  onPress={handleLoadSample}
                   style={styles.templateBtn}
                 />
               </View>
@@ -355,7 +413,7 @@ export function BulkInsertModal({
                 <AppButton
                   label="Proses & Pratinjau"
                   variant="primary"
-                  disabled={!csvInput.trim()}
+                  disabled={!csvInput.trim() || (type !== 'laboratorium' && !targetLabId)}
                   onPress={handleParseCsv}
                   style={styles.primaryActionBtn}
                 />

@@ -12,6 +12,7 @@ export type AppIconName =
   | 'search'
   | 'x'
   | 'chevron-left'
+  | 'chevron-right'
   | 'arrow-up-right'
   | 'book-open'
   | 'zap'

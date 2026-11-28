@@ -1,16 +1,17 @@
-import React, { useMemo } from 'react';
-import { Redirect, type Href } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { useApp } from '@/store/app-context';
-import { getActivePermissionRepository } from '@/services/firestorePermissionRepository';
-import { selectSesiUntukPengguna } from '@/store/selectors';
 import {
   PermissionsScreen,
   mapPenggunaToPermissionActor,
   mapSesiToLeaveOptions,
 } from '@/features/permissions';
+import { getActivePermissionRepository } from '@/services/firestorePermissionRepository';
+import { useApp } from '@/store/app-context';
+import { selectSesiUntukPengguna } from '@/store/selectors';
+import { Redirect, useLocalSearchParams } from 'expo-router';
+import { useMemo } from 'react';
 
 export default function IzinRoute() {
+  const { sesiId } = useLocalSearchParams<{ sesiId?: string }>();
   const { status, pengguna } = useAuth();
   const { state, isRemote } = useApp();
 
@@ -39,14 +40,11 @@ export default function IzinRoute() {
     return <Redirect href="/" />;
   }
 
-  if (pengguna.role === 'aslab' || syncedUser?.peran === 'aslab') {
-    return <Redirect href={'/dashboard' as Href} />;
-  }
-
   if (
     pengguna.role !== 'praktikan' &&
     pengguna.role !== 'asprak' &&
-    pengguna.role !== 'asisten'
+    pengguna.role !== 'asisten' &&
+    pengguna.role !== 'aslab'
   ) {
     return <Redirect href="/jadwal" />;
   }
@@ -60,6 +58,8 @@ export default function IzinRoute() {
       actor={actor}
       sessions={sessions}
       repository={repository}
+      initialSessionId={typeof sesiId === 'string' ? sesiId : undefined}
+      existingLeaves={state.leaveRequests}
     />
   );
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -73,7 +74,7 @@ export function MemberTransferModal({
           const data = await fetchLabMembers(fromLabId);
           if (active) {
             setMembers(data);
-            setSelectedMemberId(data.length > 0 ? (data[0].nim || data[0].uid) : '');
+            setSelectedMemberId(data.length > 0 ? (data[0].uid || data[0].nim) : '');
             setError(null);
             setLoadingMembers(false);
           }
@@ -81,7 +82,7 @@ export function MemberTransferModal({
           const data = await fetchLabAspraks(fromLabId);
           if (active) {
             setAspraks(data);
-            setSelectedMemberId(data.length > 0 ? (data[0].nip || data[0].uid) : '');
+            setSelectedMemberId(data.length > 0 ? (data[0].uid || data[0].nip) : '');
             setError(null);
             setLoadingMembers(false);
           }
@@ -94,7 +95,10 @@ export function MemberTransferModal({
       }
     }
 
-    void loadMembers();
+    void Promise.resolve().then(() => {
+      if (active) setLoadingMembers(true);
+      return loadMembers();
+    });
 
     return () => {
       active = false;
@@ -118,12 +122,12 @@ export function MemberTransferModal({
 
     try {
       if (transferType === 'praktikan') {
-        const targetMember = members.find((m) => (m.nim || m.uid) === selectedMemberId);
+        const targetMember = members.find((m) => (m.uid || m.nim) === selectedMemberId);
         if (!targetMember) throw new Error('Praktikan tidak ditemukan.');
         await transferPraktikan(actor, fromLabId, toLabId, targetMember);
         onSuccess(`Praktikan ${targetMember.nama} berhasil dipindahkan ke laboratorium baru.`);
       } else {
-        const targetAsprak = aspraks.find((a) => (a.nip || a.uid) === selectedMemberId);
+        const targetAsprak = aspraks.find((a) => (a.uid || a.nip) === selectedMemberId);
         if (!targetAsprak) throw new Error('Asprak tidak ditemukan.');
         await transferAsprak(actor, fromLabId, toLabId, targetAsprak);
         onSuccess(`Asprak ${targetAsprak.nama} berhasil dipindahkan ke laboratorium baru.`);
@@ -177,7 +181,11 @@ export function MemberTransferModal({
           ) : null}
 
           {/* Form Content */}
-          <View style={styles.formContent}>
+          <ScrollView
+            style={styles.scrollBody}
+            contentContainerStyle={styles.formContent}
+            showsVerticalScrollIndicator={true}
+          >
             {/* Lab Asal */}
             <Text style={styles.sectionLabel}>Laboratorium Asal</Text>
             <View style={styles.chipScroll}>
@@ -232,7 +240,7 @@ export function MemberTransferModal({
               <View style={styles.memberList}>
                 {transferType === 'praktikan'
                   ? members.map((m) => {
-                      const id = m.nim || m.uid;
+                      const id = m.uid || m.nim;
                       const isSel = selectedMemberId === id;
                       return (
                         <TouchableOpacity
@@ -250,7 +258,7 @@ export function MemberTransferModal({
                       );
                     })
                   : aspraks.map((a) => {
-                      const id = a.nip || a.uid;
+                      const id = a.uid || a.nip;
                       const isSel = selectedMemberId === id;
                       return (
                         <TouchableOpacity
@@ -305,7 +313,7 @@ export function MemberTransferModal({
                 ))}
               </View>
             )}
-          </View>
+          </ScrollView>
 
           {/* Action Footer */}
           <View style={styles.footer}>
@@ -393,6 +401,9 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.lg,
     marginTop: Spacing.xs,
   },
+  scrollBody: {
+    flexShrink: 1,
+  },
   formContent: {
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
@@ -440,7 +451,6 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
   memberList: {
-    maxHeight: 120,
     gap: 4,
   },
   memberCard: {

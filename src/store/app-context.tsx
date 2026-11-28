@@ -565,6 +565,20 @@ export function AppProvider({ children }: PropsWithChildren) {
           decidedAt: r.decidedAt,
         }));
 
+    const toLeaveRefs = (
+      requests: ReturnType<typeof fromFirestoreLeaveRequestDoc>[],
+    ) =>
+      requests.map((r) => ({
+        id: r.id,
+        uid: r.uid,
+        sessionId: r.sessionId,
+        classId: r.classId,
+        status: r.status,
+        reason: r.reason,
+        decisionNote: r.decisionNote ?? null,
+        decidedAt: r.decidedAt ?? null,
+      }));
+
     const handleLeaveError = (err: { message?: string }) => {
       const detail = err?.message ? `: ${err.message}` : '';
       setError(`Gagal memuat data izin disetujui${detail}`);
@@ -581,7 +595,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       if (allowedLabIds.length === 0) {
         rawDispatch({
           type: 'SYNC_FIRESTORE',
-          payload: { approvedLeaves: [] },
+          payload: { approvedLeaves: [], leaveRequests: [] },
         });
         return;
       }
@@ -597,7 +611,10 @@ export function AppProvider({ children }: PropsWithChildren) {
         const scoped = filterLeavesForActor(actor, Array.from(deduped.values()));
         rawDispatch({
           type: 'SYNC_FIRESTORE',
-          payload: { approvedLeaves: toApprovedRefs(scoped) },
+          payload: {
+            approvedLeaves: toApprovedRefs(scoped),
+            leaveRequests: toLeaveRefs(scoped),
+          },
         });
       };
 
@@ -637,7 +654,10 @@ export function AppProvider({ children }: PropsWithChildren) {
             : filterLeavesForActor(actor, mapped);
         rawDispatch({
           type: 'SYNC_FIRESTORE',
-          payload: { approvedLeaves: toApprovedRefs(scoped) },
+          payload: {
+            approvedLeaves: toApprovedRefs(scoped),
+            leaveRequests: toLeaveRefs(scoped),
+          },
         });
       },
       handleLeaveError,

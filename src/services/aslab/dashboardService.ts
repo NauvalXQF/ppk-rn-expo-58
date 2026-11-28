@@ -31,6 +31,7 @@ export interface FineRecord {
   lateMinutes: number;
   paidAt?: string | null;
   settledAt?: string | null;
+  paymentMethod?: string | null;
   createdAt?: unknown;
 }
 
@@ -137,7 +138,7 @@ export function calculateDashboardMetrics({
       f.status === 'paid'
         ? f.settledAt || f.paidAt || f.sessionTanggal || f.createdAt
         : f.sessionTanggal || f.createdAt;
-    const dateStr = typeof rawDate === 'string' ? rawDate : '';
+    const dateStr = toIsoStringOrNull(rawDate) ?? '';
     return isDateWithinRange(dateStr, range);
   });
 
@@ -164,10 +165,10 @@ export function calculateDashboardMetrics({
 
   // Build lab operational statuses
   const labStatuses: LabOperationalStatus[] = activeLabs.map((lab) => {
-    const labOngoing = ongoingSessions.find((s) => s.labId === lab.id);
+    const labOngoing = ongoingSessions.find((s) => (s.labId || s.kelasId) === lab.id);
     const labUpcoming =
-      scheduledSessions.find((s) => s.labId === lab.id) ||
-      schedules.find((j) => j.labId === lab.id);
+      scheduledSessions.find((s) => (s.labId || s.kelasId) === lab.id) ||
+      schedules.find((j) => (j.labId || j.kelasId) === lab.id);
 
     const labMembers = activeMembers.filter((m) => m.classId === lab.id);
     const totalAsprak = lab.asprakUids?.length ?? 0;
@@ -226,21 +227,30 @@ export async function fetchDashboardFines(): Promise<FineRecord[]> {
       getDocs(collection(db, 'fines')),
       getDocs(collection(db, 'payments')),
     ]);
-    const settledByFineId = new Map<string, string>();
+    const settledByFineId = new Map<string, { settledAt: string | null; method: string | null }>();
     for (const p of paymentsSnap.docs) {
       const pData = p.data();
       if (pData.status === 'success' && typeof pData.fineId === 'string') {
         const settled = toIsoStringOrNull(pData.settledAt);
-        if (settled) settledByFineId.set(pData.fineId, settled);
+        const method =
+          typeof pData.paymentMethod === 'string'
+            ? pData.paymentMethod
+            : typeof pData.paymentType === 'string'
+              ? pData.paymentType
+              : null;
+        settledByFineId.set(pData.fineId, { settledAt: settled, method });
       }
     }
     return finesSnap.docs.map((d) => {
       const data = d.data() as Omit<FineRecord, 'id'>;
+      const settlement = settledByFineId.get(d.id);
       return {
         id: d.id,
         ...data,
+        createdAt: toIsoStringOrNull(data.createdAt),
         paidAt: toIsoStringOrNull(data.paidAt),
-        settledAt: settledByFineId.get(d.id) ?? toIsoStringOrNull(data.settledAt),
+        settledAt: settlement?.settledAt ?? toIsoStringOrNull(data.settledAt),
+        paymentMethod: settlement?.method ?? data.paymentMethod ?? null,
       };
     });
   } catch {
@@ -254,14 +264,18 @@ export function subscribeDashboardFines(
 ): () => void {
   const db = getFirebaseDb();
   let rawFines: FineRecord[] = [];
-  const settledByFineId = new Map<string, string>();
+  const settledByFineId = new Map<string, { settledAt: string | null; method: string | null }>();
 
   const emit = () => {
     onUpdate(
-      rawFines.map((f) => ({
-        ...f,
-        settledAt: settledByFineId.get(f.id) ?? f.settledAt ?? null,
-      })),
+      rawFines.map((f) => {
+        const settlement = settledByFineId.get(f.id);
+        return {
+          ...f,
+          settledAt: settlement?.settledAt ?? f.settledAt ?? null,
+          paymentMethod: settlement?.method ?? f.paymentMethod ?? null,
+        };
+      }),
     );
   };
 
@@ -273,6 +287,7 @@ export function subscribeDashboardFines(
         return {
           id: d.id,
           ...data,
+          createdAt: toIsoStringOrNull(data.createdAt),
           paidAt: toIsoStringOrNull(data.paidAt),
           settledAt: toIsoStringOrNull(data.settledAt),
         };
@@ -290,7 +305,13 @@ export function subscribeDashboardFines(
         const pData = d.data();
         if (pData.status === 'success' && typeof pData.fineId === 'string') {
           const settled = toIsoStringOrNull(pData.settledAt);
-          if (settled) settledByFineId.set(pData.fineId, settled);
+          const method =
+            typeof pData.paymentMethod === 'string'
+              ? pData.paymentMethod
+              : typeof pData.paymentType === 'string'
+                ? pData.paymentType
+                : null;
+          settledByFineId.set(pData.fineId, { settledAt: settled, method });
         }
       }
       emit();

@@ -11,6 +11,7 @@ import { AppCard } from '@/components/ui/AppCard';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FilterChip } from '@/components/ui/FilterChip';
+import { FormField } from '@/components/ui/FormField';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import {
@@ -64,6 +65,7 @@ export function AsistenLeaveReviewList({
     request: LeaveRequest;
     decision: 'approved' | 'rejected';
   } | null>(null);
+  const [decisionNote, setDecisionNote] = useState('');
 
   const counts = useMemo(() => {
     const summary: Record<FilterOption, number> = {
@@ -86,9 +88,11 @@ export function AsistenLeaveReviewList({
   const handleConfirmDecision = async () => {
     if (!pendingDecision) return;
     const { request, decision } = pendingDecision;
+    const noteToSave = decisionNote.trim() || undefined;
     setActionError(null);
     setSubmittingId(request.id);
     setPendingDecision(null);
+    setDecisionNote('');
 
     try {
       const decided = await decideLeaveRequest(
@@ -96,6 +100,7 @@ export function AsistenLeaveReviewList({
           actor,
           requestId: request.id,
           decision,
+          decisionNote: noteToSave,
         },
         {
           ...serviceOptions,
@@ -282,8 +287,20 @@ export function AsistenLeaveReviewList({
           pendingDecision?.decision === 'rejected' ? 'danger' : 'primary'
         }
         onConfirm={handleConfirmDecision}
-        onClose={() => setPendingDecision(null)}
-      />
+        onClose={() => {
+          setPendingDecision(null);
+          setDecisionNote('');
+        }}
+      >
+        <FormField
+          label="Catatan Keputusan (Opsional)"
+          placeholder="Contoh: Disetujui, silakan susul materi praktikum / Ditolak karena..."
+          value={decisionNote}
+          onChangeText={setDecisionNote}
+          multiline
+          maxLength={240}
+        />
+      </ConfirmSheet>
     </View>
   );
 }

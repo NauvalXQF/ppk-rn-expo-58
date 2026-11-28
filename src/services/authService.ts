@@ -11,6 +11,7 @@ import {
   onSnapshot,
   runTransaction,
   serverTimestamp,
+  updateDoc,
   type DocumentData,
 } from 'firebase/firestore';
 
@@ -58,6 +59,7 @@ function normalisasiProfil(uid: string, data: DocumentData, user: User): ProfilP
 
 export async function daftarPraktikan(input: {
   nama: string;
+  nim?: string;
   email: string;
   password: string;
 }): Promise<User> {
@@ -72,7 +74,7 @@ export async function daftarPraktikan(input: {
 
   await updateProfile(credential.user, { displayName: nama });
 
-  await pastikanProfil(credential.user, nama);
+  await pastikanProfil(credential.user, nama, input.nim?.trim() || undefined);
 
   return credential.user;
 }
@@ -97,11 +99,15 @@ export async function keluarDariAplikasi(): Promise<void> {
  * Memastikan dokumen users/{uid} tersedia. Dokumen lama yang belum punya profil
  * (misalnya dibuat manual dari Firebase Console) akan dilengkapi sebagai praktikan.
  */
-export async function pastikanProfil(user: User, namaRegistrasi?: string): Promise<ProfilPengguna> {
+export async function pastikanProfil(
+  user: User,
+  namaRegistrasi?: string,
+  nimRegistrasi?: string,
+): Promise<ProfilPengguna> {
   const db = getFirebaseDb();
   const ref = doc(db, KOLEKSI_USERS, user.uid);
   // Sesi yang sudah punya profil tetap dapat dipulihkan dari cache Firestore.
-  if (namaRegistrasi === undefined) {
+  if (namaRegistrasi === undefined && nimRegistrasi === undefined) {
     const snapshot = await getDoc(ref);
     if (snapshot.exists()) return normalisasiProfil(user.uid, snapshot.data(), user);
   }
@@ -110,9 +116,20 @@ export async function pastikanProfil(user: User, namaRegistrasi?: string): Promi
     const snapshot = await tx.get(ref);
     if (snapshot.exists()) {
       const profil = normalisasiProfil(user.uid, snapshot.data(), user);
+      const updates: Record<string, unknown> = {};
       if (namaRegistrasi !== undefined && profil.role === 'praktikan' && profil.nama !== namaRegistrasi) {
-        tx.update(ref, { nama: namaRegistrasi, updatedAt: serverTimestamp() });
-        return { ...profil, nama: namaRegistrasi };
+        updates.nama = namaRegistrasi;
+      }
+      if (nimRegistrasi && profil.role === 'praktikan' && !profil.nim) {
+        updates.nim = nimRegistrasi;
+      }
+      if (Object.keys(updates).length > 0) {
+        tx.update(ref, { ...updates, updatedAt: serverTimestamp() });
+        return {
+          ...profil,
+          ...(typeof updates.nama === 'string' ? { nama: updates.nama } : {}),
+          ...(typeof updates.nim === 'string' ? { nim: updates.nim } : {}),
+        };
       }
       return profil;
     }
@@ -123,6 +140,7 @@ export async function pastikanProfil(user: User, namaRegistrasi?: string): Promi
       email: user.email ?? '',
       nama: nama.length >= 2 ? nama : 'Pengguna',
       role: 'praktikan',
+      ...(nimRegistrasi ? { nim: nimRegistrasi } : {}),
     };
 
     tx.set(ref, {
@@ -132,6 +150,26 @@ export async function pastikanProfil(user: User, namaRegistrasi?: string): Promi
     });
     return profil;
   });
+}
+
+export async function updateProfilSaya(
+  uid: string,
+  input: { nama: string; nim?: string },
+): Promise<void> {
+  const nama = input.nama.trim();
+  if (nama.length < 2) {
+    throw new Error('Nama minimal 2 karakter.');
+  }
+  const db = getFirebaseDb();
+  const ref = doc(db, KOLEKSI_USERS, uid);
+  const payload: Record<string, unknown> = {
+    nama,
+    updatedAt: serverTimestamp(),
+  };
+  if (input.nim !== undefined) {
+    payload.nim = input.nim.trim();
+  }
+  await updateDoc(ref, payload);
 }
 
 export function langgananProfil(

@@ -3,6 +3,7 @@ import {
   arrayUnion,
   collection,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -62,6 +63,36 @@ export type ProvisionUsersFn = (input: {
   users: ProvisionUserInput[];
 }) => Promise<ProvisionUserResult[]>;
 
+const MAX_PROVISION_BATCH_ROWS = 100;
+const MAX_PROVISION_BODY_BYTES = 14_000;
+
+function chunkProvisionUsers(
+  users: ProvisionUserInput[],
+  courseId: string,
+  labId: string,
+): ProvisionUserInput[][] {
+  const chunks: ProvisionUserInput[][] = [];
+  let current: ProvisionUserInput[] = [];
+
+  for (const user of users) {
+    const candidate = [...current, user];
+    const byteLength = JSON.stringify({ courseId, labId, users: candidate }).length;
+    if (
+      current.length > 0 &&
+      (candidate.length > MAX_PROVISION_BATCH_ROWS || byteLength > MAX_PROVISION_BODY_BYTES)
+    ) {
+      chunks.push(current);
+      current = [user];
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.length > 0) {
+    chunks.push(current);
+  }
+  return chunks;
+}
+
 export async function provisionBulkUsersViaBackend(input: {
   courseId: string;
   labId: string;
@@ -71,37 +102,47 @@ export async function provisionBulkUsersViaBackend(input: {
   if (!user) {
     throw new Error('Sesi login tidak aktif. Silakan masuk kembali.');
   }
-  const base = (process.env.EXPO_PUBLIC_PAYMENT_API_URL ?? '').trim();
+  const base = (process.env.EXPO_PUBLIC_API_BASE_URL ?? '').trim();
   if (!base) {
-    throw new Error('Alamat backend provisioning belum diatur.');
+    throw new Error('Alamat backend belum diatur (EXPO_PUBLIC_API_BASE_URL).');
   }
   const origin = resolvePaymentApiOrigin(base, typeof __DEV__ !== 'undefined' ? __DEV__ : true);
   if (!origin) {
     throw new Error('Gunakan HTTPS atau alamat loopback pada development build.');
   }
   const idToken = await user.getIdToken();
-  const response = await fetch(`${origin}/api/admin/provisioning/users`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify(input),
-  });
+  const chunks = chunkProvisionUsers(input.users, input.courseId, input.labId);
+  const allResults: ProvisionUserResult[] = [];
 
-  const payload = (await response.json().catch(() => ({}))) as {
-    results?: ProvisionUserResult[];
-    error?: { message?: string };
-    message?: string;
-  };
-  if (!response.ok || !Array.isArray(payload.results)) {
-    throw new Error(
-      payload.error?.message ||
-        payload.message ||
-        'Gagal memproses provisioning akun di backend.',
-    );
+  for (const chunk of chunks) {
+    const response = await fetch(`${origin}/api/admin/provisioning/users`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        courseId: input.courseId,
+        labId: input.labId,
+        users: chunk,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      results?: ProvisionUserResult[];
+      error?: { message?: string };
+      message?: string;
+    };
+    if (!response.ok || !Array.isArray(payload.results)) {
+      throw new Error(
+        payload.error?.message ||
+          payload.message ||
+          'Gagal memproses provisioning akun di backend.',
+      );
+    }
+    allResults.push(...payload.results);
   }
-  return payload.results;
+  return allResults;
 }
 
 function parseFiniteOrDefault(raw: unknown, fallback: number): number {
@@ -227,16 +268,27 @@ export async function commitBulkPraktikan(
     const memberId = `${labId}_${uid}`;
     const memberRef = doc(db, 'classMembers', memberId);
 
-    // Hanya tulis field yang diizinkan firestore.rules pada match /classMembers/{memberId}
-    batch.set(memberRef, {
-      classId: labId,
-      uid,
-      nama: row.data.nama.trim(),
-      nim,
-      active: true,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    const existingMember =
+      typeof getDoc === 'function' ? await getDoc(memberRef).catch(() => null) : null;
+    if (existingMember?.exists()) {
+      batch.update(memberRef, {
+        nama: row.data.nama.trim(),
+        nim,
+        active: true,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      // Hanya tulis field yang diizinkan firestore.rules pada match /classMembers/{memberId}
+      batch.set(memberRef, {
+        classId: labId,
+        uid,
+        nama: row.data.nama.trim(),
+        nim,
+        active: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
 
     successCount++;
   }
@@ -381,15 +433,26 @@ export async function transferPraktikan(
   });
 
   const newRef = doc(db, 'classMembers', `${toLabId}_${uid}`);
-  batch.set(newRef, {
-    classId: toLabId,
-    uid,
-    nama: member.nama,
-    nim: member.nim,
-    active: true,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const existingDest =
+    typeof getDoc === 'function' ? await getDoc(newRef).catch(() => null) : null;
+  if (existingDest?.exists()) {
+    batch.update(newRef, {
+      nama: member.nama,
+      nim: member.nim,
+      active: true,
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    batch.set(newRef, {
+      classId: toLabId,
+      uid,
+      nama: member.nama,
+      nim: member.nim,
+      active: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
 
   await batch.commit();
 }
@@ -496,4 +559,111 @@ export async function fetchLabAspraks(labId: string): Promise<LabAssignment[]> {
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => d.data() as LabAssignment);
+}
+
+export interface AvailableAsprak {
+  uid: string;
+  nama: string;
+  email: string;
+  nip: string;
+  role: string;
+}
+
+export async function fetchAvailableAspraks(): Promise<AvailableAsprak[]> {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, 'users'),
+    where('role', 'in', ['asprak', 'asisten']),
+  );
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => {
+      const data = d.data() as Record<string, unknown>;
+      return {
+        uid: String(data.uid ?? d.id),
+        nama: String(data.nama ?? 'Tanpa Nama'),
+        email: String(data.email ?? ''),
+        nip: String(data.nip ?? data.nim ?? ''),
+        role: String(data.role ?? 'asprak'),
+      };
+    })
+    .sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+}
+
+export async function assignSingleAsprakToLab(
+  actor: ProfilPengguna,
+  labId: string,
+  courseId: string,
+  asprak: { uid: string; nama: string; email: string; nip?: string },
+): Promise<void> {
+  if (actor.role !== 'aslab') {
+    throw new Error('Hanya Aslab yang berwenang menugaskan Asprak ke lab.');
+  }
+  const db = getFirebaseDb();
+  const batch = writeBatch(db);
+  const assignmentId = `${labId}_${asprak.uid}`;
+  const assignRef = doc(db, 'labAssignments', assignmentId);
+  const existing = await getDoc(assignRef);
+
+  if (existing.exists()) {
+    batch.update(assignRef, {
+      nama: asprak.nama.trim(),
+      email: asprak.email.trim().toLowerCase(),
+      nip: (asprak.nip ?? '').trim(),
+      courseId,
+      active: true,
+      assignedBy: actor.uid,
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    batch.set(assignRef, {
+      id: assignmentId,
+      labId,
+      courseId,
+      uid: asprak.uid,
+      nip: (asprak.nip ?? '').trim(),
+      nama: asprak.nama.trim(),
+      email: asprak.email.trim().toLowerCase(),
+      active: true,
+      assignedBy: actor.uid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  const labRef = doc(db, 'laboratories', labId);
+  batch.update(labRef, {
+    asprakUids: arrayUnion(asprak.uid),
+    updatedAt: serverTimestamp(),
+    updatedBy: actor.uid,
+  });
+
+  await batch.commit();
+}
+
+export async function unassignAsprakFromLab(
+  actor: ProfilPengguna,
+  labId: string,
+  asprakUid: string,
+): Promise<void> {
+  if (actor.role !== 'aslab') {
+    throw new Error('Hanya Aslab yang berwenang mencopot Asprak dari lab.');
+  }
+  const db = getFirebaseDb();
+  const batch = writeBatch(db);
+  const assignRef = doc(db, 'labAssignments', `${labId}_${asprakUid}`);
+  batch.update(assignRef, {
+    active: false,
+    updatedAt: serverTimestamp(),
+    updatedBy: actor.uid,
+  });
+
+  const labRef = doc(db, 'laboratories', labId);
+  batch.update(labRef, {
+    asprakUids: arrayRemove(asprakUid),
+    updatedAt: serverTimestamp(),
+    updatedBy: actor.uid,
+  });
+
+  await batch.commit();
 }

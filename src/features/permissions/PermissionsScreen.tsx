@@ -1,7 +1,10 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useRouter, type Href } from 'expo-router';
 import { Colors, FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { AppIcon } from '@/components/ui/AppIcon';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { IconButton } from '@/components/ui/IconButton';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
 import {
   defaultPermissionRepository,
@@ -18,6 +21,8 @@ export interface PermissionsScreenProps {
   sessions?: LeaveSessionOption[];
   repository?: PermissionRepository;
   serviceOptions?: PermissionServiceOptions;
+  initialSessionId?: string;
+  existingLeaves?: { sessionId: string; status: 'pending' | 'approved' | 'rejected' }[];
 }
 
 export function PermissionsScreen({
@@ -25,7 +30,10 @@ export function PermissionsScreen({
   sessions = [],
   repository = defaultPermissionRepository,
   serviceOptions,
+  initialSessionId,
+  existingLeaves,
 }: PermissionsScreenProps) {
+  const router = useRouter();
   if (!actor) {
     return (
       <ScreenContainer variant="gradient">
@@ -47,14 +55,35 @@ export function PermissionsScreen({
   return (
     <ScreenContainer variant="gradient">
       <View style={styles.header}>
-        <Text style={styles.title}>
-          {isReviewer ? 'Pemeriksaan Izin' : 'Pengajuan Izin'}
-        </Text>
-        <Text style={styles.subtitle}>
-          {isReviewer
-            ? 'Tinjau pengajuan izin praktikan & klasifikasi AI'
-            : 'Ajukan izin ketidakhadiran & pantau keputusan asisten'}
-        </Text>
+        {!isReviewer ? (
+          <View style={styles.headerTopRow}>
+            <IconButton
+              accessibilityLabel="Kembali"
+              onPress={() => {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace('/(tabs)/kehadiran' as Href);
+                }
+              }}
+            >
+              <AppIcon name="chevron-left" size={20} color={Colors.text} />
+            </IconButton>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Pengajuan Izin</Text>
+              <Text style={styles.subtitle}>
+                Ajukan izin ketidakhadiran & pantau keputusan asisten
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <>
+            <Text style={styles.title}>Pemeriksaan Izin</Text>
+            <Text style={styles.subtitle}>
+              Tinjau pengajuan izin praktikan & klasifikasi AI
+            </Text>
+          </>
+        )}
       </View>
 
       {actor.role === 'praktikan' ? (
@@ -64,6 +93,8 @@ export function PermissionsScreen({
             actor={actor}
             sessions={sessions}
             serviceOptions={mergedServiceOptions}
+            initialSessionId={initialSessionId}
+            existingLeaves={existingLeaves}
           />
           <PraktikanLeaveHistory
             actor={actor}
@@ -86,6 +117,11 @@ const styles = StyleSheet.create({
   header: {
     gap: 2,
     marginBottom: Spacing.xs,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
   },
   title: {
     fontSize: FontSize.xl,

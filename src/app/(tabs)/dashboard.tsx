@@ -38,16 +38,41 @@ export default function AslabDashboardScreen() {
     return <Redirect href="/jadwal" />;
   }
 
+  const managedCourseIds =
+    pengguna.managedCourseIds && pengguna.managedCourseIds.length > 0
+      ? new Set(pengguna.managedCourseIds)
+      : null;
+
+  const scopedLaboratories = managedCourseIds
+    ? laboratories.filter((l) => !l.courseId || managedCourseIds.has(l.courseId))
+    : laboratories;
+  const scopedLabIds = new Set(scopedLaboratories.map((l) => l.id));
+
+  const scopedSessions = managedCourseIds
+    ? (state.sesi ?? []).filter((s) => scopedLabIds.has(s.labId || s.kelasId))
+    : (state.sesi ?? []);
+  const scopedSchedules = managedCourseIds
+    ? (state.jadwal ?? []).filter((j) => scopedLabIds.has(j.labId || j.kelasId))
+    : (state.jadwal ?? []);
+  const scopedFines = managedCourseIds
+    ? fines.filter((f) => scopedLabIds.has(f.labId))
+    : fines;
+
   const classMembers = (state.pengguna ?? [])
     .filter((u): u is Praktikan => u.peran === 'praktikan')
-    .map((p) => ({ classId: p.kelasId, active: true }));
+    .flatMap((p) => {
+      const ids = p.kelasIds && p.kelasIds.length > 0 ? p.kelasIds : [p.kelasId];
+      return ids
+        .filter((id) => !managedCourseIds || scopedLabIds.has(id))
+        .map((classId) => ({ classId, active: true }));
+    });
 
   const metrics = calculateDashboardMetrics({
-    laboratories,
-    sessions: state.sesi ?? [],
-    schedules: state.jadwal ?? [],
+    laboratories: scopedLaboratories,
+    sessions: scopedSessions,
+    schedules: scopedSchedules,
     classMembers,
-    fines,
+    fines: scopedFines,
     filter: period,
   });
 

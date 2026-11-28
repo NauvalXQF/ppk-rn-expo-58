@@ -25,6 +25,7 @@ export function PaymentCheckoutScreen({ uid, fineId }: { uid: string; fineId: st
   const [webViewFailed, setWebViewFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
+  const autoStarted = useRef(false);
   const orderId = fine?.latestOrderId;
   const currentPayment = payment?.orderId === orderId ? payment : null;
   const url = checkout?.orderId === orderId ? checkout?.redirectUrl : undefined;
@@ -36,6 +37,13 @@ export function PaymentCheckoutScreen({ uid, fineId }: { uid: string; fineId: st
     if (!orderId) return;
     return subscribePayment(uid, orderId, setPayment, () => setError('Status transaksi belum dapat dimuat.'));
   }, [uid, orderId]);
+
+  useEffect(() => {
+    if (fine?.status === 'unpaid' && !autoStarted.current && !inFlight.current && !error) {
+      autoStarted.current = true;
+      void run('checkout');
+    }
+  });
 
   async function run(action: 'checkout' | 'verify') {
     if (inFlight.current) return;

@@ -254,6 +254,7 @@ test('commitBulkLaboratorium, commitBulkPraktikan, commitBulkAsprak write only v
       arrayRemove: (...items) => items,
       query: () => ({}),
       where: () => ({}),
+      getDoc: async () => ({ exists: () => false }),
       getDocs: async () => ({ docs: [] }),
     },
   });
@@ -368,6 +369,7 @@ test('T-06 & T-07: transfers praktikan and asprak atomically between labs withou
       arrayRemove: (...items) => items,
       query: () => ({}),
       where: () => ({}),
+      getDoc: async () => ({ exists: () => false }),
       getDocs: async () => ({ docs: [] }),
     },
   });

@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { FilterChip } from '@/components/ui/FilterChip';
 import { InfoBanner } from '@/components/ui/InfoBanner';
 import { ScreenContainer } from '@/components/ui/ScreenContainer';
+import { NotificationBell } from '@/features/notifications/NotificationBell';
 import { Colors, Spacing } from '@/constants/theme';
 import { subscribeFines, subscribePayments } from '@/services/payments/paymentService';
 import { isPaymentId } from '@/services/payments/paymentData';
@@ -47,7 +48,10 @@ export function PraktikanFinesScreen({ uid, initialTab }: { uid: string; initial
 
   return (
     <ScreenContainer>
-      <AppText variant="display">Denda</AppText>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <AppText variant="display">Denda</AppText>
+        <NotificationBell />
+      </View>
       <View style={{ flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap' }}>
         <FilterChip label="Tagihan Aktif" active={tab === 'aktif'} style={{ minHeight: 44 }} onPress={() => setTab('aktif')} />
         <FilterChip label="Riwayat Pembayaran" active={tab === 'riwayat'} style={{ minHeight: 44 }} onPress={() => setTab('riwayat')} />
@@ -64,7 +68,31 @@ export function PraktikanFinesScreen({ uid, initialTab }: { uid: string; initial
         </AppCard>
         {active.length ? active.map((fine) => (
           <AppCard key={fine.id}>
-            <AppText variant="title">{fine.sessionTopik}</AppText>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.sm }}>
+              <AppText variant="title" style={{ flex: 1 }}>{fine.sessionTopik}</AppText>
+              <View style={{
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 999,
+                backgroundColor: fine.reconciliationRequired || fine.status === 'pending_payment'
+                  ? Colors.warningSoft
+                  : Colors.dangerSoft,
+              }}>
+                <AppText
+                  variant="caption"
+                  weight="medium"
+                  color={fine.reconciliationRequired || fine.status === 'pending_payment'
+                    ? Colors.warning
+                    : Colors.danger}
+                >
+                  {fine.reconciliationRequired
+                    ? 'Diperiksa'
+                    : fine.status === 'pending_payment'
+                      ? 'Menunggu'
+                      : 'Belum Lunas'}
+                </AppText>
+              </View>
+            </View>
             <AppText>{fine.labNama} · {courseNames.get(fine.courseId) ?? fine.courseId}</AppText>
             <AppText variant="caption">Tanggal tagihan · {paymentDate(fine.createdAt)}</AppText>
             <AppText variant="caption">Terlambat {fine.lateMinutes} menit · Presensi {paymentDate(fine.waktuPresensi, true)}</AppText>

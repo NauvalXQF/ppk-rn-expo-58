@@ -160,7 +160,7 @@ export function JadwalScreen() {
           description={
             user?.peran === 'praktikan'
               ? getPraktikanClassIds(user).length === 0
-                ? 'Akun Anda belum terdaftar di kelas praktikum mana pun. Tambahkan akun ini lewat menu Peserta pada akun Asisten.'
+                ? 'Akun Anda belum terdaftar di kelas praktikum mana pun. Hubungi Aslab untuk ditambahkan ke kelas.'
                 : 'Tidak ada jadwal/sesi praktikum yang sesuai filter saat ini.'
               : 'Belum ada sesi praktikum yang terdaftar.'
           }
@@ -185,16 +185,28 @@ export function JadwalScreen() {
               const presensi = state.presensi.find(
                 (p) => p.sesiId === sesi.id && p.praktikanId === user.id,
               );
+              const leave = state.leaveRequests?.find(
+                (l) => l.sessionId === sesi.id && l.uid === user.id,
+              );
 
               if (presensi) {
                 metaText = `Hadir ${formatWaktuPresensi(presensi.waktuPresensi)}`;
                 metaTone = 'success';
-              } else if (sesi.status === 'dibuka') {
-                metaText = `${sesi.ruang} · ${formatJam(sesi.jamMulai)}`;
-                metaTone = 'warning';
-              } else {
-                metaText = `${sesi.ruang} · ${formatJam(sesi.jamMulai)}`;
+              } else if (leave?.status === 'approved') {
+                metaText = 'Izin (Disetujui)';
                 metaTone = 'default';
+              } else if (leave?.status === 'pending') {
+                metaText = 'Izin Menunggu';
+                metaTone = 'warning';
+              } else if (sesi.status === 'dibuka') {
+                metaText = 'Belum presensi';
+                metaTone = 'warning';
+              } else if (sesi.status === 'dijadwalkan') {
+                metaText = 'Belum berlangsung';
+                metaTone = 'default';
+              } else {
+                metaText = 'Tidak hadir';
+                metaTone = 'danger';
               }
             }
 

@@ -80,7 +80,7 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
     );
   }
 
-  const { sesi, kelas, asisten, presensiSaya } = detail;
+  const { sesi, kelas, praktikum, asisten, presensiSaya } = detail;
 
   if (
     user?.peran === 'asprak' &&
@@ -201,6 +201,16 @@ export function SessionDetailScreen({ sesiId }: SessionDetailScreenProps) {
         <View style={styles.sheet}>
           <View style={styles.infoBlock}>
             <DetailInfoRow
+              icon="book-open"
+              label="Praktikum"
+              value={praktikum.nama}
+            />
+            <DetailInfoRow
+              icon="layers"
+              label="Kelas / Lab"
+              value={kelas.nama}
+            />
+            <DetailInfoRow
               icon="calendar"
               label="Tanggal"
               value={formattedTanggal}
@@ -316,6 +326,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     flex: 1,
+    maxWidth: 800,
+    width: '100%',
+    alignSelf: 'center',
     marginTop: -24,
     backgroundColor: Colors.surface,
     borderTopLeftRadius: Radius.xl,
