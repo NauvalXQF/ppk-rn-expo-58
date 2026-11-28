@@ -26,6 +26,8 @@ export interface PraktikanLeaveFormProps {
   actor: PermissionActor;
   sessions: LeaveSessionOption[];
   serviceOptions?: PermissionServiceOptions;
+  initialSessionId?: string;
+  existingLeaves?: { sessionId: string; status: 'pending' | 'approved' | 'rejected' }[];
   onSubmitted?: (request: LeaveRequest) => void;
 }
 
@@ -33,6 +35,8 @@ export function PraktikanLeaveForm({
   actor,
   sessions,
   serviceOptions,
+  initialSessionId,
+  existingLeaves,
   onSubmitted,
 }: PraktikanLeaveFormProps) {
   const eligibleSessions = useMemo(() => {
@@ -42,8 +46,26 @@ export function PraktikanLeaveForm({
     return sessions.filter((s) => actor.classIds?.includes(s.classId));
   }, [actor.classIds, sessions]);
 
+  const leaveBySessionId = useMemo(() => {
+    const map = new Map<string, 'pending' | 'approved' | 'rejected'>();
+    for (const leave of existingLeaves ?? []) {
+      map.set(leave.sessionId, leave.status);
+    }
+    return map;
+  }, [existingLeaves]);
+
+  const firstSelectableSession = useMemo(
+    () =>
+      (initialSessionId
+        ? eligibleSessions.find((s) => s.id === initialSessionId && !leaveBySessionId.has(s.id))
+        : undefined) ??
+      eligibleSessions.find((s) => !leaveBySessionId.has(s.id)) ??
+      null,
+    [eligibleSessions, initialSessionId, leaveBySessionId],
+  );
+
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
-    eligibleSessions[0]?.id ?? null,
+    firstSelectableSession?.id ?? null,
   );
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState<string | undefined>(undefined);
@@ -56,8 +78,8 @@ export function PraktikanLeaveForm({
   } | null>(null);
 
   const selectedSession =
-    eligibleSessions.find((s) => s.id === selectedSessionId) ??
-    eligibleSessions[0] ??
+    eligibleSessions.find((s) => s.id === selectedSessionId && !leaveBySessionId.has(s.id)) ??
+    firstSelectableSession ??
     null;
 
   const handleSubmit = async () => {
@@ -147,14 +169,25 @@ export function PraktikanLeaveForm({
       <Text style={styles.sectionLabel}>Pilih Sesi Praktikum</Text>
       <View style={styles.sessionList}>
         {eligibleSessions.map((session) => {
-          const isSelected = selectedSession?.id === session.id;
+          const existingStatus = leaveBySessionId.get(session.id);
+          const isSubmitted = Boolean(existingStatus);
+          const isSelected = !isSubmitted && selectedSession?.id === session.id;
           const timeRange = `${formatJam(session.startTime)}–${formatJam(session.endTime)}`;
-          const subtitle = `${session.className} · ${safeFormatDate(session.date)} · ${timeRange}`;
+          const statusSuffix =
+            existingStatus === 'approved'
+              ? ' · Izin Disetujui'
+              : existingStatus === 'rejected'
+                ? ' · Izin Ditolak'
+                : existingStatus === 'pending'
+                  ? ' · Izin Menunggu'
+                  : '';
+          const subtitle = `${session.className} · ${safeFormatDate(session.date)} · ${timeRange}${statusSuffix}`;
 
           return (
             <RadioOption
               key={session.id}
               selected={isSelected}
+              disabled={isSubmitted}
               title={session.topic}
               subtitle={subtitle}
               onPress={() => setSelectedSessionId(session.id)}

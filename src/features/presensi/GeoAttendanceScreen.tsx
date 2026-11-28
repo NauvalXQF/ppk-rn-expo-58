@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { useRouter, type Href } from 'expo-router';
+import { useIsFocused, useRouter, type Href } from 'expo-router';
 import { AppIcon } from '@/components/ui/AppIcon';
 
 import { AppButton } from '@/components/ui/AppButton';
@@ -30,6 +30,7 @@ interface GeoAttendanceScreenProps {
 
 export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { state, catatPresensi, loading, error, clearError } = useApp();
   const user = state.currentUser;
   const detail = selectDetailSesi(state, sesiId);
@@ -55,7 +56,8 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
     ? evaluateSessionScheduleWindow(detail.sesi)
     : { isWithinSchedule: true, status: 'INVALID' as const };
   const shouldTrackLocation = Boolean(
-    detail &&
+    isFocused &&
+      detail &&
       isPraktikan &&
       isEligibleKelas &&
       !hasApprovedLeave &&
@@ -147,7 +149,11 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
     setLocalError(null);
     clearError();
     if (!canSubmit) return;
-    setConfirmVisible(true);
+    if (liveLateness?.lateStatus === 'late') {
+      setConfirmVisible(true);
+      return;
+    }
+    void handleConfirmPresensi();
   };
 
   const handleConfirmPresensi = async () => {

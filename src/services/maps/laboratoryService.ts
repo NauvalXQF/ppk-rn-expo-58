@@ -44,8 +44,8 @@ export function subscribeLaboratories(
 }
 
 function requireAssistant(actor: ProfilPengguna | null): asserts actor is ProfilPengguna {
-  if (!actor?.uid || (actor.role !== 'asisten' && actor.role !== 'aslab' && actor.role !== 'asprak')) {
-    throw new Error('Hanya asisten atau aslab yang dapat mengelola laboratorium.');
+  if (!actor?.uid || actor.role !== 'aslab') {
+    throw new Error('Hanya aslab yang dapat mengelola laboratorium.');
   }
 }
 
@@ -162,6 +162,15 @@ export async function saveLaboratory(
     aktif: true,
     createdBy: actor.uid,
     createdAt: serverTimestamp(),
+  });
+  await setDoc(doc(db, 'classes', reference.id), {
+    id: reference.id,
+    nama: trimmedNama,
+    praktikumId: input.courseId || 'praktikum-ppk',
+    labId: reference.id,
+    aktif: true,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
 }
 

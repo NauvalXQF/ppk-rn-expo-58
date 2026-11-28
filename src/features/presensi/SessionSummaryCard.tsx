@@ -20,7 +20,7 @@ export function SessionSummaryCard({
   detail,
   labNama,
 }: SessionSummaryCardProps) {
-  const { sesi, praktikum, kelas } = detail;
+  const { sesi, praktikum, kelas, asisten } = detail;
   const formattedTanggal = formatTanggal(sesi.tanggal);
   const formattedWaktu = `${formatJam(sesi.jamMulai)}–${formatJam(sesi.jamSelesai)}`;
   const displayLab = labNama?.trim() || sesi.labNama?.trim() || sesi.ruang;
@@ -43,6 +43,8 @@ export function SessionSummaryCard({
       <Text style={styles.metaText}>
         {formattedTanggal}, {formattedWaktu} WIB · {displayLab}
       </Text>
+
+      <Text style={styles.metaText}>Asisten: {asisten.nama}</Text>
 
       <Text style={styles.policyText}>
         Toleransi {policy.gracePeriodMinutes} menit · Denda telat{' '}

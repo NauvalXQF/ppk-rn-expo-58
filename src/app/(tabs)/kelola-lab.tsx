@@ -14,14 +14,17 @@ import {
 } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { BulkInsertModal } from '@/features/aslab/BulkInsertModal';
+import { ManageAsprakModal } from '@/features/aslab/ManageAsprakModal';
 import { MemberTransferModal } from '@/features/aslab/MemberTransferModal';
 import { LabManagementModal } from '@/features/maps/LabManagementModal';
 import { useLaboratoryData } from '@/features/maps/useMapsData';
 import { NotificationBell } from '@/features/notifications/NotificationBell';
 import type { BulkType } from '@/services/aslab/bulkCsvService';
+import { getFirebaseDb } from '@/config/firebase';
 import type { Laboratory } from '@/types/laboratory';
 import { Redirect } from 'expo-router';
-import { useState } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
+import { useEffect, useMemo, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -84,10 +87,49 @@ export default function KelolaLabScreen() {
   const labData = useLaboratoryData(true);
   const laboratories = (labData.snapshot?.laboratories ?? []) as Laboratory[];
 
+  const [remoteCourses, setRemoteCourses] = useState<CourseItem[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>(DEFAULT_COURSES[0].id);
+
+  useEffect(() => {
+    let active = true;
+    const db = getFirebaseDb();
+    getDocs(collection(db, 'courses'))
+      .then((snap) => {
+        if (!active || snap.empty) return;
+        const loaded = snap.docs
+          .map((d) => {
+            const data = d.data() as Record<string, unknown>;
+            return {
+              id: d.id,
+              kode: String(data.kode ?? d.id),
+              nama: String(data.nama ?? d.id),
+            };
+          })
+          .filter((c) => Boolean(c.nama));
+        if (loaded.length > 0) {
+          setRemoteCourses(loaded);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const managedIds = pengguna?.managedCourseIds;
+  const availableCourses = useMemo(() => {
+    const base = remoteCourses.length > 0 ? remoteCourses : DEFAULT_COURSES;
+    if (managedIds && managedIds.length > 0) {
+      const allowed = new Set(managedIds);
+      const filtered = base.filter((c) => allowed.has(c.id));
+      if (filtered.length > 0) return filtered;
+    }
+    return base;
+  }, [remoteCourses, managedIds]);
   const [selectedLabId, setSelectedLabId] = useState<string>('');
   const [bulkModalType, setBulkModalType] = useState<BulkType | null>(null);
   const [transferModalVisible, setTransferModalVisible] = useState(false);
+  const [manageAsprakVisible, setManageAsprakVisible] = useState(false);
   const [singleLabModalVisible, setSingleLabModalVisible] = useState(false);
   const [editingLabId, setEditingLabId] = useState<string | null>(null);
   const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
@@ -97,7 +139,7 @@ export default function KelolaLabScreen() {
   }
 
   const selectedCourse =
-    DEFAULT_COURSES.find((c) => c.id === selectedCourseId) ?? DEFAULT_COURSES[0];
+    availableCourses.find((c) => c.id === selectedCourseId) ?? availableCourses[0];
   const activeLabs = laboratories.filter(
     (l: Laboratory) => l.aktif && (!l.courseId || l.courseId === selectedCourse.id),
   );
@@ -154,11 +196,11 @@ export default function KelolaLabScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Mata Kuliah</Text>
           <View style={styles.courseChipRow}>
-            {DEFAULT_COURSES.map((course) => (
+            {availableCourses.map((course) => (
               <FilterChip
                 key={course.id}
                 label={`${course.kode} · ${course.nama}`}
-                active={selectedCourseId === course.id}
+                active={selectedCourse.id === course.id}
                 onPress={() => setSelectedCourseId(course.id)}
               />
             ))}
@@ -266,6 +308,24 @@ export default function KelolaLabScreen() {
               icon="user"
               iconBg={Colors.neutralSoft}
               iconColor={Colors.text}
+              title="Kelola Asprak Lab (Satuan)"
+              subtitle={
+                currentLab
+                  ? `Tambah/copot Asprak di ${currentLab.nama}`
+                  : 'Pilih laboratorium terlebih dahulu'
+              }
+              onPress={() => {
+                if (!currentLab) {
+                  setFeedbackSuccess(null);
+                  return;
+                }
+                setManageAsprakVisible(true);
+              }}
+            />
+            <ToolRow
+              icon="user"
+              iconBg={Colors.neutralSoft}
+              iconColor={Colors.text}
               title="Impor Penugasan Asprak"
               subtitle={
                 currentLab
@@ -313,6 +373,19 @@ export default function KelolaLabScreen() {
         />
       ) : null}
 
+      {/* Manage Asprak Modal */}
+      {manageAsprakVisible && pengguna && currentLab ? (
+        <ManageAsprakModal
+          visible={manageAsprakVisible}
+          actor={pengguna}
+          labId={currentLab.id}
+          labNama={currentLab.nama}
+          courseId={selectedCourse.id}
+          onClose={() => setManageAsprakVisible(false)}
+          onSuccess={handleSuccess}
+        />
+      ) : null}
+
       {/* Single Lab Management Modal */}
       {singleLabModalVisible && pengguna ? (
         <LabManagementModal
@@ -320,6 +393,8 @@ export default function KelolaLabScreen() {
           actor={pengguna}
           laboratories={laboratories}
           initialLabId={editingLabId}
+          courseId={selectedCourse.id}
+          courseNama={selectedCourse.nama}
           writable={true}
           onClose={() => setSingleLabModalVisible(false)}
         />

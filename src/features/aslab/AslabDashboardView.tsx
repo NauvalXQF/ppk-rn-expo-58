@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import {
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
+import { useRouter, type Href } from 'expo-router';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppIcon, type AppIconName } from '@/components/ui/AppIcon';
 import { FilterChip } from '@/components/ui/FilterChip';
@@ -75,8 +77,16 @@ export function AslabDashboardView({
   onChangePeriod,
   referenceDate = new Date(),
 }: AslabDashboardViewProps) {
+  const router = useRouter();
   const [subTab, setSubTab] = useState<'kegiatan' | 'keuangan'>('kegiatan');
   const dateRange = getDateRange(period, referenceDate);
+
+  const activeAndUpcomingSessions = [
+    ...metrics.ongoingSessions,
+    ...metrics.upcomingSessions.filter(
+      (item): item is (typeof metrics.ongoingSessions)[number] => 'status' in item && 'tanggal' in item,
+    ),
+  ];
 
   const percentCollected = Math.round(metrics.paymentRatio * 100);
   const totalBilledAndWaived =
@@ -293,7 +303,56 @@ export function AslabDashboardView({
         </View>
       </AppCard>
 
-      {/* 5. Status Operasional Tiap Lab */}
+      {/* 5. Sesi Berlangsung & Akan Datang */}
+      {activeAndUpcomingSessions.length > 0 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>
+            Sesi Berlangsung & Akan Datang ({activeAndUpcomingSessions.length})
+          </Text>
+          <View style={styles.labStatusList}>
+            {activeAndUpcomingSessions.map((sesi) => {
+              const isOngoing = sesi.status === 'dibuka';
+              return (
+                <TouchableOpacity
+                  key={sesi.id}
+                  activeOpacity={0.75}
+                  onPress={() => router.push(`/sesi/${sesi.id}` as Href)}
+                >
+                  <AppCard variant="glass" style={styles.labStatusCard}>
+                    <View style={styles.labStatusHeader}>
+                      <View style={styles.labNameCol}>
+                        <Text style={styles.labStatusName} numberOfLines={1}>
+                          {sesi.topik}
+                        </Text>
+                        <Text style={styles.labStatusGedung}>
+                          {sesi.tanggal} · {sesi.jamMulai}–{sesi.jamSelesai} · {sesi.ruang}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.statusPill,
+                          isOngoing ? styles.statusPillSuccess : styles.statusPillWarning,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.statusPillText,
+                            isOngoing ? styles.statusTextSuccess : styles.statusTextWarning,
+                          ]}
+                        >
+                          {isOngoing ? 'Dibuka' : 'Dijadwalkan'}
+                        </Text>
+                      </View>
+                    </View>
+                  </AppCard>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {/* 6. Status Operasional Tiap Lab */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Status Operasional Tiap Lab</Text>
         <View style={styles.labStatusList}>
@@ -458,6 +517,9 @@ export function AslabDashboardView({
                   </View>
                   <Text style={styles.fineDetailDate}>
                     Terlambat {fine.lateMinutes} mnt · {fine.sessionTanggal}
+                    {isPaid && (fine.settledAt || fine.paidAt)
+                      ? ` · Lunas ${new Date(fine.settledAt || fine.paidAt || '').toLocaleDateString('id-ID')}${fine.paymentMethod ? ` (${fine.paymentMethod})` : ''}`
+                      : ''}
                   </Text>
                 </AppCard>
               );

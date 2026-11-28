@@ -28,7 +28,7 @@ type AuthContextValue = {
   status: StatusAuth;
   pengguna: ProfilPengguna | null;
   error: string | null;
-  daftar: (input: { nama: string; email: string; password: string }) => Promise<void>;
+  daftar: (input: { nama: string; nim?: string; email: string; password: string }) => Promise<void>;
   masuk: (input: { email: string; password: string }) => Promise<void>;
   keluar: () => Promise<void>;
   retryProfile: () => Promise<void>;
@@ -124,7 +124,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [loadUserProfile]);
 
   const daftar = useCallback(
-    async (input: { nama: string; email: string; password: string }) => {
+    async (input: { nama: string; nim?: string; email: string; password: string }) => {
       setError(null);
       await daftarPraktikan(input);
     },

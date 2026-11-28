@@ -7,10 +7,12 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppIcon } from '@/components/ui/AppIcon';
+import { CalendarPickerModal } from '@/components/ui/CalendarPickerModal';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
@@ -122,6 +124,7 @@ export function PracticumCrudSection() {
   const [labIdSesi, setLabIdSesi] = useState<string | undefined>();
   const [ruangSesi, setRuangSesi] = useState('Lab 3');
   const [tanggalSesi, setTanggalSesi] = useState(() => getTodayWibDateString());
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [mulaiSesi, setMulaiSesi] = useState('10:00');
   const [selesaiSesi, setSelesaiSesi] = useState('12:00');
   const [pendingDelete, setPendingDelete] =
@@ -767,7 +770,7 @@ export function PracticumCrudSection() {
                                   style={[styles.miniBtn, styles.miniBtnDanger]}
                                 >
                                   <Text style={styles.miniBtnDelete}>
-                                    Hapus
+                                    Arsipkan
                                   </Text>
                                 </Pressable>
                               </View>
@@ -844,7 +847,7 @@ export function PracticumCrudSection() {
                                   style={[styles.miniBtn, styles.miniBtnDanger]}
                                 >
                                   <Text style={styles.miniBtnDelete}>
-                                    Hapus
+                                    Arsipkan
                                   </Text>
                                 </Pressable>
                               </View>
@@ -901,7 +904,7 @@ export function PracticumCrudSection() {
                               }
                               style={[styles.miniBtn, styles.miniBtnDanger]}
                             >
-                              <Text style={styles.miniBtnDelete}>Hapus</Text>
+                              <Text style={styles.miniBtnDelete}>Arsipkan</Text>
                             </Pressable>
                           </View>
                         </View>
@@ -1021,7 +1024,29 @@ export function PracticumCrudSection() {
                       placeholder="2026-11-25"
                       value={tanggalSesi}
                       onChangeText={setTanggalSesi}
+                      rightAccessory={
+                        <TouchableOpacity
+                          onPress={() => setDatePickerVisible(true)}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Pilih tanggal dari kalender"
+                          style={{ padding: 6 }}
+                        >
+                          <AppIcon name="calendar" size={18} color={Colors.primary} />
+                        </TouchableOpacity>
+                      }
                     />
+                    {datePickerVisible ? (
+                      <CalendarPickerModal
+                        visible={datePickerVisible}
+                        value={tanggalSesi}
+                        onSelect={(date) => {
+                          setTanggalSesi(date);
+                          setDatePickerVisible(false);
+                        }}
+                        onClose={() => setDatePickerVisible(false)}
+                      />
+                    ) : null}
                     {renderLabSelector(
                       'sesi',
                       effectiveLabIdSesi,
@@ -1252,8 +1277,8 @@ export function PracticumCrudSection() {
                           ?.nama ?? activeKelasPeserta;
                       return (
                         <InfoBanner
-                          tone="info"
-                          message={`Praktikan akan dipindahkan dari ${fromKelas} ke ${toKelas} (maks. 1 kelas per praktikan).`}
+                          tone="warning"
+                          message={`Praktikan sudah terdaftar di ${fromKelas} pada praktikum yang sama. Gunakan menu Transfer Anggota di tab Kelola Lab untuk memindahkan ke ${toKelas}.`}
                         />
                       );
                     })()}
