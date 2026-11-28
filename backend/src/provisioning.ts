@@ -11,8 +11,10 @@ type Account = { uid: string; email?: string; disabled?: boolean };
 type Profile = { uid: string; role: string; email: string; nama: string; nim?: string; nip?: string;
   provisioningActivationPending?: boolean };
 type Result = { rowId: string; outcome: 'created' | 'existing' | 'conflict' | 'error'; uid?: string; code?: string };
+type ScopeError = 'COURSE_NOT_FOUND' | 'COURSE_INACTIVE'
+  | 'LAB_UNAVAILABLE' | 'LAB_INACTIVE' | 'CLASS_UNAVAILABLE' | 'CLASS_INVALID';
 interface ProvisioningStore {
-  validLab(courseId: string, labId: string): Promise<boolean>;
+  validateScope(courseId: string, labId: string): Promise<ScopeError | undefined>;
   findAccount(email: string): Promise<Account | undefined>;
   readProfile(uid: string): Promise<Partial<Profile> | undefined>;
   identityInUse(row: Row, uid?: string): Promise<boolean>;
@@ -50,15 +52,26 @@ async function provisionRow(row: Row, store: ProvisioningStore, allowCreate: boo
   const account = await store.findAccount(email);
   const profile = account && await store.readProfile(account.uid);
   if (account && profile) {
-    const compatibleRole = profile.role === role || (profile.role === 'asisten' && role === 'asprak');
-    if (!compatibleRole || profile.uid !== account.uid
-      || account.email?.toLowerCase() !== email || profile.email?.toLowerCase() !== email || profile[field] !== identity
-      || await store.identityInUse(row, account.uid)) {
-      return { rowId, outcome: 'conflict', code: 'ACCOUNT_PROFILE_CONFLICT' };
+    if (profile.uid !== account.uid || account.email?.toLowerCase() !== email || profile.email?.toLowerCase() !== email) {
+      return { rowId, outcome: 'conflict', code: 'PROFILE_REVIEW_REQUIRED' };
+    }
+    if (profile.role !== role && !(profile.role === 'asisten' && role === 'asprak')) {
+      return { rowId, outcome: 'conflict', code: 'ROLE_MISMATCH' };
+    }
+    const currentIdentity = profile[field];
+    if (currentIdentity == null || (typeof currentIdentity === 'string' && !currentIdentity.trim())) {
+      // Baris CSV dan alamat email saja tidak membuktikan identitas akademik akun lama.
+      return { rowId, outcome: 'conflict', code: 'IDENTITY_REVIEW_REQUIRED' };
+    }
+    if (currentIdentity !== identity) {
+      return { rowId, outcome: 'conflict', code: 'IDENTITY_MISMATCH' };
+    }
+    if (await store.identityInUse(row, account.uid)) {
+      return { rowId, outcome: 'conflict', code: 'IDENTITY_IN_USE' };
     }
     if (profile.provisioningActivationPending !== true) {
       return account.disabled
-        ? { rowId, outcome: 'conflict', code: 'ACCOUNT_PROFILE_CONFLICT' }
+        ? { rowId, outcome: 'conflict', code: 'ACCOUNT_DISABLED' }
         : { rowId, outcome: 'existing', uid: account.uid };
     }
   }
@@ -85,7 +98,9 @@ export async function provisionUsers(actor: AuthenticatedUser, input: unknown, s
   if (!docId(courseId) || !docId(labId) || !Array.isArray(users) || !users.length || users.length > 100) {
     throw new HttpError('INVALID_INPUT');
   }
-  if (!actor.managedCourseIds.includes(courseId) || !await store.validLab(courseId, labId)) throw new HttpError('FORBIDDEN');
+  if (!actor.managedCourseIds.includes(courseId)) throw new HttpError('COURSE_FORBIDDEN');
+  const scopeError = await store.validateScope(courseId, labId);
+  if (scopeError) throw new HttpError(scopeError);
   const rowIds = users.map((user) => object(user).rowId);
   if (rowIds.some((id) => typeof id !== 'string' || !id.trim() || id.length > 80) || new Set(rowIds).size !== users.length) {
     throw new HttpError('INVALID_INPUT');
@@ -121,13 +136,18 @@ function reservationId(value: string) {
 
 export function firebaseProvisioningStore(auth: Auth, db: Firestore): ProvisioningStore {
   return {
-    async validLab(courseId, labId) {
-      const [course, lab, kelas] = await db.getAll(
-        db.doc('courses/' + courseId), db.doc('laboratories/' + labId), db.doc('classes/' + labId),
-      );
-      return course.exists && course.get('aktif') === true && lab.get('aktif') === true && lab.get('courseId') === courseId
-        && kelas.exists && kelas.get('archived') !== true && kelas.get('aktif') !== false
-        && kelas.get('praktikumId') === courseId && kelas.get('labId') === labId;
+    async validateScope(courseId, labId) {
+      const course = await db.doc('courses/' + courseId).get();
+      if (!course.exists) return 'COURSE_NOT_FOUND';
+      if (course.get('aktif') !== true) return 'COURSE_INACTIVE';
+      const lab = await db.doc('laboratories/' + labId).get();
+      if (!lab.exists || lab.get('courseId') !== courseId) return 'LAB_UNAVAILABLE';
+      if (lab.get('aktif') !== true) return 'LAB_INACTIVE';
+      const kelas = await db.doc('classes/' + labId).get();
+      if (!kelas.exists || kelas.get('praktikumId') !== courseId) return 'CLASS_UNAVAILABLE';
+      if (kelas.get('archived') === true || kelas.get('aktif') === false || kelas.get('labId') !== labId) {
+        return 'CLASS_INVALID';
+      }
     },
     async findAccount(email) {
       try { return await auth.getUserByEmail(email); }

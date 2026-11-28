@@ -1,5 +1,6 @@
 import {
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
@@ -18,6 +19,10 @@ import { getFirebaseAuth, getFirebaseDb } from '@/config/firebase';
 import type { Pengguna } from '@/types/models';
 
 export type Role = 'praktikan' | 'asprak' | 'aslab' | 'asisten';
+
+export function kirimResetPassword(email: string): Promise<void> {
+  return sendPasswordResetEmail(getFirebaseAuth(), email.trim().toLowerCase());
+}
 
 export type ProfilPengguna = {
   uid: string;

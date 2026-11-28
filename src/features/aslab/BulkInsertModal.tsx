@@ -261,16 +261,34 @@ export function BulkInsertModal({
     try {
       if (type === 'laboratorium') {
         const result = await commitBulkLaboratorium(actor, courseId, courseNama, labRows);
+        if (result.errors.length) {
+          const committed = new Set(result.committedRowIds);
+          setLabRows((rows) => rows.filter((row) => !committed.has(row.id)));
+          setSaveError([`${result.successCount} laboratorium berhasil dibuat.`, ...result.errors].join('\n'));
+          return;
+        }
         onSuccess(`${result.successCount} laboratorium berhasil dibuat di bawah mata kuliah ${courseNama}.`);
       } else if (type === 'praktikan') {
         if (!targetLabId) throw new Error('Laboratorium tujuan belum dipilih.');
         const result = await commitBulkPraktikan(actor, targetLabId, praktikanRows, {
           courseId,
         });
+        if (result.errors.length) {
+          const committed = new Set(result.committedRowIds);
+          setPraktikanRows((rows) => rows.filter((row) => !committed.has(row.id)));
+          setSaveError([`${result.successCount} praktikan berhasil didaftarkan.`, ...result.errors].join('\n'));
+          return;
+        }
         onSuccess(`${result.successCount} praktikan berhasil didaftarkan ke laboratorium.`);
       } else {
         if (!targetLabId) throw new Error('Laboratorium tujuan belum dipilih.');
         const result = await commitBulkAsprak(actor, targetLabId, courseId, asprakRows);
+        if (result.errors.length) {
+          const committed = new Set(result.committedRowIds);
+          setAsprakRows((rows) => rows.filter((row) => !committed.has(row.id)));
+          setSaveError([`${result.successCount} asprak berhasil ditugaskan.`, ...result.errors].join('\n'));
+          return;
+        }
         onSuccess(`${result.successCount} asprak berhasil ditugaskan ke laboratorium.`);
       }
       handleClose();

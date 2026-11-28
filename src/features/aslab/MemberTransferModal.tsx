@@ -125,7 +125,9 @@ export function MemberTransferModal({
       } else {
         const targetAsprak = aspraks.find((a) => (a.nip || a.uid) === selectedMemberId);
         if (!targetAsprak) throw new Error('Asprak tidak ditemukan.');
-        await transferAsprak(actor, fromLabId, toLabId, targetAsprak);
+        const targetCourseId = activeLaboratories.find((lab) => lab.id === toLabId)?.courseId;
+        if (!targetCourseId) throw new Error('Mata kuliah laboratorium tujuan tidak tersedia.');
+        await transferAsprak(actor, fromLabId, toLabId, targetAsprak, { targetCourseId });
         onSuccess(`Asprak ${targetAsprak.nama} berhasil dipindahkan ke laboratorium baru.`);
       }
       onClose();
