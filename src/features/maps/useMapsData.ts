@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { Role } from '@/services/authService';
 import { subscribeLaboratories, type LaboratorySnapshot } from '@/services/maps/laboratoryService';
 import { getLabActivities, type LabSchedule, type LabSession } from '@/services/maps/labActivity';
 import {
   subscribeActiveClassIds,
+  subscribeAssignedLabIds,
   subscribeLabActivity,
   type LabClass,
 } from '@/services/maps/labActivityService';
@@ -69,26 +71,49 @@ export function useLaboratoryData(focused: boolean) {
   };
 }
 
-export function useMapsActivity(uid: string, isAssistant: boolean, focused: boolean) {
+export function useMapsActivity(
+  uid: string,
+  roleOrIsAssistant: Role | boolean,
+  focused: boolean,
+) {
+  const scopeRole: Role =
+    typeof roleOrIsAssistant === 'boolean'
+      ? roleOrIsAssistant
+        ? 'aslab'
+        : 'praktikan'
+      : roleOrIsAssistant;
+  const isFullScope = scopeRole === 'aslab';
+  const isAsprakScope = scopeRole === 'asprak' || scopeRole === 'asisten';
+
   const [attempt, setAttempt] = useState(0);
   const [now, setNow] = useState(Date.now);
   // A returning tab or account must wait for a fresh membership and activity subscription.
-  const viewer = useMemo(() => ({ uid, isAssistant, focused, attempt }), [uid, isAssistant, focused, attempt]);
+  const viewer = useMemo(
+    () => ({ uid, scopeRole, isFullScope, isAsprakScope, focused, attempt }),
+    [uid, scopeRole, isFullScope, isAsprakScope, focused, attempt],
+  );
   const [membershipState, setMembership] = useState<{ viewer: typeof viewer; data: MembershipData }>();
   const membership = membershipState?.viewer === viewer ? membershipState.data : undefined;
   const membershipKey = JSON.stringify(membership?.ids ?? []);
-  const scope = useMemo(() => ({ viewer, classIds: JSON.parse(membershipKey) as string[] }), [viewer, membershipKey]);
+  const membershipReady = isFullScope || membership?.ids !== undefined;
+  const scope = useMemo(
+    () => ({ viewer, ready: membershipReady, classIds: JSON.parse(membershipKey) as string[] }),
+    [viewer, membershipReady, membershipKey],
+  );
   const [remote, setRemote] = useState<{ scope: typeof scope; entries: ActivityData[] }>();
 
   useEffect(() => {
-    if (!viewer.focused || viewer.isAssistant) return;
+    if (!viewer.focused || viewer.isFullScope) return;
     let active = true;
     const onError = (error: unknown) => {
       if (active) setMembership({ viewer, data: { ids: [], error: activityError(error) } });
     };
     let unsubscribe: (() => void) | undefined;
     try {
-      unsubscribe = subscribeActiveClassIds(viewer.uid, (ids) => {
+      const subscribeIds = viewer.isAsprakScope
+        ? subscribeAssignedLabIds
+        : subscribeActiveClassIds;
+      unsubscribe = subscribeIds(viewer.uid, (ids) => {
         if (active) setMembership({ viewer, data: { ids, cached: ids === undefined } });
       }, onError);
     } catch (error) {
@@ -101,9 +126,10 @@ export function useMapsActivity(uid: string, isAssistant: boolean, focused: bool
   }, [viewer]);
 
   useEffect(() => {
-    if (!scope.viewer.focused) return;
+    if (!scope.viewer.focused || !scope.ready) return;
     let active = true;
-    const classIds = scope.viewer.isAssistant ? [null] : scope.classIds;
+    const classIds = scope.viewer.isFullScope ? [null] : scope.classIds;
+    if (classIds.length === 0) return;
     const entries: ActivityData[] = classIds.map(() => ({ cached: {} }));
     const publish = () => {
       if (!active) return;
@@ -172,14 +198,14 @@ export function useMapsActivity(uid: string, isAssistant: boolean, focused: bool
     entries?.flatMap((entry) => entry.schedules ?? []) ?? [],
     now,
   ), [entries, now]);
-  const hasScope = isAssistant || Boolean(membership?.ids?.length);
+  const hasScope = isFullScope || Boolean(membership?.ids?.length);
 
   return {
     activities,
     classes,
     error: membership?.error ?? entries?.find((entry) => entry.error)?.error,
     cached: membership?.cached || entries?.some((entry) => Object.values(entry.cached).some(Boolean)),
-    loading: focused && ((!isAssistant && !membership?.ids) || (hasScope && (!entries ||
+    loading: focused && ((!isFullScope && !membership?.ids) || (hasScope && (!entries ||
       entries.some((entry) => !entry.error && (!entry.sessions || !entry.schedules))))),
     retry: () => setAttempt((previous) => previous + 1),
   };

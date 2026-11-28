@@ -9,7 +9,11 @@ import type {
 export type LocationErrorCode =
   | 'PERMISSION_DENIED'
   | 'GPS_DISABLED'
-  | 'POSITION_UNAVAILABLE';
+  | 'POSITION_UNAVAILABLE'
+  | 'MOCK_LOCATION_DETECTED';
+
+export const MOCK_LOCATION_ERROR_MESSAGE =
+  'Lokasi palsu (Fake GPS / Mock Location) terdeteksi. Matikan aplikasi lokasi palsu untuk melakukan presensi.';
 
 export class LocationServiceError extends Error {
   readonly code: LocationErrorCode;
@@ -171,14 +175,34 @@ export async function getCurrentLocationReading(
 
   try {
     const position = await Location.getCurrentPositionAsync({ accuracy });
-    return toLocationReading(position);
-  } catch {
+    const reading = toLocationReading(position);
+    if (reading.isMocked) {
+      throw new LocationServiceError(
+        'MOCK_LOCATION_DETECTED',
+        MOCK_LOCATION_ERROR_MESSAGE,
+      );
+    }
+    return reading;
+  } catch (err) {
+    if (err instanceof LocationServiceError) {
+      throw err;
+    }
     try {
       const fallbackPos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
-      return toLocationReading(fallbackPos);
-    } catch {
+      const fallbackReading = toLocationReading(fallbackPos);
+      if (fallbackReading.isMocked) {
+        throw new LocationServiceError(
+          'MOCK_LOCATION_DETECTED',
+          MOCK_LOCATION_ERROR_MESSAGE,
+        );
+      }
+      return fallbackReading;
+    } catch (fallbackErr) {
+      if (fallbackErr instanceof LocationServiceError) {
+        throw fallbackErr;
+      }
       throw new LocationServiceError(
         'POSITION_UNAVAILABLE',
         'Gagal memperoleh koordinat GPS terkini. Pastikan sinyal GPS aktif dan coba segarkan lokasi.',
@@ -229,7 +253,12 @@ export async function subscribeLocationUpdates(
       timeInterval: options?.timeInterval ?? 4000,
     },
     (position) => {
-      onReading(toLocationReading(position));
+      const reading = toLocationReading(position);
+      if (reading.isMocked) {
+        onError?.(MOCK_LOCATION_ERROR_MESSAGE);
+        return;
+      }
+      onReading(reading);
     },
     (errorMessage) => {
       onError?.(errorMessage);

@@ -1,10 +1,15 @@
 import {
   collection,
   doc,
+  getDocs,
   onSnapshot,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
+  writeBatch,
+  type Firestore,
 } from 'firebase/firestore';
 import { getFirebaseDb } from '@/config/firebase';
 import type { ProfilPengguna } from '@/services/authService';
@@ -44,6 +49,71 @@ function requireAssistant(actor: ProfilPengguna | null): asserts actor is Profil
   }
 }
 
+export async function syncLaboratoryMetadataToSessions(
+  db: Firestore,
+  laboratoryId: string,
+  metadata: {
+    nama: string;
+    latitude: number;
+    longitude: number;
+    radiusMeters: number;
+    gracePeriodMinutes?: number;
+    lateFineAmount?: number;
+  },
+): Promise<number> {
+  if (
+    typeof getDocs !== 'function' ||
+    typeof query !== 'function' ||
+    typeof where !== 'function' ||
+    typeof writeBatch !== 'function'
+  ) {
+    return 0;
+  }
+
+  const sessionsSnap = await getDocs(
+    query(collection(db, 'sessions'), where('labId', '==', laboratoryId)),
+  );
+  const activeDocs = sessionsSnap.docs.filter((item) => {
+    const data = item.data();
+    return data.archived !== true && data.closedAt == null;
+  });
+
+  if (activeDocs.length === 0) return 0;
+
+  const CHUNK_SIZE = 450;
+  let updatedCount = 0;
+  for (let i = 0; i < activeDocs.length; i += CHUNK_SIZE) {
+    const chunk = activeDocs.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    for (const sessionDoc of chunk) {
+      const data = sessionDoc.data();
+      const patch: Record<string, unknown> = {
+        labNama: metadata.nama,
+        ruang: metadata.nama,
+        labCoordinates: {
+          latitude: metadata.latitude,
+          longitude: metadata.longitude,
+        },
+        radiusMeters: metadata.radiusMeters,
+        updatedAt: serverTimestamp(),
+      };
+      if (data.openedAt == null) {
+        if (metadata.gracePeriodMinutes !== undefined) {
+          patch.gracePeriodMinutes = metadata.gracePeriodMinutes;
+        }
+        if (metadata.lateFineAmount !== undefined) {
+          patch.lateFineAmount = metadata.lateFineAmount;
+        }
+      }
+      batch.update(doc(db, 'sessions', sessionDoc.id), patch);
+      updatedCount += 1;
+    }
+    await batch.commit();
+  }
+
+  return updatedCount;
+}
+
 export async function saveLaboratory(
   actor: ProfilPengguna | null,
   input: LaboratoryInput,
@@ -54,8 +124,9 @@ export async function saveLaboratory(
   if (error) throw new Error(error);
 
   const { latitude, longitude, radiusMeters, kapasitas } = input;
+  const trimmedNama = input.nama.trim();
   const fields: Record<string, unknown> = {
-    nama: input.nama.trim(),
+    nama: trimmedNama,
     kode: input.kode.trim(),
     gedung: input.gedung.trim(),
     latitude,
@@ -70,9 +141,18 @@ export async function saveLaboratory(
   if (input.courseNama) fields.courseNama = input.courseNama;
   if (actor.role === 'aslab') fields.updatedBy = actor.uid;
 
-  const labs = collection(getFirebaseDb(), 'laboratories');
+  const db = getFirebaseDb();
+  const labs = collection(db, 'laboratories');
   if (laboratoryId) {
     await updateDoc(doc(labs, laboratoryId), fields);
+    await syncLaboratoryMetadataToSessions(db, laboratoryId, {
+      nama: trimmedNama,
+      latitude,
+      longitude,
+      radiusMeters,
+      gracePeriodMinutes: input.gracePeriodMinutes,
+      lateFineAmount: input.lateFineAmount,
+    });
     return;
   }
   const reference = doc(labs);

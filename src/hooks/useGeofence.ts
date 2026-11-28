@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import * as Location from 'expo-location';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 import {
   evaluateGeofence,
@@ -11,6 +11,7 @@ import {
 import {
   getCurrentLocationReading,
   LocationServiceError,
+  MOCK_LOCATION_ERROR_MESSAGE,
   openDeviceLocationSettings,
   subscribeLocationUpdates,
 } from '@/services/location/locationService';
@@ -29,11 +30,21 @@ export interface UseGeofenceResult {
   verification: VerificationResult | null;
   permissionState: LocationPermissionState;
   gpsEnabled: boolean;
+  isMockedDetected: boolean;
   loading: boolean;
   refreshing: boolean;
   errorMessage: string | null;
   refreshLocation: () => Promise<void>;
   openSettings: () => Promise<void>;
+}
+
+function isMockErrorMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('fake gps') ||
+    lower.includes('mock location') ||
+    lower.includes('lokasi palsu')
+  );
 }
 
 export function useGeofence(
@@ -49,6 +60,7 @@ export function useGeofence(
   const [permissionState, setPermissionState] =
     useState<LocationPermissionState>('undetermined');
   const [gpsEnabled, setGpsEnabled] = useState(true);
+  const [isMockedDetected, setIsMockedDetected] = useState(false);
   const [loading, setLoading] = useState(enabled);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -68,30 +80,34 @@ export function useGeofence(
 
   const labTarget = useMemo(() => {
     const labId = sesi?.labId?.trim();
-    if (
-      labId &&
-      !isValidCoordinate(sesi?.labCoordinates) &&
-      remoteLabOverride?.labId === labId
-    ) {
+    if (labId && remoteLabOverride?.labId === labId) {
       return remoteLabOverride.target;
     }
     return baseTarget;
-  }, [baseTarget, remoteLabOverride, sesi?.labCoordinates, sesi?.labId]);
+  }, [baseTarget, remoteLabOverride, sesi?.labId]);
 
   useEffect(() => {
     const labId = sesi?.labId?.trim();
-    if (!labId || isValidCoordinate(sesi?.labCoordinates)) {
+    if (!labId) {
       return;
     }
 
     const db = getDb();
     if (!db) return;
 
-    let cancelled = false;
-    getDoc(doc(db, 'laboratories', labId))
-      .then((snap) => {
-        if (cancelled || !mountedRef.current || !snap.exists()) return;
+    const unsubscribe = onSnapshot(
+      doc(db, 'laboratories', labId),
+      (snap) => {
+        if (!mountedRef.current) return;
+        if (!snap.exists()) {
+          setRemoteLabOverride((prev) => (prev?.labId === labId ? null : prev));
+          return;
+        }
         const data = snap.data();
+        if (data.aktif === false) {
+          setRemoteLabOverride((prev) => (prev?.labId === labId ? null : prev));
+          return;
+        }
         const coords = {
           latitude: Number(data.latitude),
           longitude: Number(data.longitude),
@@ -115,13 +131,14 @@ export function useGeofence(
             },
           });
         }
-      })
-      .catch(() => {});
+      },
+      () => {},
+    );
 
     return () => {
-      cancelled = true;
+      unsubscribe();
     };
-  }, [baseTarget.labNama, baseTarget.radiusMeters, sesi?.labCoordinates, sesi?.labId]);
+  }, [baseTarget.labNama, baseTarget.radiusMeters, sesi?.labId]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener(
@@ -146,6 +163,7 @@ export function useGeofence(
     async (isManualRefresh: boolean) => {
       if (!enabled) {
         stopWatcher();
+        setReading(null);
         return;
       }
 
@@ -155,13 +173,23 @@ export function useGeofence(
         setLoading(true);
       }
       setErrorMessage(null);
+      setIsMockedDetected(false);
 
       try {
         const current = await getCurrentLocationReading(Location.Accuracy.High);
         if (!mountedRef.current) return;
 
+        if (current.isMocked) {
+          stopWatcher();
+          setReading(null);
+          setIsMockedDetected(true);
+          setErrorMessage(MOCK_LOCATION_ERROR_MESSAGE);
+          return;
+        }
+
         setPermissionState('granted');
         setGpsEnabled(true);
+        setIsMockedDetected(false);
         setReading(current);
         setErrorMessage(null);
 
@@ -169,10 +197,20 @@ export function useGeofence(
         const unsub = await subscribeLocationUpdates(
           (nextReading) => {
             if (!mountedRef.current) return;
+            if (nextReading.isMocked) {
+              setReading(null);
+              setIsMockedDetected(true);
+              setErrorMessage(MOCK_LOCATION_ERROR_MESSAGE);
+              return;
+            }
+            setIsMockedDetected(false);
+            setErrorMessage(null);
             setReading(nextReading);
           },
           (watchErr) => {
             if (!mountedRef.current) return;
+            setReading(null);
+            setIsMockedDetected(isMockErrorMessage(watchErr));
             setErrorMessage(watchErr);
           },
           {
@@ -189,12 +227,15 @@ export function useGeofence(
       } catch (err) {
         if (!mountedRef.current) return;
         stopWatcher();
+        setReading(null);
 
         if (err instanceof LocationServiceError) {
           if (err.code === 'PERMISSION_DENIED') {
             setPermissionState('denied');
           } else if (err.code === 'GPS_DISABLED') {
             setGpsEnabled(false);
+          } else if (err.code === 'MOCK_LOCATION_DETECTED') {
+            setIsMockedDetected(true);
           }
           setErrorMessage(err.message);
         } else {
@@ -242,7 +283,7 @@ export function useGeofence(
   }, []);
 
   const verification = useMemo<VerificationResult | null>(() => {
-    if (!reading) return null;
+    if (!reading || reading.isMocked || isMockedDetected) return null;
     try {
       return evaluateGeofence(reading, {
         labNama: labTarget.labNama,
@@ -252,7 +293,13 @@ export function useGeofence(
     } catch {
       return null;
     }
-  }, [labTarget.coordinates, labTarget.labNama, labTarget.radiusMeters, reading]);
+  }, [
+    isMockedDetected,
+    labTarget.coordinates,
+    labTarget.labNama,
+    labTarget.radiusMeters,
+    reading,
+  ]);
 
   return {
     labTarget,
@@ -260,6 +307,7 @@ export function useGeofence(
     verification,
     permissionState,
     gpsEnabled,
+    isMockedDetected,
     loading: enabled ? loading : false,
     refreshing,
     errorMessage,

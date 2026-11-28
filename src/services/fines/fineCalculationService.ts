@@ -1,12 +1,11 @@
-import { getApp, getApps } from 'firebase/app';
 import {
   doc,
-  getFirestore,
   runTransaction,
   serverTimestamp,
   type Firestore,
 } from 'firebase/firestore';
 
+import { getFirebaseDb } from '@/config/firebaseApp';
 import {
   DEFAULT_GRACE_PERIOD_MINUTES,
   DEFAULT_LATE_FINE_AMOUNT,
@@ -15,6 +14,7 @@ import {
   type FineRecord,
   type LateEvaluationResult,
 } from '@/types/fine';
+import { parseWibDateTimeMs } from '@/utils/date';
 
 const MAX_GRACE_PERIOD_MINUTES = 120;
 const MS_PER_MINUTE = 60_000;
@@ -115,13 +115,7 @@ export function parseScheduledStartMs(
   tanggal?: string,
   jamMulai?: string,
 ): number | null {
-  const cleanTanggal = tanggal?.trim();
-  const cleanJam = jamMulai?.trim();
-  if (!cleanTanggal || !cleanJam) return null;
-
-  const date = new Date(`${cleanTanggal}T${cleanJam}:00`);
-  const ms = date.getTime();
-  return Number.isNaN(ms) ? null : ms;
+  return parseWibDateTimeMs(tanggal, jamMulai);
 }
 
 export function resolveEffectiveSessionStartMs(session: {
@@ -186,6 +180,7 @@ export function buildFineDocumentPayload(input: {
   praktikanNama: string;
   praktikanNim?: string;
   courseId?: string;
+  classId?: string;
   labId: string;
   labNama: string;
   sessionTopik: string;
@@ -197,6 +192,8 @@ export function buildFineDocumentPayload(input: {
   const sessionId = input.sessionId.trim();
   const uid = input.uid.trim();
   const fineId = buildFineId(sessionId, uid);
+  const labId = input.labId.trim();
+  const classId = input.classId?.trim() || labId;
 
   return {
     id: fineId,
@@ -204,8 +201,9 @@ export function buildFineDocumentPayload(input: {
     praktikanNama: input.praktikanNama.trim() || 'Praktikan',
     praktikanNim: input.praktikanNim?.trim() || '-',
     courseId: input.courseId?.trim() || 'praktikum-ppk',
-    labId: input.labId.trim(),
-    labNama: input.labNama.trim() || input.labId.trim(),
+    classId,
+    labId,
+    labNama: input.labNama.trim() || labId,
     sessionId,
     sessionTopik: input.sessionTopik.trim() || 'Sesi Praktikum',
     sessionTanggal: input.sessionTanggal.trim(),
@@ -227,8 +225,7 @@ export function formatRupiah(amount: number): string {
 
 function getActiveFirestore(): Firestore | null {
   try {
-    if (getApps().length === 0) return null;
-    return getFirestore(getApp());
+    return getFirebaseDb();
   } catch {
     return null;
   }

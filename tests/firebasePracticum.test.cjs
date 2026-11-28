@@ -6,7 +6,7 @@ const { createRequire } = require('node:module');
 const { test } = require('node:test');
 const ts = require('typescript');
 
-const asisten = { id: 'auth-asisten', peran: 'asisten', nama: 'Asisten Uji' };
+const asisten = { id: 'auth-asisten', peran: 'aslab', nama: 'Asisten Uji' };
 const praktikan = { id: 'auth-praktikan', peran: 'praktikan', nama: 'Praktikan Uji', kelasId: '' };
 const inputSesi = {
   kelasId: 'kelas-a', scheduleId: 'jadwal-a', topik: 'React Native',

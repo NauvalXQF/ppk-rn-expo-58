@@ -176,8 +176,11 @@ test('Sprint 2 CRUD and Firestore sync actions enforce asisten role and update s
   let state = choose(fresh(), 'praktikan-1');
   assert.equal(appReducer(state, { type: 'TAMBAH_KELAS', kelas: { id: 'kelas-d', nama: 'PPK D', praktikumId: 'praktikum-ppk' } }), state);
 
-  // Asisten can perform CRUD on kelas, peserta, jadwal, sesi
-  state = choose(fresh(), 'asisten-1');
+  // Aslab can perform CRUD on kelas, peserta, jadwal, sesi
+  state = appReducer(fresh(), {
+    type: 'SET_PENGGUNA',
+    pengguna: { id: 'aslab-1', peran: 'aslab', nama: 'Aslab Uji', nip: '19990001' },
+  });
   state = appReducer(state, { type: 'TAMBAH_KELAS', kelas: { id: 'kelas-d', nama: 'PPK D', praktikumId: 'praktikum-ppk' } });
   assert.equal(state.kelas.length, 4);
   state = appReducer(state, { type: 'UBAH_KELAS', kelas: { id: 'kelas-d', nama: 'PPK D Baru', praktikumId: 'praktikum-ppk' } });

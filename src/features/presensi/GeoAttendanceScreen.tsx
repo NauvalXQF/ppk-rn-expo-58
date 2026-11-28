@@ -132,6 +132,8 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
     sesi.status === 'dibuka' &&
     scheduleCheck.isWithinSchedule &&
     !presensiSaya &&
+    !geofence.isMockedDetected &&
+    !geofence.reading?.isMocked &&
     geofence.verification?.status === 'DALAM_RADIUS' &&
     geofence.reading !== null &&
     !loading;
@@ -150,6 +152,12 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
 
   const handleConfirmPresensi = async () => {
     setConfirmVisible(false);
+    if (geofence.isMockedDetected || geofence.reading?.isMocked) {
+      setLocalError(
+        'Lokasi palsu (Fake GPS / Mock Location) terdeteksi. Matikan aplikasi lokasi palsu untuk melakukan presensi.',
+      );
+      return;
+    }
     if (!geofence.reading || !geofence.verification) {
       setLocalError('Koordinat GPS belum siap. Segarkan lokasi terlebih dahulu.');
       return;
@@ -160,13 +168,19 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
     }
 
     try {
-      await catatPresensi(sesi.id, catatan, {
-        latitude: geofence.reading.latitude,
-        longitude: geofence.reading.longitude,
-        accuracy: geofence.reading.accuracy ?? 0,
-        distanceMeters: geofence.verification.distanceMeters,
-        geofenceStatus: 'in_radius',
-      });
+      await catatPresensi(
+        sesi.id,
+        catatan,
+        {
+          latitude: geofence.reading.latitude,
+          longitude: geofence.reading.longitude,
+          accuracy: geofence.reading.accuracy ?? 0,
+          distanceMeters: geofence.verification.distanceMeters,
+          geofenceStatus: 'in_radius',
+          isMocked: Boolean(geofence.reading.isMocked),
+        },
+        geofence.labTarget,
+      );
     } catch (err) {
       setLocalError(
         err instanceof Error ? err.message : 'Gagal mengirim presensi.',
@@ -298,6 +312,7 @@ export function GeoAttendanceScreen({ sesiId }: GeoAttendanceScreenProps) {
             verification={geofence.verification}
             permissionState={geofence.permissionState}
             gpsEnabled={geofence.gpsEnabled}
+            isMockedDetected={geofence.isMockedDetected}
             loading={geofence.loading}
             refreshing={geofence.refreshing}
             errorMessage={geofence.errorMessage}

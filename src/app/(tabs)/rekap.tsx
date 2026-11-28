@@ -1,6 +1,7 @@
 import React from 'react';
 import { Redirect } from 'expo-router';
 import { useApp } from '@/store/app-context';
+import { isStaffUser } from '@/types/models';
 import { RekapScreen } from '@/features/rekap/RekapScreen';
 
 export default function RekapRoute() {
@@ -10,7 +11,7 @@ export default function RekapRoute() {
     return <Redirect href="/" />;
   }
 
-  if (state.currentUser.peran !== 'asisten') {
+  if (!isStaffUser(state.currentUser)) {
     return <Redirect href="/jadwal" />;
   }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   Platform,
@@ -14,6 +14,7 @@ import { AppIcon } from '@/components/ui/AppIcon';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
+import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FilterChip } from '@/components/ui/FilterChip';
 import { FormField } from '@/components/ui/FormField';
@@ -49,11 +50,17 @@ import {
   type Praktikan,
   type Sesi,
 } from '@/types/models';
+import { getTodayWibDateString } from '@/utils/date';
 import { LabPickerModal } from './LabPickerModal';
 
 type CrudTab = 'sesi' | 'jadwal' | 'kelas' | 'peserta';
 type ModalView = 'list' | 'form' | 'pick-account';
 type AccountFilter = 'unassigned' | 'all';
+type PendingDeleteTarget = {
+  type: CrudTab;
+  id: string;
+  label: string;
+};
 
 export function PracticumCrudSection() {
   const {
@@ -114,11 +121,20 @@ export function PracticumCrudSection() {
   const [topikSesi, setTopikSesi] = useState('');
   const [labIdSesi, setLabIdSesi] = useState<string | undefined>();
   const [ruangSesi, setRuangSesi] = useState('Lab 3');
-  const [tanggalSesi, setTanggalSesi] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
+  const [tanggalSesi, setTanggalSesi] = useState(() => getTodayWibDateString());
   const [mulaiSesi, setMulaiSesi] = useState('10:00');
   const [selesaiSesi, setSelesaiSesi] = useState('12:00');
+  const [pendingDelete, setPendingDelete] =
+    useState<PendingDeleteTarget | null>(null);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current) {
+        clearTimeout(feedbackTimerRef.current);
+      }
+    };
+  }, []);
 
   const [registeredAccounts, setRegisteredAccounts] = useState<
     RegisteredPraktikanAccount[]
@@ -238,13 +254,43 @@ export function PracticumCrudSection() {
 
   const showSuccess = (msg: string) => {
     setFeedback(msg);
-    setTimeout(() => setFeedback(null), 3000);
+    if (feedbackTimerRef.current) {
+      clearTimeout(feedbackTimerRef.current);
+    }
+    feedbackTimerRef.current = setTimeout(() => {
+      setFeedback(null);
+      feedbackTimerRef.current = null;
+    }, 3000);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    setPendingDelete(null);
+    try {
+      if (target.type === 'sesi') {
+        await hapusSesi(target.id);
+        showSuccess('Sesi diarsipkan.');
+      } else if (target.type === 'jadwal') {
+        await hapusJadwal(target.id);
+        showSuccess('Jadwal diarsipkan.');
+      } else if (target.type === 'kelas') {
+        await hapusKelas(target.id);
+        showSuccess('Kelas diarsipkan.');
+      } else {
+        await hapusPeserta(target.id);
+        showSuccess('Peserta dihapus dari kelas.');
+      }
+    } catch {
+      // Error sudah ditangani di context
+    }
   };
 
   const closeModal = () => {
     setExpanded(false);
     setViewMode('list');
     setLabPickerTarget(null);
+    setPendingDelete(null);
   };
 
   const resetKelasForm = () => {
@@ -274,6 +320,7 @@ export function PracticumCrudSection() {
   const resetSesiForm = () => {
     setEditSesiId(undefined);
     setTopikSesi('');
+    setTanggalSesi(getTodayWibDateString());
     setManualLabSesi(false);
     if (laboratories.length > 0) {
       setLabIdSesi(laboratories[0].id);
@@ -584,7 +631,9 @@ export function PracticumCrudSection() {
               {viewMode === 'list' ? (
                 <View style={styles.sheetHeader}>
                   <View style={styles.titleWrap}>
-                    <Text style={styles.sheetTitle}>Kelola Praktikum</Text>
+                    <Text style={styles.sheetTitle}>
+                      {canManageAll ? 'Kelola Praktikum' : 'Kelola Sesi & Jadwal'}
+                    </Text>
                     <Text style={styles.subtitle}>
                       Pilih data yang ingin dikelola
                     </Text>
@@ -667,7 +716,14 @@ export function PracticumCrudSection() {
                     <AppButton
                       label="+ Tambah Sesi Baru"
                       onPress={openNewForm}
+                      disabled={state.kelas.length === 0}
                     />
+                    {state.kelas.length === 0 ? (
+                      <InfoBanner
+                        tone="warning"
+                        message="Belum ada kelas tanggung jawab yang tersedia untuk membuat sesi."
+                      />
+                    ) : null}
                     {sesiList.length === 0 ? (
                       <EmptyState
                         title="Belum ada sesi"
@@ -689,6 +745,7 @@ export function PracticumCrudSection() {
                                     setKelasSesi(s.kelasId);
                                     setTopikSesi(s.topik);
                                     setLabIdSesi(s.labId);
+                                    setManualLabSesi(!s.labId);
                                     setRuangSesi(s.ruang);
                                     setTanggalSesi(s.tanggal);
                                     setMulaiSesi(s.jamMulai);
@@ -700,9 +757,13 @@ export function PracticumCrudSection() {
                                   <Text style={styles.miniBtnEdit}>Ubah</Text>
                                 </Pressable>
                                 <Pressable
-                                  onPress={() => {
-                                    hapusSesi(s.id).catch(() => {});
-                                  }}
+                                  onPress={() =>
+                                    setPendingDelete({
+                                      type: 'sesi',
+                                      id: s.id,
+                                      label: s.topik,
+                                    })
+                                  }
                                   style={[styles.miniBtn, styles.miniBtnDanger]}
                                 >
                                   <Text style={styles.miniBtnDelete}>
@@ -728,7 +789,14 @@ export function PracticumCrudSection() {
                     <AppButton
                       label="+ Tambah Jadwal Reguler"
                       onPress={openNewForm}
+                      disabled={state.kelas.length === 0}
                     />
+                    {state.kelas.length === 0 ? (
+                      <InfoBanner
+                        tone="warning"
+                        message="Belum ada kelas tanggung jawab yang tersedia untuk membuat jadwal."
+                      />
+                    ) : null}
                     {jadwalList.length === 0 ? (
                       <EmptyState
                         title="Belum ada jadwal reguler"
@@ -756,6 +824,7 @@ export function PracticumCrudSection() {
                                     setMulaiJadwal(j.jamMulai);
                                     setSelesaiJadwal(j.jamSelesai);
                                     setLabIdJadwal(j.labId);
+                                    setManualLabJadwal(!j.labId);
                                     setRuangJadwal(j.ruang);
                                     setTopikJadwal(j.topik);
                                     setViewMode('form');
@@ -765,9 +834,13 @@ export function PracticumCrudSection() {
                                   <Text style={styles.miniBtnEdit}>Ubah</Text>
                                 </Pressable>
                                 <Pressable
-                                  onPress={() => {
-                                    hapusJadwal(j.id).catch(() => {});
-                                  }}
+                                  onPress={() =>
+                                    setPendingDelete({
+                                      type: 'jadwal',
+                                      id: j.id,
+                                      label: j.topik,
+                                    })
+                                  }
                                   style={[styles.miniBtn, styles.miniBtnDanger]}
                                 >
                                   <Text style={styles.miniBtnDelete}>
@@ -819,9 +892,13 @@ export function PracticumCrudSection() {
                               <Text style={styles.miniBtnEdit}>Ubah</Text>
                             </Pressable>
                             <Pressable
-                              onPress={() => {
-                                hapusKelas(k.id).catch(() => {});
-                              }}
+                              onPress={() =>
+                                setPendingDelete({
+                                  type: 'kelas',
+                                  id: k.id,
+                                  label: k.nama,
+                                })
+                              }
                               style={[styles.miniBtn, styles.miniBtnDanger]}
                             >
                               <Text style={styles.miniBtnDelete}>Hapus</Text>
@@ -909,9 +986,13 @@ export function PracticumCrudSection() {
                                 <Text style={styles.miniBtnEdit}>Ubah</Text>
                               </Pressable>
                               <Pressable
-                                onPress={() => {
-                                  hapusPeserta(p.id).catch(() => {});
-                                }}
+                                onPress={() =>
+                                  setPendingDelete({
+                                    type: 'peserta',
+                                    id: p.id,
+                                    label: p.nama,
+                                  })
+                                }
                                 style={[styles.miniBtn, styles.miniBtnDanger]}
                               >
                                 <Text style={styles.miniBtnDelete}>Hapus</Text>
@@ -1321,6 +1402,30 @@ export function PracticumCrudSection() {
           }
         }}
         onClose={() => setLabPickerTarget(null)}
+      />
+      <ConfirmSheet
+        visible={pendingDelete !== null}
+        title={
+          pendingDelete?.type === 'sesi'
+            ? 'Arsipkan Sesi?'
+            : pendingDelete?.type === 'jadwal'
+              ? 'Arsipkan Jadwal?'
+              : pendingDelete?.type === 'kelas'
+                ? 'Arsipkan Kelas?'
+                : 'Hapus Peserta?'
+        }
+        description={
+          pendingDelete
+            ? `Data "${pendingDelete.label}" akan dinonaktifkan dari daftar aktif.`
+            : undefined
+        }
+        confirmLabel="Ya, Lanjutkan"
+        cancelLabel="Batal"
+        tone="danger"
+        onConfirm={() => {
+          handleConfirmDelete().catch(() => {});
+        }}
+        onClose={() => setPendingDelete(null)}
       />
     </>
   );

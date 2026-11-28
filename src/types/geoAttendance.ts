@@ -11,7 +11,7 @@ export interface LocationReading extends GeoPoint {
 
 export type GeofenceStatus = 'DALAM_RADIUS' | 'LUAR_RADIUS';
 
-export type FirestoreGeofenceStatus = 'in_radius' | 'bypass_qr';
+export type FirestoreGeofenceStatus = 'in_radius';
 
 export type LocationPermissionState = 'undetermined' | 'granted' | 'denied';
 
@@ -46,6 +46,7 @@ export interface GeoAttendancePayload {
   accuracy: number;
   distanceMeters: number;
   geofenceStatus: FirestoreGeofenceStatus;
+  isMocked?: boolean;
 }
 
 export interface GeoAttendanceRecord extends GeoAttendancePayload {

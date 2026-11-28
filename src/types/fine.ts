@@ -27,6 +27,7 @@ export interface FineRecord {
   praktikanNama: string;
   praktikanNim: string;
   courseId: string;
+  classId?: string;
   labId: string;
   labNama: string;
   sessionId: string;

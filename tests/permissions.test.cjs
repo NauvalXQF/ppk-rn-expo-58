@@ -424,7 +424,7 @@ test('decideLeaveRequest enforces asisten role, rejects double decision, and upd
   await submitLeaveRequest(
     {
       actor: praktikanActor,
-      session: sampleSession,
+      session: { ...sampleSession, id: 'sesi-3' },
       reason: 'Izin kedua setelah unsubscribe',
     },
     { repository },
@@ -516,9 +516,12 @@ test('fromFirestoreLeaveRequestDoc normalizes Firestore fields and Timestamp obj
 });
 
 test('firestorePermissionRepository complies with firestore.rules create/update field contracts', async () => {
+  const storedDocs = new Map();
   const createdDocs = [];
   const aiUpdates = [];
   const txUpdates = [];
+  const snapshotQueries = [];
+  const listenerErrors = [];
   const fakeDb = { kind: 'fake-db' };
   const fakeServerTs = { __serverTimestamp: true };
 
@@ -526,18 +529,14 @@ test('firestorePermissionRepository complies with firestore.rules create/update 
     collection: (_db, name) => ({ path: name }),
     doc: (_db, name, id) => ({ path: `${name}/${id}`, id }),
     serverTimestamp: () => fakeServerTs,
-    addDoc: async (_col, data) => {
-      createdDocs.push(data);
-      return { id: 'fs-req-1' };
-    },
     updateDoc: async (_ref, data) => {
       aiUpdates.push(data);
     },
     getDoc: async (ref) => ({
-      exists: () => true,
+      exists: () => storedDocs.has(ref.path),
       id: ref.id,
       data: () => ({
-        ...createdDocs[0],
+        ...storedDocs.get(ref.path),
         ...(aiUpdates[0] ?? {}),
         createdAt: { toDate: () => new Date('2026-10-21T08:00:00.000Z') },
         updatedAt: { toDate: () => new Date('2026-10-21T08:01:00.000Z') },
@@ -545,23 +544,31 @@ test('firestorePermissionRepository complies with firestore.rules create/update 
     }),
     runTransaction: async (_db, handler) => {
       const tx = {
-        get: async () => ({
-          exists: () => true,
-          id: 'fs-req-1',
-          data: () => ({
-            ...createdDocs[0],
-            status: 'pending',
-          }),
+        get: async (ref) => ({
+          exists: () => storedDocs.has(ref.path),
+          id: ref.id,
+          data: () => storedDocs.get(ref.path),
         }),
-        update: (_ref, patch) => {
+        set: (ref, data) => {
+          storedDocs.set(ref.path, data);
+          createdDocs.push(data);
+        },
+        update: (ref, patch) => {
           txUpdates.push(patch);
+          storedDocs.set(ref.path, { ...storedDocs.get(ref.path), ...patch });
         },
       };
       return handler(tx);
     },
-    query: (...args) => ({ args }),
-    where: (...args) => ({ args }),
-    onSnapshot: () => () => {},
+    query: (colRef, ...filters) => ({ colRef, filters }),
+    where: (...args) => ({ type: 'where', args }),
+    onSnapshot: (target, _onNext, onErr) => {
+      snapshotQueries.push(target);
+      if (target?.filters?.[0]?.args?.[2] === 'lab-denied') {
+        onErr?.({ code: 'permission-denied', message: 'denied' });
+      }
+      return () => {};
+    },
   };
 
   const { firestorePermissionRepository } = loadSource(
@@ -575,7 +582,7 @@ test('firestorePermissionRepository complies with firestore.rules create/update 
     },
   );
 
-  const created = await firestorePermissionRepository.createLeaveRequest({
+  const payload = {
     uid: 'uid-1',
     praktikanName: 'Budi',
     praktikanNim: '2310511001',
@@ -600,16 +607,23 @@ test('firestorePermissionRepository complies with firestore.rules create/update 
     decisionNote: null,
     createdAt: '2026-10-21T08:00:00.000Z',
     updatedAt: '2026-10-21T08:00:00.000Z',
-  });
+  };
 
-  assert.equal(created.id, 'fs-req-1');
+  const created = await firestorePermissionRepository.createLeaveRequest(payload);
+  assert.equal(created.id, 'sesi-2_uid-1');
   assert.equal(createdDocs[0].alasan, 'Izin sakit');
   assert.equal(createdDocs[0].status, 'pending');
   assert.equal(createdDocs[0].reviewedBy, null);
   assert.equal(createdDocs[0].reviewedAt, null);
 
+  // Duplikasi izin untuk sesi & praktikan yang sama harus ditolak
+  await assert.rejects(
+    () => firestorePermissionRepository.createLeaveRequest(payload),
+    (err) => err.name === 'PermissionConflictError',
+  );
+
   await firestorePermissionRepository.updateAiClassification(
-    'fs-req-1',
+    'sesi-2_uid-1',
     {
       status: 'completed',
       category: 'Sakit',
@@ -623,7 +637,7 @@ test('firestorePermissionRepository complies with firestore.rules create/update 
   // Wajib hanya mengubah key ['ai', 'updatedAt'] sesuai firestore.rules
   assert.deepEqual(Object.keys(aiUpdates[0]).sort(), ['ai', 'updatedAt']);
 
-  await firestorePermissionRepository.updateLeaveDecision('fs-req-1', {
+  await firestorePermissionRepository.updateLeaveDecision('sesi-2_uid-1', {
     status: 'approved',
     decidedBy: 'asisten-uid',
     decidedByName: 'Nauval',
@@ -636,6 +650,19 @@ test('firestorePermissionRepository complies with firestore.rules create/update 
     Object.keys(txUpdates[0]).sort(),
     ['reviewNote', 'reviewedAt', 'reviewedBy', 'status', 'updatedAt'],
   );
+
+  // Asprak scoping: query wajib memakai where('classId', '==', labId) dan tidak menelan error
+  const unsubScoped = firestorePermissionRepository.subscribeAllForAsisten(
+    () => {},
+    (err) => listenerErrors.push(err),
+    { classIds: ['lab-a', 'lab-denied'] },
+  );
+  assert.equal(snapshotQueries.length, 2);
+  assert.deepEqual(snapshotQueries[0].filters[0].args, ['classId', '==', 'lab-a']);
+  assert.deepEqual(snapshotQueries[1].filters[0].args, ['classId', '==', 'lab-denied']);
+  assert.equal(listenerErrors.length, 1);
+  assert.equal(listenerErrors[0].name, 'PermissionAuthorizationError');
+  unsubScoped();
 });
 
 test('Sprint 1 and P1 ProfilPengguna adapters map cleanly', () => {

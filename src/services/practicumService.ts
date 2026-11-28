@@ -1,12 +1,9 @@
-import { getApp, getApps, initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import {
   collection,
   doc,
   getDoc,
   getDocs,
   getDocsFromServer,
-  getFirestore,
   limit,
   onSnapshot,
   query,
@@ -20,6 +17,10 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 
+import {
+  getFirebaseDb,
+  hasConfiguredFirebaseApp,
+} from '@/config/firebaseApp';
 import { initialState } from '@/data/dummy';
 import {
   DEFAULT_GRACE_PERIOD_MINUTES,
@@ -41,24 +42,16 @@ import {
   type StatusSesi,
 } from '@/types/models';
 
-const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
-};
-
 export function isFirebaseConfigured(): boolean {
-  if (getApps().length > 0) return true;
-  return Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
+  return hasConfiguredFirebaseApp();
 }
 
 export function getDb(): Firestore | null {
-  if (!isFirebaseConfigured()) return null;
-  const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-  return getFirestore(app);
+  try {
+    return getFirebaseDb();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1497,128 +1490,5 @@ export function subscribePracticumRealtime(
 
   return () => {
     for (const u of unsubs) u();
-  };
-}
-
-export function subscribeAuthUserRealtime(
-  onUserChange: (user: Pengguna | null) => void,
-): Unsubscribe {
-  const db = getDb();
-  if (!db || getApps().length === 0) return () => {};
-
-  let userDocUnsub: Unsubscribe | null = null;
-  let memberQueryUnsub: Unsubscribe | null = null;
-  let assignmentQueryUnsub: Unsubscribe | null = null;
-
-  const cleanupProfileListeners = () => {
-    if (userDocUnsub) {
-      userDocUnsub();
-      userDocUnsub = null;
-    }
-    if (memberQueryUnsub) {
-      memberQueryUnsub();
-      memberQueryUnsub = null;
-    }
-    if (assignmentQueryUnsub) {
-      assignmentQueryUnsub();
-      assignmentQueryUnsub = null;
-    }
-  };
-
-  let authUnsub: Unsubscribe = () => {};
-  try {
-    const auth = getAuth(getApp());
-    authUnsub = onAuthStateChanged(auth, (fbUser) => {
-      cleanupProfileListeners();
-      if (!fbUser) return;
-
-      const uid = fbUser.uid;
-      let userData: Record<string, unknown> = {};
-      let memberKelasIds: string[] | undefined;
-      let assignedLabIds: string[] | undefined;
-
-      const emit = () => {
-        const rawRole = userData.role ?? userData.peran;
-        const nama = String(
-          userData.nama ?? userData.name ?? fbUser.displayName ?? fbUser.email ?? 'Pengguna',
-        );
-        if (rawRole === 'aslab') {
-          const managedCourseIds = Array.isArray(userData.managedCourseIds)
-            ? userData.managedCourseIds.filter(
-                (item): item is string => typeof item === 'string' && item.trim().length > 0,
-              )
-            : undefined;
-          onUserChange({
-            id: uid,
-            peran: 'aslab',
-            nama,
-            nip: String(userData.nip ?? fbUser.email ?? uid.slice(0, 10)),
-            email: fbUser.email ?? undefined,
-            ...(managedCourseIds ? { managedCourseIds } : {}),
-          });
-        } else if (rawRole === 'asprak' || rawRole === 'asisten') {
-          onUserChange({
-            id: uid,
-            peran: 'asprak',
-            nama,
-            nip: String(userData.nip ?? fbUser.email ?? uid.slice(0, 10)),
-            email: fbUser.email ?? undefined,
-            ...(assignedLabIds !== undefined ? { assignedLabIds } : {}),
-          });
-        } else {
-          onUserChange({
-            id: uid,
-            peran: 'praktikan',
-            nama,
-            nim: String(userData.nim ?? uid.slice(0, 10)),
-            kelasId: memberKelasIds?.[0] ?? '',
-            ...(memberKelasIds !== undefined ? { kelasIds: memberKelasIds } : {}),
-            email: fbUser.email ?? undefined,
-          });
-        }
-      };
-
-      userDocUnsub = onSnapshot(
-        doc(db, 'users', uid),
-        (snap) => {
-          if (snap.exists()) {
-            userData = snap.data();
-          }
-          emit();
-        },
-        () => emit(),
-      );
-
-      memberQueryUnsub = onSnapshot(
-        query(collection(db, 'classMembers'), where('uid', '==', uid)),
-        (snap) => {
-          const members = selectCanonicalActiveMembers(mapActiveMembers(snap.docs));
-          memberKelasIds = members.length > 0 ? [members[0].kelasId] : [];
-          const m = members[0];
-          if (m) {
-            if (!userData.nama && m.nama) userData = { ...userData, nama: m.nama };
-            if (!userData.nim && m.nim) userData = { ...userData, nim: m.nim };
-          }
-          emit();
-        },
-        () => {},
-      );
-
-      assignmentQueryUnsub = onSnapshot(
-        query(collection(db, 'labAssignments'), where('uid', '==', uid)),
-        (snap) => {
-          assignedLabIds = mapActiveAssignedLabIds(snap.docs, uid);
-          emit();
-        },
-        () => {},
-      );
-    });
-  } catch {
-    // Ignore if Auth is not initialized yet
-  }
-
-  return () => {
-    cleanupProfileListeners();
-    authUnsub();
   };
 }

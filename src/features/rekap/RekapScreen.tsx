@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { useApp } from '@/store/app-context';
@@ -21,16 +21,33 @@ import { NotificationBell } from '@/features/notifications/NotificationBell';
 export function RekapScreen() {
   const { state } = useApp();
   const user = state.currentUser;
-  const sessions = selectSesiUntukPengguna(state);
+  const sessions = useMemo(() => selectSesiUntukPengguna(state), [state]);
+
+  const sessionEntries = useMemo(
+    () =>
+      sessions.map((item) => ({
+        sesi: item,
+        kelas: state.kelas.find((k) => k.id === item.kelasId),
+        rekap: selectRekapSesiDetail(state, item.id),
+      })),
+    [sessions, state],
+  );
 
   const openCount = sessions.filter((s) => s.status === 'dibuka').length;
-  const totalRateSum = sessions.reduce((acc, s) => {
-    const r = selectRekapSesiDetail(state, s.id);
-    if (r.totalPraktikan === 0) return acc;
-    return acc + (r.jumlahHadir / r.totalPraktikan) * 100;
-  }, 0);
+  const entriesWithMembers = sessionEntries.filter(
+    (entry) => entry.rekap.totalPraktikan > 0,
+  );
+  const totalRateSum = entriesWithMembers.reduce(
+    (acc, entry) =>
+      acc + (entry.rekap.jumlahHadir / entry.rekap.totalPraktikan) * 100,
+    0,
+  );
   const avgRate =
-    sessions.length > 0 ? Math.round(totalRateSum / sessions.length) : 0;
+    entriesWithMembers.length > 0
+      ? Math.round(totalRateSum / entriesWithMembers.length)
+      : 0;
+  const hasNoAssignedLabs =
+    user?.peran === 'asprak' && (user.assignedLabIds?.length ?? 0) === 0;
 
   return (
     <ScreenContainer variant="gradient">
@@ -88,16 +105,18 @@ export function RekapScreen() {
         rightText={`${sessions.length} sesi`}
       />
 
-      {sessions.length === 0 ? (
+      {sessionEntries.length === 0 ? (
         <EmptyState
-          title="Belum Ada Sesi"
-          description="Belum ada sesi untuk direkap."
+          title={hasNoAssignedLabs ? 'Belum Ada Penugasan Lab' : 'Belum Ada Sesi'}
+          description={
+            hasNoAssignedLabs
+              ? 'Akun Asprak Anda belum ditugaskan ke laboratorium mana pun. Hubungi Aslab untuk penugasan.'
+              : 'Belum ada sesi untuk direkap.'
+          }
         />
       ) : (
         <View style={styles.list}>
-          {sessions.map((item) => {
-            const kelas = state.kelas.find((k) => k.id === item.kelasId);
-            const rekap = selectRekapSesiDetail(state, item.id);
+          {sessionEntries.map(({ sesi: item, kelas, rekap }) => {
             const ratio =
               rekap.totalPraktikan > 0
                 ? rekap.jumlahHadir / rekap.totalPraktikan
@@ -243,14 +262,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: Spacing.sm,
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
   },
   cardTime: {
+    flexShrink: 1,
     fontSize: FontSize.xs,
     fontFamily: FontFamily.regular,
     color: Colors.textMuted,
   },
   cardCount: {
+    flexShrink: 0,
     fontSize: FontSize.xs,
     fontFamily: FontFamily.medium,
     color: Colors.text,

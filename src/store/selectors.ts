@@ -17,6 +17,7 @@ import {
   type StatusSesi,
 } from '@/types/models';
 import { DEFAULT_SCHEDULES } from '@/services/practicumService';
+import { parseWibDateTimeMs } from '@/utils/date';
 
 const prioritasStatus: Record<StatusSesi, number> = {
   dibuka: 0,
@@ -190,8 +191,8 @@ export function selectSesiUntukPengguna(state: AppState): Sesi[] {
     const diffStatus = prioritasStatus[a.status] - prioritasStatus[b.status];
     if (diffStatus !== 0) return diffStatus;
 
-    const timeA = new Date(`${a.tanggal}T${a.jamMulai}:00`).getTime();
-    const timeB = new Date(`${b.tanggal}T${b.jamMulai}:00`).getTime();
+    const timeA = parseWibDateTimeMs(a.tanggal, a.jamMulai) ?? 0;
+    const timeB = parseWibDateTimeMs(b.tanggal, b.jamMulai) ?? 0;
 
     if (a.status === 'ditutup') {
       return timeB - timeA; // turun
@@ -272,8 +273,8 @@ export function selectRiwayatPraktikan(
   const sesiList = state.sesi
     .filter((s) => classIds.includes(s.kelasId))
     .sort((a, b) => {
-      const timeA = new Date(`${a.tanggal}T${a.jamMulai}:00`).getTime();
-      const timeB = new Date(`${b.tanggal}T${b.jamMulai}:00`).getTime();
+      const timeA = parseWibDateTimeMs(a.tanggal, a.jamMulai) ?? 0;
+      const timeB = parseWibDateTimeMs(b.tanggal, b.jamMulai) ?? 0;
       return timeB - timeA; // sesi terbaru di atas
     });
 
