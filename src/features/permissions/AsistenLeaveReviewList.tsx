@@ -46,17 +46,20 @@ export interface AsistenLeaveReviewListProps {
   actor: PermissionActor;
   repository?: PermissionRepository;
   serviceOptions?: PermissionServiceOptions;
+  live?: { requests: LeaveRequest[]; loading: boolean };
 }
 
 export function AsistenLeaveReviewList({
   actor,
   repository = defaultPermissionRepository,
   serviceOptions,
+  live,
 }: AsistenLeaveReviewListProps) {
   const { requests, loading, error: loadError } = useLeaveSubscription(
     'asisten',
     actor,
     repository,
+    live,
   );
   const [actionError, setActionError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterOption>('all');

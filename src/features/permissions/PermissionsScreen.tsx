@@ -23,6 +23,7 @@ export interface PermissionsScreenProps {
   serviceOptions?: PermissionServiceOptions;
   initialSessionId?: string;
   existingLeaves?: { sessionId: string; status: 'pending' | 'approved' | 'rejected' }[];
+  live?: { requests: import('./types').LeaveRequest[]; loading: boolean };
 }
 
 export function PermissionsScreen({
@@ -32,6 +33,7 @@ export function PermissionsScreen({
   serviceOptions,
   initialSessionId,
   existingLeaves,
+  live,
 }: PermissionsScreenProps) {
   const router = useRouter();
   if (!actor) {
@@ -97,6 +99,7 @@ export function PermissionsScreen({
             existingLeaves={existingLeaves}
           />
           <PraktikanLeaveHistory
+            live={live}
             actor={actor}
             repository={repository}
             serviceOptions={mergedServiceOptions}
@@ -104,6 +107,7 @@ export function PermissionsScreen({
         </View>
       ) : (
         <AsistenLeaveReviewList
+          live={live}
           actor={actor}
           repository={repository}
           serviceOptions={mergedServiceOptions}

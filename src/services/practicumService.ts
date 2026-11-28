@@ -676,7 +676,13 @@ export async function saveSessionToFirestore(
 
   if (!scheduleId) {
     const schedules = await getDocs(query(collection(db, 'schedules'), where('classId', '==', kelasId)));
-    scheduleId = schedules.docs.find((item) => item.data().archived !== true)?.id;
+    const active = schedules.docs.filter((item) => item.data().archived !== true);
+    const effectiveLabId = labMeta.labId ?? (await getDoc(doc(db, 'classes', kelasId))).data()?.labId;
+    scheduleId = active.find((item) => effectiveLabId && item.data().labId === effectiveLabId)?.id
+      ?? active.find((item) => !item.data().labId)?.id;
+    if (!scheduleId && active.length > 0) {
+      throw new Error('Pilih laboratorium yang sesuai dengan jadwal aktif kelas.');
+    }
   }
   if (!scheduleId) throw new Error('Buat jadwal aktif untuk kelas ini sebelum membuat sesi.');
 
@@ -723,6 +729,10 @@ export async function saveSessionToFirestore(
     }
     if (!jadwal.exists() || jadwal.data().archived === true || jadwal.data().classId !== kelasId) {
       throw new Error('Jadwal harus aktif dan berasal dari kelas sesi.');
+    }
+    const scheduleLabId = jadwal.data().labId;
+    if (scheduleLabId && scheduleLabId !== (labMeta.labId ?? kelas.data().labId)) {
+      throw new Error('Laboratorium sesi harus sesuai dengan jadwal yang dipilih.');
     }
     const labData = labSnap.exists() ? labSnap.data() : undefined;
     const resolvedCourseId =
@@ -776,6 +786,12 @@ export async function deleteSessionFromFirestore(
       if (data.status === 'open' || (data.openedAt != null && data.closedAt == null)) {
         throw new Error('Tutup sesi yang sudah dibuka sebelum mengarsipkannya.');
       }
+      const belumDibuka = ['closed', 'scheduled', 'dijadwalkan'].includes(data.status) &&
+        data.openedAt === null && data.closedAt === null;
+      const sudahDitutup = data.status === 'closed' && data.openedAt != null && data.closedAt != null;
+      if (!belumDibuka && !sudahDitutup) {
+        throw new Error('Hanya sesi terjadwal atau sesi yang sudah ditutup yang dapat diarsipkan.');
+      }
       tx.update(ref, { archived: true, updatedAt: serverTimestamp() });
     });
   }
@@ -827,6 +843,9 @@ export async function seedInitialDataToFirestore(
   if (!db) throw new Error('Firebase belum dikonfigurasi untuk inisialisasi data.');
 
   if (onlyWhenSessionsEmpty) {
+    if (actor.peran !== 'aslab' || !actor.managedCourseIds?.includes('praktikum-ppk')) return;
+    const course = await getDoc(doc(db, 'courses', 'praktikum-ppk'));
+    if (!course.exists() || course.data().aktif !== true) return;
     const existing = await getDocsFromServer(query(collection(db, 'sessions'), limit(1)));
     if (!existing.empty) return;
   }

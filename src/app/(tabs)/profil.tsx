@@ -53,7 +53,6 @@ export default function ProfilRoute() {
   const [profileFeedback, setProfileFeedback] = useState<string | null>(null);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editNama, setEditNama] = useState(user?.nama ?? '');
-  const [editNim, setEditNim] = useState(user && 'nim' in user && user.nim ? user.nim : '');
   const [savingProfile, setSavingProfile] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -94,7 +93,6 @@ export default function ProfilRoute() {
 
   const handleOpenEdit = () => {
     setEditNama(user.nama);
-    setEditNim('nim' in user && user.nim ? user.nim : '');
     setEditError(null);
     setEditModalVisible(true);
   };
@@ -105,7 +103,6 @@ export default function ProfilRoute() {
     try {
       await updateProfilSaya(user.id, {
         nama: editNama,
-        ...(user.peran === 'praktikan' ? { nim: editNim } : {}),
       });
       setEditModalVisible(false);
       setProfileFeedback('Profil berhasil diperbarui.');
@@ -228,15 +225,6 @@ export default function ProfilRoute() {
               onChangeText={setEditNama}
               placeholder="Masukkan nama lengkap"
             />
-            {user.peran === 'praktikan' ? (
-              <FormField
-                label="NIM"
-                value={editNim}
-                onChangeText={setEditNim}
-                placeholder="Masukkan NIM"
-                autoCapitalize="none"
-              />
-            ) : null}
             {editError ? <InfoBanner tone="danger" message={editError} /> : null}
             <View style={styles.modalActions}>
               <AppButton

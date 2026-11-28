@@ -106,10 +106,10 @@ function setup(initial = {}) {
 }
 
 test('first and concurrent seed creates only initial classes, schedules and sessions', async () => {
-  const { docs, service } = setup();
+  const { docs, service } = setup({ 'courses/praktikum-ppk': { aktif: true } });
   await assert.rejects(() => service.seedInitialDataToFirestore(praktikan), /asisten/i);
   await Promise.all([
-    service.seedInitialDataToFirestore(asisten, { onlyWhenSessionsEmpty: true }),
+    service.seedInitialDataToFirestore({ ...asisten, managedCourseIds: ['praktikum-ppk'] }, { onlyWhenSessionsEmpty: true }),
     service.seedInitialDataToFirestore(asisten),
   ]);
   assert.ok(docs.has('classes/kelas-a'));
@@ -118,6 +118,17 @@ test('first and concurrent seed creates only initial classes, schedules and sess
   assert.equal(docs.get('sessions/sesi-1').status, 'closed');
   assert.equal([...docs.keys()].filter((ref) => ref.startsWith('sessions/')).length, 5);
   assert.ok([...docs.keys()].every((ref) => !ref.startsWith('classMembers/')));
+});
+
+test('automatic demo initialization is scoped to an active managed demo course', async () => {
+  const { docs, service } = setup({ 'courses/praktikum-ppk': { aktif: false } });
+  const auto = { onlyWhenSessionsEmpty: true };
+  await service.seedInitialDataToFirestore({ ...asisten, managedCourseIds: ['praktikum-ppk'] }, auto);
+  docs.set('courses/praktikum-ppk', { aktif: true });
+  await service.seedInitialDataToFirestore({ ...asisten, managedCourseIds: ['course-other'] }, auto);
+  assert.deepEqual([...docs.keys()], ['courses/praktikum-ppk']);
+  await service.seedInitialDataToFirestore({ ...asisten, managedCourseIds: ['praktikum-ppk'] }, auto);
+  assert.ok(docs.has('practicumInitialization/demo'));
 });
 
 test('automatic initialization skips a database with an existing session, including archived sessions', async () => {
@@ -263,6 +274,16 @@ test('registration and auth observer converge on the real UID without enrolling 
   assert.deepEqual([...docs.keys()], ['users/' + user.uid]);
 });
 
+test('registration retains leading-zero NIM and ignores subsequent attempts to replace it', async () => {
+  const { docs, user, load } = setup();
+  const { daftarPraktikan, pastikanProfil } = load('services/authService');
+  await daftarPraktikan({ nama: 'Nama Registrasi', nim: '001245', email: user.email, password: 'password-uji' });
+  await pastikanProfil(user, 'Nama Baru', '009999');
+  const profile = docs.get('users/' + user.uid);
+  assert.equal(profile.nim, '001245');
+  assert.equal(profile.nama, 'Nama Baru');
+});
+
 test('assistant session lifecycle preserves relations, audit history and archived data', async () => {
   const { docs, service } = setup({
     'classes/kelas-a': { archived: false },
@@ -293,6 +314,17 @@ test('assistant session lifecycle preserves relations, audit history and archive
   assert.equal(docs.get(ref).archived, true);
   assert.ok(docs.has(ref + '/attendances/' + praktikan.id));
   await assert.rejects(() => service.saveSessionToFirestore(asisten, { ...inputSesi, id }));
+});
+
+test('session creation resolves a schedule pinned to the class laboratory in manual room mode', async () => {
+  const { docs, service } = setup({
+    'classes/kelas-a': { praktikumId: 'praktikum-ppk', labId: 'kelas-a' },
+    'schedules/jadwal-other': { classId: 'kelas-a', labId: 'other' },
+    'schedules/jadwal-a': { classId: 'kelas-a', labId: 'kelas-a' },
+  });
+  const saved = await service.saveSessionToFirestore(asisten, { ...inputSesi, scheduleId: undefined });
+  assert.equal(docs.get('sessions/' + saved.id).scheduleId, 'jadwal-a');
+  assert.equal(docs.get('sessions/' + saved.id).ruang, inputSesi.ruang);
 });
 
 test('schedule and session CRUD persist and map labId and geofence snapshot metadata', async () => {

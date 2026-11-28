@@ -28,9 +28,10 @@ import {
   Spacing,
 } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
-import { pesanErrorAuth } from '@/services/authService';
+import { kirimResetPassword, pesanErrorAuth } from '@/services/authService';
 
 type Mode = 'masuk' | 'daftar';
+const RESET_NOTICE = 'Jika akun dapat direset, tautan akan dikirim ke email tersebut. Periksa juga folder spam.';
 
 export default function IndexRoute() {
   const { status, pengguna, error: authError, masuk, daftar, retryProfile } = useAuth();
@@ -42,7 +43,7 @@ export default function IndexRoute() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [forgotNotice, setForgotNotice] = useState(false);
+  const [forgotNotice, setForgotNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,6 +65,31 @@ export default function IndexRoute() {
     if (berikutnya === mode) return;
     setMode(berikutnya);
     setError(null);
+    setForgotNotice(null);
+  };
+
+  const handlePasswordReset = async () => {
+    setError(null);
+    setForgotNotice(null);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError('Masukkan email akun untuk mengatur ulang password.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await kirimResetPassword(email);
+      setForgotNotice(RESET_NOTICE);
+    } catch (err) {
+      const code = typeof err === 'object' && err && 'code' in err ? err.code : null;
+      if (code === 'auth/user-not-found' || code === 'auth/user-disabled') {
+        setForgotNotice(RESET_NOTICE);
+      } else {
+        setError('Permintaan reset belum berhasil. Coba lagi nanti.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -250,7 +276,8 @@ export default function IndexRoute() {
                 {mode === 'masuk' ? (
                   <View style={styles.forgotRow}>
                     <Pressable
-                      onPress={() => setForgotNotice((prev) => !prev)}
+                      onPress={handlePasswordReset}
+                      disabled={loading}
                       hitSlop={8}
                     >
                       <Text style={styles.forgotText}>Lupa password?</Text>
@@ -261,7 +288,7 @@ export default function IndexRoute() {
                 {forgotNotice && mode === 'masuk' ? (
                   <InfoBanner
                     tone="info"
-                    message="Hubungi asisten atau pengampu praktikum untuk reset akun Anda."
+                    message={forgotNotice}
                   />
                 ) : null}
 

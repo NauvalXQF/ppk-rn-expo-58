@@ -60,6 +60,7 @@ export default function IzinRoute() {
       repository={repository}
       initialSessionId={typeof sesiId === 'string' ? sesiId : undefined}
       existingLeaves={state.leaveRequests}
+      live={isRemote ? { requests: state.leaveRequests ?? [], loading: state.leaveRequests === undefined } : undefined}
     />
   );
 }

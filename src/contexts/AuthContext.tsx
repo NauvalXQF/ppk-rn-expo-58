@@ -46,6 +46,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const authSeqRef = useRef(0);
   const unsubProfilRef = useRef<(() => void) | null>(null);
   const mountedRef = useRef(true);
+  const registrationInFlight = useRef(false);
 
   const loadUserProfile = useCallback(async (user: NonNullable<ReturnType<typeof getFirebaseAuth>['currentUser']>) => {
     const seq = ++authSeqRef.current;
@@ -100,7 +101,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return;
       }
 
-      await loadUserProfile(user);
+      if (!registrationInFlight.current) await loadUserProfile(user);
     });
 
     return () => {
@@ -126,9 +127,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const daftar = useCallback(
     async (input: { nama: string; nim?: string; email: string; password: string }) => {
       setError(null);
-      await daftarPraktikan(input);
+      registrationInFlight.current = true;
+      try {
+        const user = await daftarPraktikan(input);
+        await loadUserProfile(user);
+      } catch (error) {
+        if (getFirebaseAuth().currentUser) await keluarDariAplikasi().catch(() => {});
+        throw error;
+      } finally {
+        registrationInFlight.current = false;
+      }
     },
-    [],
+    [loadUserProfile],
   );
 
   const masuk = useCallback(async (input: { email: string; password: string }) => {

@@ -6,12 +6,13 @@ import {
   getDoc,
   getDocs,
   query,
+  runTransaction,
   serverTimestamp,
   where,
   writeBatch,
 } from 'firebase/firestore';
 import { getFirebaseAuth, getFirebaseDb } from '@/config/firebase';
-import type { ProfilPengguna } from '@/services/authService';
+import { kirimResetPassword, type ProfilPengguna } from '@/services/authService';
 import { resolvePaymentApiOrigin } from '@/services/payments/paymentData';
 import type { AsprakRowData, BulkRowItem, LabRowData, PraktikanRowData } from './bulkCsvService';
 
@@ -55,6 +56,7 @@ export interface ProvisionUserResult {
   outcome: 'created' | 'existing' | 'conflict' | 'error';
   uid?: string;
   code?: string;
+  activationEmailFailed?: boolean;
 }
 
 export type ProvisionUsersFn = (input: {
@@ -66,6 +68,15 @@ export type ProvisionUsersFn = (input: {
 const MAX_PROVISION_BATCH_ROWS = 100;
 const MAX_PROVISION_BODY_BYTES = 14_000;
 
+function utf8Length(text: string): number {
+  let bytes = 0;
+  for (const character of text) {
+    const code = character.codePointAt(0)!;
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
 function chunkProvisionUsers(
   users: ProvisionUserInput[],
   courseId: string,
@@ -76,10 +87,10 @@ function chunkProvisionUsers(
 
   for (const user of users) {
     const candidate = [...current, user];
-    const byteLength = JSON.stringify({ courseId, labId, users: candidate }).length;
+    const byteLength = utf8Length(JSON.stringify({ courseId, labId, users: candidate }));
     if (
       current.length > 0 &&
-      (candidate.length > MAX_PROVISION_BATCH_ROWS || byteLength > MAX_PROVISION_BODY_BYTES)
+      (candidate.length > MAX_PROVISION_BATCH_ROWS || byteLength >= MAX_PROVISION_BODY_BYTES)
     ) {
       chunks.push(current);
       current = [user];
@@ -98,11 +109,15 @@ export async function provisionBulkUsersViaBackend(input: {
   labId: string;
   users: ProvisionUserInput[];
 }): Promise<ProvisionUserResult[]> {
+  if (!input.labId.trim() || !input.courseId.trim()) {
+    throw new Error('Mata kuliah dan laboratorium tujuan wajib dipilih.');
+  }
   const user = getFirebaseAuth().currentUser;
   if (!user) {
     throw new Error('Sesi login tidak aktif. Silakan masuk kembali.');
   }
-  const base = (process.env.EXPO_PUBLIC_API_BASE_URL ?? '').trim();
+  const base = process.env.EXPO_PUBLIC_API_BASE_URL?.trim() ||
+    process.env.EXPO_PUBLIC_PAYMENT_API_URL?.trim();
   if (!base) {
     throw new Error('Alamat backend belum diatur (EXPO_PUBLIC_API_BASE_URL).');
   }
@@ -111,38 +126,71 @@ export async function provisionBulkUsersViaBackend(input: {
     throw new Error('Gunakan HTTPS atau alamat loopback pada development build.');
   }
   const idToken = await user.getIdToken();
-  const chunks = chunkProvisionUsers(input.users, input.courseId, input.labId);
   const allResults: ProvisionUserResult[] = [];
-
-  for (const chunk of chunks) {
-    const response = await fetch(`${origin}/api/admin/provisioning/users`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`,
-      },
-      body: JSON.stringify({
-        courseId: input.courseId,
-        labId: input.labId,
-        users: chunk,
-      }),
-    });
-
-    const payload = (await response.json().catch(() => ({}))) as {
-      results?: ProvisionUserResult[];
-      error?: { message?: string };
-      message?: string;
-    };
-    if (!response.ok || !Array.isArray(payload.results)) {
-      throw new Error(
-        payload.error?.message ||
-          payload.message ||
-          'Gagal memproses provisioning akun di backend.',
-      );
+  const seen = new Set<string>();
+  const unique = input.users.filter((row) => {
+    const email = row.email.trim().toLowerCase();
+    const identity = (row.role === 'praktikan' ? row.nim : row.nip)?.trim();
+    const identityKey = `${row.role}:${identity}`;
+    if (seen.has(email) || (identity && seen.has(identityKey))) {
+      allResults.push({ rowId: row.rowId, outcome: 'conflict', code: 'DUPLICATE_ROW' });
+      return false;
     }
-    allResults.push(...payload.results);
+    seen.add(email);
+    if (identity) seen.add(identityKey);
+    return true;
+  });
+  const chunks = chunkProvisionUsers(unique, input.courseId, input.labId);
+  let completedChunks = 0;
+
+  for (const [index, chunk] of chunks.entries()) {
+    const body = JSON.stringify({ courseId: input.courseId, labId: input.labId, users: chunk });
+    if (utf8Length(body) >= MAX_PROVISION_BODY_BYTES) {
+      allResults.push(...chunk.map(({ rowId }) => ({ rowId, outcome: 'error' as const, code: 'INVALID_ROW' })));
+      continue;
+    }
+    try {
+      const response = await fetch(`${origin}/api/admin/provisioning/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body,
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        results?: ProvisionUserResult[];
+        error?: { message?: string };
+        message?: string;
+      };
+      if (!response.ok || !Array.isArray(payload.results)) {
+        throw new Error(payload.error?.message || payload.message || 'Gagal memproses provisioning akun di backend.');
+      }
+      allResults.push(...payload.results);
+      completedChunks++;
+    } catch (error) {
+      if (!completedChunks) throw error;
+      allResults.push(...chunks.slice(index).flat().map(({ rowId }) => ({
+        rowId, outcome: 'error' as const, code: 'PROVISIONING_RETRY',
+      })));
+      break;
+    }
   }
-  return allResults;
+  const emails = new Map(input.users.map(({ rowId, email }) => [rowId, email]));
+  const created = allResults.filter((result) => result.outcome === 'created' && result.uid);
+  for (let start = 0; start < created.length; start += 4) {
+    await Promise.all(created.slice(start, start + 4).map(async (result) => {
+      const email = emails.get(result.rowId);
+      if (!email) return;
+      try {
+        await kirimResetPassword(email);
+      } catch {
+        result.activationEmailFailed = true;
+      }
+    }));
+  }
+  const byRowId = new Map(allResults.map((result) => [result.rowId, result]));
+  return input.users.map(({ rowId }) => byRowId.get(rowId) ?? { rowId, outcome: 'error', code: 'PROVISIONING_RETRY' });
 }
 
 function parseFiniteOrDefault(raw: unknown, fallback: number): number {
@@ -155,15 +203,30 @@ export async function commitBulkLaboratorium(
   courseId: string,
   courseNama: string,
   acceptedRows: BulkRowItem<LabRowData>[],
-): Promise<{ successCount: number; errors: string[] }> {
+): Promise<{ successCount: number; errors: string[]; committedRowIds: string[] }> {
   if (actor.role !== 'aslab') {
     throw new Error('Hanya Aslab yang berwenang mengeksekusi bulk laboratorium.');
   }
 
   const db = getFirebaseDb();
-  const batch = writeBatch(db);
+  let batch = writeBatch(db);
   const errors: string[] = [];
-  let successCount = 0;
+  const committedRowIds: string[] = [];
+  let pending: BulkRowItem<LabRowData>[] = [];
+
+  async function commitPending() {
+    try {
+      await batch.commit();
+      committedRowIds.push(...pending.map(({ id }) => id));
+    } catch {
+      const indexes = pending.map(({ index }) => index).join(', ');
+      errors.push(`Penyimpanan baris ${indexes} belum terkonfirmasi. Periksa daftar laboratorium sebelum mengulang.`);
+      return false;
+    }
+    batch = writeBatch(db);
+    pending = [];
+    return true;
+  }
 
   for (const row of acceptedRows) {
     if (row.status !== 'accepted' || !row.isValid) continue;
@@ -207,14 +270,16 @@ export async function commitBulkLaboratorium(
       updatedAt: serverTimestamp(),
     });
 
-    successCount++;
+    pending.push(row);
+    // Alokasi aturan Firestore maksimal 20 akses dokumen per batch.
+    if (pending.length === 6 && !await commitPending()) break;
   }
 
-  if (successCount > 0) {
-    await batch.commit();
+  if (errors.length === 0 && pending.length > 0) {
+    await commitPending();
   }
 
-  return { successCount, errors };
+  return { successCount: committedRowIds.length, errors, committedRowIds };
 }
 
 export async function commitBulkPraktikan(
@@ -222,7 +287,7 @@ export async function commitBulkPraktikan(
   labId: string,
   acceptedRows: BulkRowItem<PraktikanRowData>[],
   options?: { courseId?: string; provisionUsers?: ProvisionUsersFn },
-): Promise<{ successCount: number; errors: string[] }> {
+): Promise<{ successCount: number; errors: string[]; committedRowIds: string[] }> {
   if (actor.role !== 'aslab') {
     throw new Error('Hanya Aslab yang berwenang mengeksekusi bulk praktikan.');
   }
@@ -231,7 +296,7 @@ export async function commitBulkPraktikan(
     (row) => row.status === 'accepted' && row.isValid,
   );
   if (validRows.length === 0) {
-    return { successCount: 0, errors: [] };
+    return { successCount: 0, errors: [], committedRowIds: [] };
   }
 
   const provisionFn = options?.provisionUsers ?? provisionBulkUsersViaBackend;
@@ -250,9 +315,9 @@ export async function commitBulkPraktikan(
 
   const resultByRowId = new Map(results.map((r) => [r.rowId, r]));
   const db = getFirebaseDb();
-  const batch = writeBatch(db);
   const errors: string[] = [];
-  let successCount = 0;
+  const members: { rowId: string; index: number; uid: string; nim: string; nama: string }[] = [];
+  const committedRowIds: string[] = [];
 
   for (const row of validRows) {
     const res = resultByRowId.get(row.id);
@@ -265,39 +330,37 @@ export async function commitBulkPraktikan(
 
     const uid = res.uid;
     const nim = row.data.nim.trim();
-    const memberId = `${labId}_${uid}`;
-    const memberRef = doc(db, 'classMembers', memberId);
-
-    const existingMember =
-      typeof getDoc === 'function' ? await getDoc(memberRef).catch(() => null) : null;
-    if (existingMember?.exists()) {
-      batch.update(memberRef, {
-        nama: row.data.nama.trim(),
-        nim,
-        active: true,
-        updatedAt: serverTimestamp(),
-      });
-    } else {
-      // Hanya tulis field yang diizinkan firestore.rules pada match /classMembers/{memberId}
-      batch.set(memberRef, {
-        classId: labId,
-        uid,
-        nama: row.data.nama.trim(),
-        nim,
-        active: true,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+    members.push({ rowId: row.id, index: row.index, uid, nim, nama: row.data.nama.trim() });
+    if (res.activationEmailFailed) {
+      errors.push(`Baris ${row.index}: email aktivasi gagal dikirim. Pengguna dapat memakai Lupa password.`);
     }
-
-    successCount++;
   }
 
-  if (successCount > 0) {
-    await batch.commit();
+  // Satu akses profil per anggota, ditambah profil Aslab dan dokumen kelas.
+  for (let start = 0; start < members.length; start += 15) {
+    const chunk = members.slice(start, start + 15);
+    try {
+      await runTransaction(db, async (tx) => {
+        const refs = chunk.map(({ uid }) => doc(db, 'classMembers', `${labId}_${uid}`));
+        const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
+        chunk.forEach(({ uid, nim, nama }, index) => {
+          tx.set(refs[index], {
+            uid, nim, nama,
+            classId: labId,
+            active: true,
+            ...(snapshots[index].exists() ? {} : { createdAt: serverTimestamp() }),
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+        });
+      });
+    } catch {
+      errors.push(`Penyimpanan baris ${chunk.map(({ index }) => index).join(', ')} belum terkonfirmasi. Coba lagi.`);
+      break;
+    }
+    committedRowIds.push(...chunk.map(({ rowId }) => rowId));
   }
 
-  return { successCount, errors };
+  return { successCount: committedRowIds.length, errors, committedRowIds };
 }
 
 export async function commitBulkAsprak(
@@ -306,7 +369,7 @@ export async function commitBulkAsprak(
   courseId: string,
   acceptedRows: BulkRowItem<AsprakRowData>[],
   options?: { provisionUsers?: ProvisionUsersFn },
-): Promise<{ successCount: number; errors: string[] }> {
+): Promise<{ successCount: number; errors: string[]; committedRowIds: string[] }> {
   if (actor.role !== 'aslab') {
     throw new Error('Hanya Aslab yang berwenang mengeksekusi bulk asprak.');
   }
@@ -315,7 +378,7 @@ export async function commitBulkAsprak(
     (row) => row.status === 'accepted' && row.isValid,
   );
   if (validRows.length === 0) {
-    return { successCount: 0, errors: [] };
+    return { successCount: 0, errors: [], committedRowIds: [] };
   }
 
   const provisionFn = options?.provisionUsers ?? provisionBulkUsersViaBackend;
@@ -335,7 +398,7 @@ export async function commitBulkAsprak(
   const db = getFirebaseDb();
   const batch = writeBatch(db);
   const errors: string[] = [];
-  let successCount = 0;
+  const committedRowIds: string[] = [];
   const newAsprakUids: string[] = [];
 
   for (const row of validRows) {
@@ -367,10 +430,13 @@ export async function commitBulkAsprak(
     });
 
     newAsprakUids.push(uid);
-    successCount++;
+    committedRowIds.push(row.id);
+    if (res.activationEmailFailed) {
+      errors.push(`Baris ${row.index}: email aktivasi gagal dikirim. Pengguna dapat memakai Lupa password.`);
+    }
   }
 
-  if (successCount > 0) {
+  if (committedRowIds.length > 0) {
     const labRef = doc(db, 'laboratories', labId);
     batch.update(labRef, {
       asprakUids: arrayUnion(...newAsprakUids),
@@ -381,7 +447,7 @@ export async function commitBulkAsprak(
     await batch.commit();
   }
 
-  return { successCount, errors };
+  return { successCount: committedRowIds.length, errors, committedRowIds };
 }
 
 /**
@@ -423,38 +489,20 @@ export async function transferPraktikan(
   }
 
   const db = getFirebaseDb();
-  const batch = writeBatch(db);
-
-  // Deaktivasi keanggotaan lama hanya menyentuh ['active', 'updatedAt'] sesuai firestore.rules
   const oldRef = doc(db, 'classMembers', `${fromLabId}_${uid}`);
-  batch.update(oldRef, {
-    active: false,
-    updatedAt: serverTimestamp(),
-  });
-
   const newRef = doc(db, 'classMembers', `${toLabId}_${uid}`);
-  const existingDest =
-    typeof getDoc === 'function' ? await getDoc(newRef).catch(() => null) : null;
-  if (existingDest?.exists()) {
-    batch.update(newRef, {
+  await runTransaction(db, async (tx) => {
+    const existingDest = await tx.get(newRef);
+    tx.update(oldRef, { active: false, updatedAt: serverTimestamp() });
+    const fields = {
       nama: member.nama,
       nim: member.nim,
       active: true,
       updatedAt: serverTimestamp(),
-    });
-  } else {
-    batch.set(newRef, {
-      classId: toLabId,
-      uid,
-      nama: member.nama,
-      nim: member.nim,
-      active: true,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  }
-
-  await batch.commit();
+    };
+    if (existingDest.exists()) tx.update(newRef, fields);
+    else tx.set(newRef, { ...fields, classId: toLabId, uid, createdAt: serverTimestamp() });
+  });
 }
 
 /**
@@ -465,7 +513,7 @@ export async function transferAsprak(
   fromLabId: string,
   toLabId: string,
   asprak: { uid: string; nip: string; nama: string; email?: string; courseId?: string },
-  options?: { provisionUsers?: ProvisionUsersFn },
+  options?: { provisionUsers?: ProvisionUsersFn; targetCourseId?: string },
 ): Promise<void> {
   if (actor.role !== 'aslab') {
     throw new Error('Hanya Aslab yang berwenang memindahkan asprak.');
@@ -473,11 +521,13 @@ export async function transferAsprak(
   if (fromLabId === toLabId) {
     throw new Error('Laboratorium tujuan harus berbeda dengan laboratorium asal.');
   }
+  const targetCourseId = options?.targetCourseId ?? asprak.courseId;
+  if (!targetCourseId) throw new Error('Mata kuliah laboratorium tujuan tidak tersedia.');
 
   let uid = asprak.uid.trim();
   if (asprak.email && options?.provisionUsers) {
     const res = await options.provisionUsers({
-      courseId: asprak.courseId ?? actor.managedCourseIds?.[0] ?? 'praktikum-ppk',
+      courseId: targetCourseId,
       labId: toLabId,
       users: [
         {
@@ -510,7 +560,7 @@ export async function transferAsprak(
   batch.set(newAssignRef, {
     id: `${toLabId}_${uid}`,
     labId: toLabId,
-    courseId: asprak.courseId ?? '',
+    courseId: targetCourseId,
     uid,
     nip: asprak.nip,
     nama: asprak.nama,
@@ -599,6 +649,7 @@ export async function assignSingleAsprakToLab(
   if (actor.role !== 'aslab') {
     throw new Error('Hanya Aslab yang berwenang menugaskan Asprak ke lab.');
   }
+  if (!labId.trim() || !courseId.trim()) throw new Error('Pilih laboratorium dalam mata kuliah yang dikelola.');
   const db = getFirebaseDb();
   const batch = writeBatch(db);
   const assignmentId = `${labId}_${asprak.uid}`;

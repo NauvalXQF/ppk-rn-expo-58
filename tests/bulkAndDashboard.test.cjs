@@ -226,11 +226,17 @@ test('T-04 & T-05: parses bulk praktikan/asprak and enforces valid email & name'
 test('commitBulkLaboratorium, commitBulkPraktikan, commitBulkAsprak write only valid accepted rows', async () => {
   const operations = [];
   const mockDb = {};
+  let failBulkChunk = false;
+  let bulkChunkAttempts = 0;
+  let failMemberChunk = false;
+  let memberChunkAttempts = 0;
 
   const mockBatch = {
     set: (ref, data) => operations.push({ type: 'set', ref, data }),
     update: (ref, data) => operations.push({ type: 'update', ref, data }),
-    commit: async () => {},
+    commit: async () => {
+      if (failBulkChunk && ++bulkChunkAttempts === 2) throw new Error('temporary failure');
+    },
   };
 
   const labAssignmentService = loadSource('services/aslab/labAssignmentService', {
@@ -250,6 +256,10 @@ test('commitBulkLaboratorium, commitBulkPraktikan, commitBulkAsprak write only v
       },
       serverTimestamp: () => 'server-time',
       writeBatch: () => mockBatch,
+      runTransaction: async (_db, work) => {
+        if (failMemberChunk && ++memberChunkAttempts === 2) throw new Error('temporary failure');
+        return work({ get: async () => ({ exists: () => false }), set: mockBatch.set });
+      },
       arrayUnion: (...items) => items,
       arrayRemove: (...items) => items,
       query: () => ({}),
@@ -295,6 +305,16 @@ test('commitBulkLaboratorium, commitBulkPraktikan, commitBulkAsprak write only v
   assert.equal(operations[0].data.gracePeriodMinutes, 15);
   assert.equal(operations[0].data.lateFineAmount, 10000);
 
+  failBulkChunk = true;
+  const partialRows = Array.from({ length: 7 }, (_, index) => ({
+    ...labRows[0], id: 'lab-' + index, index: index + 1,
+  }));
+  const partial = await labAssignmentService.commitBulkLaboratorium(actorAslab, 'c1', 'PPK', partialRows);
+  assert.equal(partial.successCount, 6);
+  assert.deepEqual(partial.committedRowIds, partialRows.slice(0, 6).map(({ id }) => id));
+  assert.match(partial.errors[0], /baris 7 belum terkonfirmasi/);
+  failBulkChunk = false;
+
   // Commit valid praktikan
   operations.length = 0;
   const praktikanRows = [
@@ -333,14 +353,105 @@ test('commitBulkLaboratorium, commitBulkPraktikan, commitBulkAsprak write only v
     'uid',
     'updatedAt',
   ]);
+
+  failMemberChunk = true;
+  const memberRows = Array.from({ length: 16 }, (_, index) => ({
+    ...praktikanRows[0], id: 'user-' + index, index: index + 1,
+  }));
+  const partialMembers = await labAssignmentService.commitBulkPraktikan(actorAslab, 'lab-1', memberRows, {
+    courseId: 'c1',
+    provisionUsers: async ({ users }) => users.map(({ rowId }) => ({ rowId, outcome: 'existing', uid: rowId })),
+  });
+  assert.equal(partialMembers.successCount, 15);
+  assert.deepEqual(partialMembers.committedRowIds, memberRows.slice(0, 15).map(({ id }) => id));
+  assert.match(partialMembers.errors[0], /baris 16 belum terkonfirmasi/);
 });
 
 // ============================================================================
 // 7. Atomic Transfer of Praktikan & Asprak (T-06, T-07)
 // ============================================================================
+test('bulk provisioning requests reset only for accounts created and keeps failed email rows usable', async (t) => {
+  const sent = [];
+  const endpoint = process.env.EXPO_PUBLIC_API_BASE_URL;
+  const previousFetch = global.fetch;
+  process.env.EXPO_PUBLIC_API_BASE_URL = 'https://backend.example.test';
+  t.after(() => {
+    global.fetch = previousFetch;
+    if (endpoint === undefined) delete process.env.EXPO_PUBLIC_API_BASE_URL;
+    else process.env.EXPO_PUBLIC_API_BASE_URL = endpoint;
+  });
+
+  const service = loadSource('services/aslab/labAssignmentService', {
+    '@/config/firebase': { getFirebaseAuth: () => ({ currentUser: { getIdToken: async () => 'test-token' } }) },
+    '@/services/payments/paymentData': { resolvePaymentApiOrigin: (origin) => origin },
+    '@/services/authService': {
+      kirimResetPassword: async (email) => {
+        sent.push(email);
+        if (email.startsWith('delay')) throw new Error('temporary reset failure');
+      },
+    },
+  });
+  global.fetch = async (url) => {
+    assert.equal(url, 'https://backend.example.test/api/admin/provisioning/users');
+    return { ok: true, json: async () => ({ results: [
+      { rowId: '1', outcome: 'created', uid: 'new-one' },
+      { rowId: '2', outcome: 'existing', uid: 'existing-one' },
+      { rowId: '3', outcome: 'created', uid: 'new-two' },
+      { rowId: '4', outcome: 'conflict', code: 'IDENTITY_MISMATCH' },
+    ] }) };
+  };
+  const users = ['new', 'existing', 'delay', 'conflict'].map((name, index) => ({
+    rowId: String(index + 1), email: name + '@example.test',
+  }));
+  const results = await service.provisionBulkUsersViaBackend({ courseId: 'course', labId: 'lab', users });
+  assert.deepEqual(sent, ['new@example.test', 'delay@example.test']);
+  assert.deepEqual(results[2], { rowId: '3', outcome: 'created', uid: 'new-two', activationEmailFailed: true });
+  assert.deepEqual(results[3], { rowId: '4', outcome: 'conflict', code: 'IDENTITY_MISMATCH' });
+});
+
+test('provisioning includes JSON overhead and Unicode bytes and retains confirmed chunks after failure', async (t) => {
+  const previousFetch = global.fetch;
+  const previousOrigin = process.env.EXPO_PUBLIC_API_BASE_URL;
+  process.env.EXPO_PUBLIC_API_BASE_URL = 'https://ppk.example.test';
+  t.after(() => {
+    global.fetch = previousFetch;
+    if (previousOrigin === undefined) delete process.env.EXPO_PUBLIC_API_BASE_URL;
+    else process.env.EXPO_PUBLIC_API_BASE_URL = previousOrigin;
+  });
+
+  const reset = [];
+  const service = loadSource('services/aslab/labAssignmentService', {
+    '@/config/firebase': { getFirebaseAuth: () => ({ currentUser: { getIdToken: async () => 'fixture' } }) },
+    '@/services/payments/paymentData': { resolvePaymentApiOrigin: (base) => base },
+    '@/services/authService': { kirimResetPassword: async (email) => { reset.push(email); } },
+  });
+  const sent = [];
+  global.fetch = async (_url, { body }) => {
+    const { users } = JSON.parse(body);
+    assert.ok(Buffer.byteLength(body, 'utf8') < 14_000);
+    assert.ok(users.length <= 100);
+    sent.push(users);
+    if (sent.length === 2) throw new Error('fixture network interruption');
+    return { ok: true, json: async () => ({ results: users.map(({ rowId }) => ({
+      rowId, uid: rowId, outcome: 'created',
+    })) }) };
+  };
+  const users = Array.from({ length: 102 }, (_, index) => ({
+    rowId: 'row-' + index, role: 'praktikan', email: 'u' + index + '@example.test',
+    nim: String(1000 + index), nama: '学'.repeat(110),
+  }));
+  const outcomes = await service.provisionBulkUsersViaBackend({ courseId: 'mk', labId: 'lab', users });
+  assert.equal(sent.length, 2);
+  assert.equal(outcomes.length, users.length);
+  assert.ok(outcomes.slice(0, sent[0].length).every(({ outcome }) => outcome === 'created'));
+  assert.ok(outcomes.slice(sent[0].length).every(({ code }) => code === 'PROVISIONING_RETRY'));
+  assert.deepEqual(reset, sent[0].map(({ email }) => email));
+});
+
 test('T-06 & T-07: transfers praktikan and asprak atomically between labs without changing schedules', async () => {
   const operations = [];
   const mockDb = {};
+  let destinationExists = false;
 
   const mockBatch = {
     set: (ref, data) => operations.push({ type: 'set', ref, data }),
@@ -365,6 +476,9 @@ test('T-06 & T-07: transfers praktikan and asprak atomically between labs withou
       },
       serverTimestamp: () => 'server-time',
       writeBatch: () => mockBatch,
+      runTransaction: async (_db, work) => work({
+        ...mockBatch, get: async () => ({ exists: () => destinationExists }),
+      }),
       arrayUnion: (...items) => items,
       arrayRemove: (...items) => items,
       query: () => ({}),
@@ -402,15 +516,24 @@ test('T-06 & T-07: transfers praktikan and asprak atomically between labs withou
     'uid',
     'updatedAt',
   ]);
+  destinationExists = true;
+  operations.length = 0;
+  await labAssignmentService.transferPraktikan(actorAslab, 'lab-b', 'lab-a', { uid: 'u1', nim: '123', nama: 'Andi' });
+  assert.equal(operations[1].type, 'update');
+  assert.equal(operations[1].data.active, true);
+  assert.equal('createdAt' in operations[1].data, false);
 
   // Transfer Asprak Lab A -> Lab B
   operations.length = 0;
-  await labAssignmentService.transferAsprak(actorAslab, 'lab-a', 'lab-b', { uid: 'asprak-1', nip: '999', nama: 'Rina' });
+  await labAssignmentService.transferAsprak(actorAslab, 'lab-a', 'lab-b', {
+    uid: 'asprak-1', nip: '999', nama: 'Rina', courseId: 'source-course',
+  }, { targetCourseId: 'target-course' });
   assert.equal(operations.length, 4);
   assert.equal(operations[0].type, 'update'); // Deactivated old assignment
   assert.equal(operations[0].data.active, false);
   assert.equal(operations[1].type, 'set'); // Created new assignment
   assert.equal(operations[1].data.active, true);
+  assert.equal(operations[1].data.courseId, 'target-course');
   assert.equal(operations[2].type, 'update'); // Removed from lab A asprakUids
   assert.equal(operations[3].type, 'update'); // Added to lab B asprakUids
 });

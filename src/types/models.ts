@@ -179,17 +179,6 @@ export interface ApprovedLeaveRef {
   decidedAt?: string | null;
 }
 
-export interface LeaveRequestRef {
-  id: string;
-  uid: string;
-  sessionId: string;
-  classId: string;
-  status: 'pending' | 'approved' | 'rejected';
-  reason?: string;
-  decisionNote?: string | null;
-  decidedAt?: string | null;
-}
-
 export interface AppState {
   currentUser: Pengguna | null;
   pengguna: Pengguna[];
@@ -199,7 +188,7 @@ export interface AppState {
   presensi: Presensi[];
   jadwal?: Jadwal[];
   approvedLeaves?: ApprovedLeaveRef[];
-  leaveRequests?: LeaveRequestRef[];
+  leaveRequests?: LeaveRequest[];
 }
 
 export const LABEL_STATUS: Record<StatusSesi, string> = {
@@ -309,3 +298,4 @@ export interface DetailSesi {
   presensiSaya: Presensi | null;
   rekap: RekapSesi;
 }
+import type { LeaveRequest } from '@/features/permissions/types';

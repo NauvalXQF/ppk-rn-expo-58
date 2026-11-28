@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -38,16 +38,10 @@ export function PaymentCheckoutScreen({ uid, fineId }: { uid: string; fineId: st
     return subscribePayment(uid, orderId, setPayment, () => setError('Status transaksi belum dapat dimuat.'));
   }, [uid, orderId]);
 
-  useEffect(() => {
-    if (fine?.status === 'unpaid' && !autoStarted.current && !inFlight.current && !error) {
-      autoStarted.current = true;
-      void run('checkout');
-    }
-  });
-
-  async function run(action: 'checkout' | 'verify') {
+  const run = useCallback(async (action: 'checkout' | 'verify') => {
     if (inFlight.current) return;
     inFlight.current = true;
+    if (action === 'checkout') autoStarted.current = true;
     setError('');
     setBusy(true);
     try {
@@ -64,7 +58,13 @@ export function PaymentCheckoutScreen({ uid, fineId }: { uid: string; fineId: st
       inFlight.current = false;
       setBusy(false);
     }
-  }
+  }, [uid, fineId]);
+
+  useEffect(() => {
+    if (fine?.status === 'unpaid' && !needsReview && !autoStarted.current && !error) {
+      void run('checkout');
+    }
+  }, [fine?.status, needsReview, error, run]);
 
   const closeCheckout = () => { setCheckout(null); void run('verify'); };
   async function openCheckoutInBrowser() {

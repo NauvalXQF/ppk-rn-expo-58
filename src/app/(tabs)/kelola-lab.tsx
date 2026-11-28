@@ -119,12 +119,8 @@ export default function KelolaLabScreen() {
   const managedIds = pengguna?.managedCourseIds;
   const availableCourses = useMemo(() => {
     const base = remoteCourses.length > 0 ? remoteCourses : DEFAULT_COURSES;
-    if (managedIds && managedIds.length > 0) {
-      const allowed = new Set(managedIds);
-      const filtered = base.filter((c) => allowed.has(c.id));
-      if (filtered.length > 0) return filtered;
-    }
-    return base;
+    const allowed = new Set(managedIds ?? []);
+    return base.filter((course) => allowed.has(course.id));
   }, [remoteCourses, managedIds]);
   const [selectedLabId, setSelectedLabId] = useState<string>('');
   const [bulkModalType, setBulkModalType] = useState<BulkType | null>(null);
@@ -140,8 +136,15 @@ export default function KelolaLabScreen() {
 
   const selectedCourse =
     availableCourses.find((c) => c.id === selectedCourseId) ?? availableCourses[0];
+  if (!selectedCourse) {
+    return (
+      <ScreenContainer variant="gradient" hasTabBar={true}>
+        <InfoBanner message="Belum ada mata kuliah yang dapat Anda kelola." />
+      </ScreenContainer>
+    );
+  }
   const activeLabs = laboratories.filter(
-    (l: Laboratory) => l.aktif && (!l.courseId || l.courseId === selectedCourse.id),
+    (l: Laboratory) => l.aktif && l.courseId === selectedCourse.id,
   );
   const currentLab =
     activeLabs.find((l: Laboratory) => l.id === selectedLabId) ?? activeLabs[0];
@@ -393,7 +396,7 @@ export default function KelolaLabScreen() {
           actor={pengguna}
           laboratories={laboratories}
           initialLabId={editingLabId}
-          courseId={selectedCourse.id}
+          initialCourseId={selectedCourse.id}
           courseNama={selectedCourse.nama}
           writable={true}
           onClose={() => setSingleLabModalVisible(false)}

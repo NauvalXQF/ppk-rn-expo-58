@@ -61,7 +61,7 @@ function draftForLab(lab?: Laboratory): Draft {
 }
 
 export function LabManagementModal({
-  visible, actor, laboratories, location, writable, initialLabId, courseId, courseNama, onClose,
+  visible, actor, laboratories, location, writable, initialLabId, initialCourseId, courseNama, onClose,
 }: {
   visible: boolean;
   actor: ProfilPengguna;
@@ -69,7 +69,7 @@ export function LabManagementModal({
   location?: LaboratoryCoordinates;
   writable: boolean;
   initialLabId?: string | null;
-  courseId?: string;
+  initialCourseId?: string;
   courseNama?: string;
   onClose: () => void;
 }) {
@@ -80,6 +80,7 @@ export function LabManagementModal({
   });
   const [error, setError] = useState<string>();
   const [success, setSuccess] = useState<string>();
+  const [selectedCourseId, setSelectedCourseId] = useState(initialCourseId);
   const [busy, setBusy] = useState(false);
   const [locating, setLocating] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -141,6 +142,9 @@ export function LabManagementModal({
   if (!visible || actor.role !== 'aslab') return null;
   const draft = editor?.draft;
   const currentLab = laboratories.find((lab) => lab.id === editor?.id);
+  const managedCourses = actor.managedCourseIds ?? [];
+  const courseId = managedCourses.includes(selectedCourseId ?? '')
+    ? selectedCourseId : managedCourses.length === 1 ? managedCourses[0] : undefined;
   const latitude = decimal(draft?.latitude ?? '');
   const longitude = decimal(draft?.longitude ?? '');
   const radiusMeters = decimal(draft?.radiusMeters ?? '');
@@ -287,9 +291,19 @@ export function LabManagementModal({
           {validCoordinates(latitude, longitude) && validRadius(radiusMeters) ? (
             <LabPreview point={{ latitude, longitude }} radius={radiusMeters} />
           ) : null}
+          {!editor.id && managedCourses.length > 1 ? (
+            <View>
+              <Text style={styles.label}>Mata kuliah</Text>
+              {managedCourses.map((id) => (
+                <AppButton key={id} label={id} variant={id === courseId ? 'primary' : 'secondary'}
+                  size="sm" disabled={busy} onPress={() => setSelectedCourseId(id)} />
+              ))}
+            </View>
+          ) : null}
           <AppButton
             label="Simpan laboratorium"
-            disabled={busy || !writable || Boolean(editor.id && !currentLab)}
+            disabled={busy || !writable || Boolean(editor.id && !currentLab)
+              || (!editor.id && managedCourses.length > 1 && !courseId)}
             loading={busy && !confirmArchive}
             onPress={() => {
               const parsedGrace = decimal(draft.gracePeriodMinutes);
@@ -299,8 +313,10 @@ export function LabManagementModal({
                 radiusMeters, kapasitas: decimal(draft.kapasitas),
                 gracePeriodMinutes: Number.isFinite(parsedGrace) ? parsedGrace : DEFAULT_GRACE_PERIOD_MINUTES,
                 lateFineAmount: Number.isFinite(parsedFine) ? parsedFine : DEFAULT_LATE_FINE_AMOUNT,
-                courseId: currentLab?.courseId ?? courseId,
-                courseNama: currentLab?.courseNama ?? courseNama,
+                ...(!editor.id && courseId ? {
+                  courseId,
+                  ...(courseId === initialCourseId ? { courseNama } : {}),
+                } : {}),
               }, editor.id), 'Laboratorium berhasil disimpan.');
             }}
           />

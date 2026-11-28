@@ -63,7 +63,9 @@ const { submitAttendanceToFirestore } = loadSource(
   },
 );
 const { initialState } = loadSource('data/dummy');
-const { appReducer } = loadSource('store/app-context');
+const { appReducer } = loadSource('store/app-context', {
+  '@/services/firestorePermissionRepository': { getActivePermissionRepository: () => null },
+});
 
 const labAi = DEFAULT_LAB_LOCATIONS[0];
 

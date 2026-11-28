@@ -116,6 +116,11 @@ export function MemberTransferModal({
       setError('Laboratorium tujuan harus berbeda dengan laboratorium asal.');
       return;
     }
+    const targetLab = targetLabs.find((lab) => lab.id === toLabId);
+    if (!targetLab?.courseId || !actor.managedCourseIds?.includes(targetLab.courseId)) {
+      setError('Pilih laboratorium tujuan dalam mata kuliah yang dikelola.');
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
@@ -129,7 +134,7 @@ export function MemberTransferModal({
       } else {
         const targetAsprak = aspraks.find((a) => (a.uid || a.nip) === selectedMemberId);
         if (!targetAsprak) throw new Error('Asprak tidak ditemukan.');
-        await transferAsprak(actor, fromLabId, toLabId, targetAsprak);
+        await transferAsprak(actor, fromLabId, toLabId, targetAsprak, { targetCourseId: targetLab.courseId });
         onSuccess(`Asprak ${targetAsprak.nama} berhasil dipindahkan ke laboratorium baru.`);
       }
       onClose();

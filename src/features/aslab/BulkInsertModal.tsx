@@ -288,6 +288,8 @@ export function BulkInsertModal({
 
       if (type === 'laboratorium') {
         const result = await commitBulkLaboratorium(actor, courseId, courseNama, labRows);
+        const committed = new Set(result.committedRowIds);
+        if (result.errors.length) setLabRows((rows) => rows.filter((row) => !committed.has(row.id)));
         successCount = result.successCount;
         errors = result.errors;
         successMsg = `${successCount} laboratorium berhasil dibuat di bawah mata kuliah ${courseNama}.`;
@@ -296,22 +298,23 @@ export function BulkInsertModal({
         const result = await commitBulkPraktikan(actor, targetLabId, praktikanRows, {
           courseId,
         });
+        const committed = new Set(result.committedRowIds);
+        if (result.errors.length) setPraktikanRows((rows) => rows.filter((row) => !committed.has(row.id)));
         successCount = result.successCount;
         errors = result.errors;
         successMsg = `${successCount} praktikan berhasil didaftarkan ke laboratorium.`;
       } else {
         if (!targetLabId) throw new Error('Laboratorium tujuan belum dipilih.');
         const result = await commitBulkAsprak(actor, targetLabId, courseId, asprakRows);
+        const committed = new Set(result.committedRowIds);
+        if (result.errors.length) setAsprakRows((rows) => rows.filter((row) => !committed.has(row.id)));
         successCount = result.successCount;
         errors = result.errors;
         successMsg = `${successCount} asprak berhasil ditugaskan ke laboratorium.`;
       }
 
       if (errors.length > 0) {
-        const summary =
-          successCount > 0
-            ? `${successCount} baris berhasil disimpan, tetapi ${errors.length} baris gagal:\n• ${errors.join('\n• ')}`
-            : `Penyimpanan gagal (${errors.length} baris):\n• ${errors.join('\n• ')}`;
+        const summary = `${successCount} baris berhasil disimpan.\n• ${errors.join('\n• ')}`;
         setSaveError(summary);
         return;
       }

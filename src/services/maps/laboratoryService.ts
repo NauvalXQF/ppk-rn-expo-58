@@ -5,7 +5,6 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
-  setDoc,
   updateDoc,
   where,
   writeBatch,
@@ -80,7 +79,8 @@ export async function syncLaboratoryMetadataToSessions(
 
   if (activeDocs.length === 0) return 0;
 
-  const CHUNK_SIZE = 450;
+  // Setiap update sesi kini membaca scope kelas. Jaga batas akses dokumen pada batch.
+  const CHUNK_SIZE = 15;
   let updatedCount = 0;
   for (let i = 0; i < activeDocs.length; i += CHUNK_SIZE) {
     const chunk = activeDocs.slice(i, i + CHUNK_SIZE);
@@ -137,7 +137,9 @@ export async function saveLaboratory(
   };
   if (input.gracePeriodMinutes !== undefined) fields.gracePeriodMinutes = input.gracePeriodMinutes;
   if (input.lateFineAmount !== undefined) fields.lateFineAmount = input.lateFineAmount;
-  if (input.courseId) fields.courseId = input.courseId;
+  const courseId = input.courseId ??
+    (!laboratoryId && actor.managedCourseIds?.length === 1 ? actor.managedCourseIds[0] : undefined);
+  if (courseId) fields.courseId = courseId;
   if (input.courseNama) fields.courseNama = input.courseNama;
   if (actor.role === 'aslab') fields.updatedBy = actor.uid;
 
@@ -155,23 +157,28 @@ export async function saveLaboratory(
     });
     return;
   }
+  if (!courseId) {
+    throw new Error('Pilih mata kuliah melalui dashboard Aslab untuk membuat laboratorium.');
+  }
   const reference = doc(labs);
-  await setDoc(reference, {
+  const audit = { createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+  const batch = writeBatch(db);
+  batch.set(reference, {
     ...fields,
     id: reference.id,
     aktif: true,
     createdBy: actor.uid,
-    createdAt: serverTimestamp(),
+    ...audit,
   });
-  await setDoc(doc(db, 'classes', reference.id), {
+  batch.set(doc(db, 'classes', reference.id), {
     id: reference.id,
     nama: trimmedNama,
-    praktikumId: input.courseId || 'praktikum-ppk',
+    praktikumId: courseId,
     labId: reference.id,
     aktif: true,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    ...audit,
   });
+  await batch.commit();
 }
 
 export async function archiveLaboratory(actor: ProfilPengguna | null, laboratoryId: string) {

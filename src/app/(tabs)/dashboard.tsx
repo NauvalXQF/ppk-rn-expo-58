@@ -38,32 +38,29 @@ export default function AslabDashboardScreen() {
     return <Redirect href="/jadwal" />;
   }
 
-  const managedCourseIds =
-    pengguna.managedCourseIds && pengguna.managedCourseIds.length > 0
-      ? new Set(pengguna.managedCourseIds)
-      : null;
-
-  const scopedLaboratories = managedCourseIds
-    ? laboratories.filter((l) => !l.courseId || managedCourseIds.has(l.courseId))
-    : laboratories;
+  const managedCourseIds = new Set(pengguna.managedCourseIds ?? []);
+  const scopedClassIds = new Set(state.kelas
+    .filter((kelas) => managedCourseIds.has(kelas.praktikumId))
+    .map((kelas) => kelas.id));
+  const scopedLaboratories = laboratories.filter((lab) =>
+    lab.courseId ? managedCourseIds.has(lab.courseId) : scopedClassIds.has(lab.id),
+  );
   const scopedLabIds = new Set(scopedLaboratories.map((l) => l.id));
 
-  const scopedSessions = managedCourseIds
-    ? (state.sesi ?? []).filter((s) => scopedLabIds.has(s.labId || s.kelasId))
-    : (state.sesi ?? []);
-  const scopedSchedules = managedCourseIds
-    ? (state.jadwal ?? []).filter((j) => scopedLabIds.has(j.labId || j.kelasId))
-    : (state.jadwal ?? []);
-  const scopedFines = managedCourseIds
-    ? fines.filter((f) => scopedLabIds.has(f.labId))
-    : fines;
+  const scopedSessions = (state.sesi ?? []).filter((s) =>
+    scopedClassIds.has(s.kelasId) && (!s.labId || scopedLabIds.has(s.labId)),
+  );
+  const scopedSchedules = (state.jadwal ?? []).filter((j) =>
+    scopedClassIds.has(j.kelasId) && (!j.labId || scopedLabIds.has(j.labId)),
+  );
+  const scopedFines = fines.filter((f) => scopedLabIds.has(f.labId) || scopedClassIds.has(f.labId));
 
   const classMembers = (state.pengguna ?? [])
     .filter((u): u is Praktikan => u.peran === 'praktikan')
     .flatMap((p) => {
       const ids = p.kelasIds && p.kelasIds.length > 0 ? p.kelasIds : [p.kelasId];
       return ids
-        .filter((id) => !managedCourseIds || scopedLabIds.has(id))
+        .filter((id) => scopedClassIds.has(id))
         .map((classId) => ({ classId, active: true }));
     });
 

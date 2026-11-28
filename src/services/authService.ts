@@ -1,5 +1,6 @@
 import {
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
@@ -19,6 +20,10 @@ import { getFirebaseAuth, getFirebaseDb } from '@/config/firebase';
 import type { Pengguna } from '@/types/models';
 
 export type Role = 'praktikan' | 'asprak' | 'aslab' | 'asisten';
+
+export function kirimResetPassword(email: string): Promise<void> {
+  return sendPasswordResetEmail(getFirebaseAuth(), email.trim().toLowerCase());
+}
 
 export type ProfilPengguna = {
   uid: string;
@@ -65,6 +70,8 @@ export async function daftarPraktikan(input: {
 }): Promise<User> {
   const nama = input.nama.trim();
   if (nama.length < 2) throw new Error('Nama minimal 2 karakter.');
+  const nim = input.nim?.trim();
+  if (nim && !/^[A-Za-z0-9-]{2,32}$/.test(nim)) throw new Error('Format NIM tidak valid.');
   const auth = getFirebaseAuth();
   const credential = await createUserWithEmailAndPassword(
     auth,
@@ -74,7 +81,7 @@ export async function daftarPraktikan(input: {
 
   await updateProfile(credential.user, { displayName: nama });
 
-  await pastikanProfil(credential.user, nama, input.nim?.trim() || undefined);
+  await pastikanProfil(credential.user, nama, nim || undefined);
 
   return credential.user;
 }
@@ -116,20 +123,9 @@ export async function pastikanProfil(
     const snapshot = await tx.get(ref);
     if (snapshot.exists()) {
       const profil = normalisasiProfil(user.uid, snapshot.data(), user);
-      const updates: Record<string, unknown> = {};
       if (namaRegistrasi !== undefined && profil.role === 'praktikan' && profil.nama !== namaRegistrasi) {
-        updates.nama = namaRegistrasi;
-      }
-      if (nimRegistrasi && profil.role === 'praktikan' && !profil.nim) {
-        updates.nim = nimRegistrasi;
-      }
-      if (Object.keys(updates).length > 0) {
-        tx.update(ref, { ...updates, updatedAt: serverTimestamp() });
-        return {
-          ...profil,
-          ...(typeof updates.nama === 'string' ? { nama: updates.nama } : {}),
-          ...(typeof updates.nim === 'string' ? { nim: updates.nim } : {}),
-        };
+        tx.update(ref, { nama: namaRegistrasi, updatedAt: serverTimestamp() });
+        return { ...profil, nama: namaRegistrasi };
       }
       return profil;
     }
@@ -154,7 +150,7 @@ export async function pastikanProfil(
 
 export async function updateProfilSaya(
   uid: string,
-  input: { nama: string; nim?: string },
+  input: { nama: string },
 ): Promise<void> {
   const nama = input.nama.trim();
   if (nama.length < 2) {
@@ -166,9 +162,6 @@ export async function updateProfilSaya(
     nama,
     updatedAt: serverTimestamp(),
   };
-  if (input.nim !== undefined) {
-    payload.nim = input.nim.trim();
-  }
   await updateDoc(ref, payload);
 }
 

@@ -725,13 +725,16 @@ test('lab CRUD persists the master schema and waits for acknowledgements or erro
       collection: (_db, name) => name,
       doc: (ref, ...path) => ({ id: path.at(-1) ?? 'generated-id', collection: typeof ref === 'string' ? ref : path[0] }),
       serverTimestamp: () => 'server-time',
-      setDoc: write('create'),
+      writeBatch: () => ({
+        set: (ref, payload) => writes.push({ method: 'create', ref, payload }),
+        commit: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+      }),
       updateDoc: write('update'),
     },
     '@/config/firebase': { getFirebaseDb: () => ({}) },
     './laboratories': laboratories,
   });
-  const actor = { uid: 'assistant', role: 'aslab' };
+  const actor = { uid: 'assistant', role: 'aslab', managedCourseIds: ['course-a'] };
   const student = { uid: 'student', role: 'praktikan' };
   await assert.rejects(saveLaboratory(student, lab), /Hanya aslab/);
   await assert.rejects(archiveLaboratory(student, lab.id), /Hanya aslab/);
@@ -744,23 +747,15 @@ test('lab CRUD persists the master schema and waits for acknowledgements or erro
   assert.equal(confirmed, false);
   assert.deepEqual(writes[0], {
     method: 'create', ref: { collection: 'laboratories', id: 'generated-id' },
-    payload: { ...lab, id: 'generated-id', updatedAt: 'server-time', updatedBy: actor.uid, createdBy: actor.uid, createdAt: 'server-time' },
+    payload: { ...lab, courseId: 'course-a', id: 'generated-id', updatedBy: actor.uid,
+      updatedAt: 'server-time', createdBy: actor.uid, createdAt: 'server-time' },
   });
-  pending[0].resolve();
-  await flushAsyncWork();
   assert.deepEqual(writes[1], {
     method: 'create', ref: { collection: 'classes', id: 'generated-id' },
-    payload: {
-      id: 'generated-id',
-      nama: lab.nama,
-      praktikumId: 'praktikum-ppk',
-      labId: 'generated-id',
-      aktif: true,
-      createdAt: 'server-time',
-      updatedAt: 'server-time',
-    },
+    payload: { id: 'generated-id', nama: 'Lab A', praktikumId: 'course-a', labId: 'generated-id',
+      aktif: true, createdAt: 'server-time', updatedAt: 'server-time' },
   });
-  pending[1].resolve();
+  pending[0].resolve();
   await creating;
   assert.equal(confirmed, true);
 
@@ -773,7 +768,7 @@ test('lab CRUD persists the master schema and waits for acknowledgements or erro
       latitude: -7.06, longitude: 110.45, radiusMeters: 50, updatedAt: 'server-time', updatedBy: actor.uid,
     },
   });
-  pending[2].reject(Object.assign(new Error('offline'), { code: 'unavailable' }));
+  pending[1].reject(Object.assign(new Error('offline'), { code: 'unavailable' }));
   await assert.rejects(updating, { code: 'unavailable' });
 
   const archiving = archiveLaboratory(actor, lab.id);
@@ -781,7 +776,7 @@ test('lab CRUD persists the master schema and waits for acknowledgements or erro
     method: 'update', ref: { collection: 'laboratories', id: lab.id },
     payload: { aktif: false, updatedAt: 'server-time', updatedBy: actor.uid },
   });
-  pending[3].resolve();
+  pending[2].resolve();
   await archiving;
 });
 

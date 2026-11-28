@@ -95,6 +95,7 @@ export function PracticumCrudSection() {
   // State form Kelas
   const [editKelasId, setEditKelasId] = useState<string | undefined>();
   const [namaKelas, setNamaKelas] = useState('');
+  const [mataKuliahKelas, setMataKuliahKelas] = useState<string>();
 
   // State form Peserta
   const [editPesertaId, setEditPesertaId] = useState<string | undefined>();
@@ -150,6 +151,8 @@ export function PracticumCrudSection() {
 
   const isStaffUserActor = isStaffUser(state.currentUser);
   const canManageAll = canManageClassesAndMembers(state.currentUser);
+  const managedCourses = state.currentUser?.peran === 'aslab' ? state.currentUser.managedCourseIds ?? [] : [];
+  const needsCourseSelection = isRemote && !editKelasId && managedCourses.length > 1;
   const effectiveTab: CrudTab =
     !canManageAll && (activeTab === 'kelas' || activeTab === 'peserta')
       ? 'sesi'
@@ -207,12 +210,21 @@ export function PracticumCrudSection() {
     };
   }, [expanded, isRemote, isStaffUserActor]);
 
+  const labsForClass = (classId: string) => {
+    if (!isRemote) return laboratories;
+    const courseId = state.kelas.find((kelas) => kelas.id === classId)?.praktikumId;
+    const scoped = laboratories.filter((lab) => lab.courseId && lab.courseId === courseId);
+    const paired = scoped.find((lab) => lab.id === classId);
+    return paired ? [paired] : scoped;
+  };
+  const scheduleLabs = labsForClass(activeKelasJadwal);
+  const sessionLabs = labsForClass(activeKelasSesi);
   const effectiveLabIdJadwal = manualLabJadwal
     ? undefined
-    : (labIdJadwal ?? (!editJadwalId ? laboratories[0]?.id : undefined));
+    : (scheduleLabs.find((lab) => lab.id === labIdJadwal)?.id ?? (!editJadwalId ? scheduleLabs[0]?.id : undefined));
   const effectiveLabIdSesi = manualLabSesi
     ? undefined
-    : (labIdSesi ?? (!editSesiId ? laboratories[0]?.id : undefined));
+    : (sessionLabs.find((lab) => lab.id === labIdSesi)?.id ?? (!editSesiId ? sessionLabs[0]?.id : undefined));
 
   const pesertaList = selectPesertaPraktikum(state);
   const jadwalList = selectJadwalUntukPengguna(state);
@@ -299,6 +311,7 @@ export function PracticumCrudSection() {
   const resetKelasForm = () => {
     setEditKelasId(undefined);
     setNamaKelas('');
+    setMataKuliahKelas(undefined);
   };
 
   const resetPesertaForm = () => {
@@ -343,7 +356,7 @@ export function PracticumCrudSection() {
 
   const handleSaveKelas = async () => {
     try {
-      await simpanKelas({ id: editKelasId, nama: namaKelas });
+      await simpanKelas({ id: editKelasId, nama: namaKelas, praktikumId: mataKuliahKelas });
       showSuccess(
         editKelasId ? 'Data kelas diperbarui.' : 'Kelas baru ditambahkan.',
       );
@@ -455,13 +468,15 @@ export function PracticumCrudSection() {
   const renderKelasSelector = (
     selected: string,
     onSelect: (id: string) => void,
+    locked = false,
   ) => (
     <View style={styles.chipRow}>
-      {state.kelas.map((k) => {
+      {state.kelas.filter((k) => !locked || k.id === selected).map((k) => {
         const active = k.id === selected;
         return (
           <Pressable
             key={k.id}
+            disabled={locked}
             onPress={() => onSelect(k.id)}
             style={[styles.chip, active && styles.chipActive]}
           >
@@ -1012,7 +1027,7 @@ export function PracticumCrudSection() {
                 {viewMode === 'form' && effectiveTab === 'sesi' ? (
                   <View style={styles.section}>
                     <Text style={styles.fieldLabel}>Kelas Praktikum</Text>
-                    {renderKelasSelector(activeKelasSesi, setKelasSesi)}
+                    {renderKelasSelector(activeKelasSesi, setKelasSesi, Boolean(editSesiId))}
                     <FormField
                       label="Topik Sesi"
                       placeholder="Mis. Animasi & Gesture"
@@ -1100,7 +1115,7 @@ export function PracticumCrudSection() {
                 {viewMode === 'form' && effectiveTab === 'jadwal' ? (
                   <View style={styles.section}>
                     <Text style={styles.fieldLabel}>Kelas Praktikum</Text>
-                    {renderKelasSelector(activeKelasJadwal, setKelasJadwal)}
+                    {renderKelasSelector(activeKelasJadwal, setKelasJadwal, Boolean(editJadwalId))}
                     <FormField
                       label="Informasi / Topik Jadwal"
                       placeholder="Mis. Praktikum Reguler PPK"
@@ -1171,6 +1186,17 @@ export function PracticumCrudSection() {
                       value={namaKelas}
                       onChangeText={setNamaKelas}
                     />
+                    {needsCourseSelection ? (
+                      <View>
+                        <Text style={styles.fieldLabel}>Mata kuliah</Text>
+                        <View style={styles.chipRow}>
+                          {managedCourses.map((id) => (
+                            <FilterChip key={id} label={id} active={id === mataKuliahKelas}
+                              onPress={() => setMataKuliahKelas(id)} />
+                          ))}
+                        </View>
+                      </View>
+                    ) : null}
                     <View style={styles.formActions}>
                       <View style={styles.col}>
                         <AppButton
@@ -1185,6 +1211,7 @@ export function PracticumCrudSection() {
                       <View style={styles.col}>
                         <AppButton
                           label="Simpan Kelas"
+                          disabled={needsCourseSelection && !managedCourses.includes(mataKuliahKelas ?? '')}
                           onPress={handleSaveKelas}
                           loading={loading}
                         />
@@ -1400,7 +1427,7 @@ export function PracticumCrudSection() {
       </Modal>
       <LabPickerModal
         visible={labPickerTarget !== null}
-        laboratories={laboratories}
+        laboratories={labPickerTarget === 'jadwal' ? scheduleLabs : sessionLabs}
         selectedLabId={
           labPickerTarget === 'sesi'
             ? effectiveLabIdSesi
